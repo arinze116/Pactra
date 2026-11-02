@@ -1,0 +1,14 @@
+{
+  "daily_limit": 500.0,
+  "per_transaction_limit": 150.0,
+  "require_approval_above": 100.0,
+  "approved_categories": ["ops", "software", "cloud", "freelance"],
+  "blocked_vendors": [],
+  "budgets": {
+    "ops": 1000.0,
+    "software": 500.0,
+    "cloud": 800.0,
+    "freelance": 600.0
+  },
+  "currency": "USD"
+}
