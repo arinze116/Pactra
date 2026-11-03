@@ -6,7 +6,21 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field as PydanticField, field_validator
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    JSON,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 
@@ -16,6 +30,16 @@ TransactionStatus = Literal["approved", "blocked", "pending_approval"]
 def utc_now() -> datetime:
     """Return a timezone-aware UTC timestamp."""
     return datetime.now(timezone.utc)
+
+
+def new_id() -> str:
+    """Return a UUID string suitable for SQLite and PostgreSQL storage."""
+    return str(uuid4())
+
+
+JSON_VALUE = JSON().with_variant(JSONB(), "postgresql")
+SYSTEM_ISSUANCE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000001"
+SYSTEM_CLEARING_ACCOUNT_ID = "00000000-0000-4000-8000-000000000002"
 
 
 class Transaction(SQLModel, table=True):
@@ -137,3 +161,493 @@ class PolicyConfig(BaseModel):
     @classmethod
     def normalise_currency(cls, value: str) -> str:
         return value.upper()
+
+
+# Judge-ready persistence models. The legacy Transaction and PolicySnapshot
+# tables above remain temporarily so the existing demo API stays runnable while
+# services are migrated in verified slices.
+
+
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active','disabled')", name="users_status_valid"
+        ),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    email: str = Field(max_length=254, unique=True, index=True)
+    password_hash: str
+    status: str = Field(default="active", max_length=16)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class AuthSession(SQLModel, table=True):
+    __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_user_expiry", "user_id", "expires_at"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    token_hash: bytes = Field(
+        sa_column=Column(LargeBinary, nullable=False, unique=True)
+    )
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    last_seen_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    revoked_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
+class LedgerAccount(SQLModel, table=True):
+    __tablename__ = "ledger_accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "account_type IN ('user_wallet','sandbox_issuance','sandbox_clearing')",
+            name="ledger_accounts_type_valid",
+        ),
+        CheckConstraint("currency = 'USD'", name="ledger_accounts_currency_usd"),
+        CheckConstraint(
+            "(account_type = 'user_wallet' AND user_id IS NOT NULL) OR "
+            "(account_type IN ('sandbox_issuance','sandbox_clearing') AND user_id IS NULL)",
+            name="ledger_accounts_owner_valid",
+        ),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str | None = Field(
+        default=None,
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+        ),
+    )
+    code: str = Field(max_length=64, unique=True)
+    account_type: str = Field(max_length=24)
+    currency: str = Field(default="USD", max_length=3)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class Wallet(SQLModel, table=True):
+    __tablename__ = "wallets"
+    __table_args__ = (
+        CheckConstraint("currency = 'USD'", name="wallets_currency_usd"),
+        CheckConstraint(
+            "status IN ('active','locked')", name="wallets_status_valid"
+        ),
+        CheckConstraint(
+            "sandbox_generation > 0", name="wallets_generation_positive"
+        ),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            unique=True,
+        )
+    )
+    ledger_account_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+            nullable=False,
+            unique=True,
+        )
+    )
+    currency: str = Field(default="USD", max_length=3)
+    status: str = Field(default="active", max_length=16)
+    sandbox_generation: int = Field(default=1)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class PolicyVersion(SQLModel, table=True):
+    __tablename__ = "policies"
+    __table_args__ = (
+        UniqueConstraint("user_id", "version", name="uq_policies_user_version"),
+        CheckConstraint("version > 0", name="policies_version_positive"),
+        Index("ix_policies_user_version", "user_id", "version"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    version: int
+    policy_json: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON_VALUE, nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    created_by: str | None = Field(
+        default=None,
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ),
+    )
+
+
+class PaymentTransaction(SQLModel, table=True):
+    __tablename__ = "transactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "idempotency_key", name="uq_transactions_user_idempotency"
+        ),
+        CheckConstraint(
+            "type IN ('vendor_payment','payout','sandbox_transfer')",
+            name="transactions_type_valid",
+        ),
+        CheckConstraint("amount_cents > 0", name="transactions_amount_positive"),
+        CheckConstraint("currency = 'USD'", name="transactions_currency_usd"),
+        CheckConstraint(
+            "status IN ('draft','pending_approval','executing','completed','blocked',"
+            "'rejected','failed','cancelled','reversed')",
+            name="transactions_status_valid",
+        ),
+        CheckConstraint(
+            "sandbox_generation > 0", name="transactions_generation_positive"
+        ),
+        CheckConstraint(
+            "rail IN ('internal_sandbox','paypal_sandbox_payouts')",
+            name="transactions_rail_valid",
+        ),
+        Index("ix_transactions_user_created", "user_id", "created_at"),
+        Index("ix_transactions_user_status", "user_id", "status"),
+        Index("ix_transactions_user_category", "user_id", "category"),
+        Index("ix_transactions_provider_batch", "provider_batch_id"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    idempotency_key: str = Field(max_length=128)
+    type: str = Field(max_length=24)
+    vendor: str = Field(max_length=100)
+    recipient: str | None = Field(default=None, max_length=254)
+    amount_cents: int = Field(sa_column=Column(BigInteger, nullable=False))
+    currency: str = Field(default="USD", max_length=3)
+    category: str = Field(max_length=32)
+    reason: str = Field(sa_column=Column(String(500), nullable=False))
+    status: str = Field(max_length=24, index=True)
+    sandbox_generation: int
+    policy_version: int
+    policy_result: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON_VALUE, nullable=False),
+    )
+    rail: str = Field(max_length=32)
+    rail_reference: str | None = Field(default=None, max_length=128)
+    provider_batch_id: str | None = Field(
+        default=None, max_length=128, unique=True
+    )
+    provider_item_id: str | None = Field(default=None, max_length=128)
+    provider_status: str | None = Field(default=None, max_length=32)
+    failure_code: str | None = Field(default=None, max_length=64)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    completed_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
+class LedgerJournal(SQLModel, table=True):
+    __tablename__ = "ledger_journals"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "idempotency_key", name="uq_journals_user_idempotency"
+        ),
+        CheckConstraint("status = 'posted'", name="journals_status_posted"),
+        Index("ix_journals_user_created", "user_id", "created_at"),
+        Index("ix_journals_transaction", "transaction_id"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    transaction_id: str | None = Field(
+        default=None,
+        sa_column=Column(
+            String(36),
+            ForeignKey("transactions.id", ondelete="RESTRICT"),
+            nullable=True,
+        ),
+    )
+    journal_type: str = Field(max_length=32)
+    idempotency_key: str = Field(max_length=128)
+    status: str = Field(default="posted", max_length=16)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class LedgerEntry(SQLModel, table=True):
+    __tablename__ = "ledger_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('debit','credit')", name="ledger_entries_direction_valid"
+        ),
+        CheckConstraint("amount_cents > 0", name="ledger_entries_amount_positive"),
+        CheckConstraint("currency = 'USD'", name="ledger_entries_currency_usd"),
+        Index("ix_ledger_account_created", "account_id", "created_at"),
+        Index("ix_ledger_journal", "journal_id"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    journal_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("ledger_journals.id", ondelete="RESTRICT"),
+            nullable=False,
+        )
+    )
+    account_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+            nullable=False,
+        )
+    )
+    direction: str = Field(max_length=8)
+    amount_cents: int = Field(sa_column=Column(BigInteger, nullable=False))
+    currency: str = Field(default="USD", max_length=3)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class FundReservation(SQLModel, table=True):
+    __tablename__ = "fund_reservations"
+    __table_args__ = (
+        CheckConstraint("amount_cents > 0", name="reservations_amount_positive"),
+        CheckConstraint(
+            "status IN ('active','captured','released')",
+            name="reservations_status_valid",
+        ),
+        Index("ix_reservations_user_status", "user_id", "status"),
+        Index(
+            "uq_active_reservation_transaction",
+            "transaction_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    wallet_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False
+        )
+    )
+    transaction_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("transactions.id", ondelete="RESTRICT"),
+            nullable=False,
+        )
+    )
+    amount_cents: int = Field(sa_column=Column(BigInteger, nullable=False))
+    status: str = Field(max_length=16)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    released_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
+class TransactionAttempt(SQLModel, table=True):
+    __tablename__ = "transaction_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "transaction_id", "attempt_number", name="uq_attempts_transaction_number"
+        ),
+        UniqueConstraint("rail_request_id", name="uq_attempts_rail_request"),
+        CheckConstraint("attempt_number > 0", name="attempts_number_positive"),
+        Index("ix_attempts_provider_batch", "provider_batch_id"),
+        Index("ix_attempts_status_started", "status", "started_at"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    transaction_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("transactions.id", ondelete="RESTRICT"),
+            nullable=False,
+        )
+    )
+    attempt_number: int
+    rail: str = Field(max_length=32)
+    rail_request_id: str = Field(max_length=128)
+    provider_batch_id: str | None = Field(default=None, max_length=128)
+    provider_item_id: str | None = Field(default=None, max_length=128)
+    provider_status: str | None = Field(default=None, max_length=32)
+    status: str = Field(max_length=24)
+    response_code: str | None = Field(default=None, max_length=64)
+    started_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    finished_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
+class ApprovalAction(SQLModel, table=True):
+    __tablename__ = "approval_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "idempotency_key", name="uq_approvals_user_idempotency"
+        ),
+        CheckConstraint(
+            "action IN ('approved','rejected')", name="approvals_action_valid"
+        ),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    transaction_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("transactions.id", ondelete="RESTRICT"),
+            nullable=False,
+        )
+    )
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    idempotency_key: str = Field(max_length=128)
+    action: str = Field(max_length=16)
+    reason: str | None = Field(default=None, max_length=300)
+    policy_version: int
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class AuditEvent(SQLModel, table=True):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_user_created", "user_id", "created_at"),
+        Index("ix_audit_entity", "entity_type", "entity_id"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    actor_type: str = Field(max_length=16)
+    actor_id: str | None = Field(default=None, max_length=36)
+    entity_type: str = Field(max_length=32)
+    entity_id: str = Field(max_length=36)
+    event_type: str = Field(max_length=64)
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON_VALUE, nullable=False),
+    )
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class Conversation(SQLModel, table=True):
+    __tablename__ = "conversations"
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    user_id: str = Field(
+        sa_column=Column(
+            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class ConversationMessage(SQLModel, table=True):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('user','assistant','tool')", name="messages_role_valid"
+        ),
+        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    conversation_id: str = Field(
+        sa_column=Column(
+            String(36),
+            ForeignKey("conversations.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    role: str = Field(max_length=16)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    tool_calls: list[dict[str, Any]] | None = Field(
+        default=None,
+        sa_column=Column(JSON_VALUE, nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
