@@ -52,8 +52,8 @@ Local runtime note: the existing `.venv` uses Python 3.13.14, while deployment a
 - [x] User-owned auth/wallet records and owner-scoped queries; unsafe global legacy payment routes are authenticated and fail closed until replacement
 - [x] Append-only double-entry schema, service postings and PostgreSQL balance/immutability triggers
 - [ ] Immutable ledger enforcement and compensating corrections
-- [~] Atomic reservations and available balance verified; policy/current-generation spend integration pending
-- [~] Ledger/top-up idempotency with same-key replay and conflict detection; transaction idempotency pending
+- [x] Atomic reservations, available balance and current-generation committed/reserved spend
+- [x] Money-action idempotency with same-key replay and payload/action conflict detection
 
 ### Authentication and security
 
@@ -63,46 +63,46 @@ Local runtime note: the existing `.venv` uses Python 3.13.14, while deployment a
 - [x] CSRF plus same-origin mutation checks
 - [~] Strict CORS, baseline security headers and production PayPal/cookie guards; final CSP/HTTPS hardening pending
 - [~] Auth and top-up rate limits; remaining action limits pending
-- [~] Cross-user wallet/ledger tests pass; owner-only transaction approvals pending
+- [x] Cross-user wallet, ledger, transaction, conversation and approval isolation tests
 
 ### Wallet and policy
 
 - [x] Atomic account bootstrap with 1,000 USD sandbox issuance
 - [x] Idempotent preset top-ups and owner-scoped wallet ledger history
 - [x] Available/reserved/posted balance API
-- [ ] Per-user policy versions, validation, reset and audit
-- [ ] Deterministic policy order and stable PRD reason codes
-- [ ] Policy evaluation and reservation in one transaction
+- [x] Per-user policy versions, validation, reset and audit
+- [x] Deterministic policy order and stable PRD reason codes
+- [x] Policy evaluation and reservation in one transaction
 
 ### Transaction lifecycle
 
-- [ ] Unified manual/AI transaction application service
-- [ ] Internal sandbox rail
-- [ ] Full state machine: draft, pending, executing, completed, blocked, rejected, failed, cancelled, reversed
-- [ ] Atomic approve/reject and current-policy re-evaluation
-- [ ] Safe retry and internal-sandbox reversal
-- [ ] Transaction attempts, audit events, receipts and lifecycle timeline
-- [ ] Owner-scoped filtering, cursor pagination and current/all-generation history
+- [x] Unified manual/AI transaction application service
+- [x] Internal sandbox rail
+- [x] Full state machine: draft, pending, executing, completed, blocked, rejected, failed, cancelled, reversed
+- [x] Atomic approve/reject and current-policy re-evaluation
+- [x] Safe retry and internal-sandbox compensating reversal
+- [x] Transaction attempts, audit events, receipts and lifecycle timeline API
+- [~] Owner-scoped filtering, cursor pagination and current/all-generation history; date-range filters pending
 
 ### PayPal Sandbox Payouts
 
-- [~] OAuth and basic batch creation exist
-- [ ] Sandbox-host startup guard and explicit integration status
-- [ ] Stable transaction/attempt sender batch and request IDs
-- [ ] Batch plus payout-item reconciliation
-- [ ] Hold retention for processing/unknown provider outcomes
-- [ ] Ledger capture only after item `SUCCESS`
-- [ ] Terminal failure release and returned/reversed/refunded compensation
-- [ ] DB-backed reconciliation worker and manual refresh endpoint
+- [x] Sandbox OAuth and one-item Payouts batch creation adapter
+- [x] Sandbox-host startup guard and explicit integration status
+- [x] Stable transaction/attempt sender batch and request IDs
+- [x] Batch plus payout-item reconciliation
+- [x] Hold retention for processing/unknown provider outcomes
+- [x] Ledger capture only after item `SUCCESS`
+- [x] Terminal failure release and returned/reversed/refunded compensation
+- [x] DB-backed reconciliation worker and manual refresh endpoint
 - [B] Live sandbox smoke test requires owner-provided sandbox credentials and recipient email
 
 ### AI assistant
 
-- [ ] Migrate to `google-genai==2.23.0` and `gemini-3.8-flash`
-- [ ] Persist conversations server-side
-- [ ] Strict allowlisted tools using authenticated transaction services
-- [ ] Deterministic parser fallback and clarification behavior
-- [ ] AI rate/turn/input/output limits and prompt-injection boundaries
+- [x] Migrate active assistant path to `google-genai==2.23.0` and `gemini-3.8-flash`
+- [x] Persist conversations server-side
+- [x] Strict allowlisted tools using authenticated transaction services
+- [x] Deterministic parser fallback and clarification behavior
+- [x] AI rate/turn/input/output limits and prompt-injection boundaries
 - [B] Live Gemini verification requires deployment `GEMINI_API_KEY`
 
 ### Frontend and judge experience
@@ -122,7 +122,7 @@ Local runtime note: the existing `.venv` uses Python 3.13.14, while deployment a
 - [ ] Playwright P0 journeys and provider-timeout scenario
 - [ ] CI with PostgreSQL migration/test job
 - [ ] Managed PostgreSQL Render blueprint and migration release step
-- [ ] `/api/health` and `/api/ready`
+- [x] `/api/health` and `/api/ready`
 - [ ] README, environment, seed/reset and judge walkthrough documentation
 - [B] Public deployment smoke requires hosting access and managed PostgreSQL
 - [B] Submission-ready PayPal path requires real sandbox smoke evidence
@@ -199,3 +199,4 @@ Checkpoints follow the PRD: database/auth/ledger before payment features; comple
 - 2026-11-03: Phase 0 repository/PRD audit complete. Baseline backend tests, frontend lint and frontend build pass. No tracked user changes were present.
 - 2026-11-03: T-02 schema slice complete. Dependencies pinned, PostgreSQL/SQLite settings added, Alembic initial migration creates all PRD tables/system accounts, PostgreSQL SQL generation succeeds, and 12 backend tests pass including clean migration verification.
 - 2026-11-03: CP-1 auth/ledger slice complete. Added Argon2id registration/login/password change, opaque revocable sessions, same-origin CSRF, atomic account bootstrap, wallet summary/top-up/ledger APIs, ownership checks, balanced postings and reservation concurrency coverage. Unsafe global legacy payment routes now fail closed behind authentication until the unified service replaces them. Full backend suite: 21 passed. Clean local `alembic upgrade head`: passed.
+- 2026-11-03: Backend lifecycle checkpoint complete. Added versioned per-user policies, deterministic ordered evaluation, unified manual/assistant transaction application, internal execution, approvals/rejections, safe retry/reversal, receipts/history/spend summary, immutable sandbox reset, PayPal Sandbox Payouts submission plus payout-item reconciliation, and persisted Gemini/fallback conversations. Provider timeout, item-success, terminal-failure and returned-payment tests retain/capture/release/compensate correctly. Full backend suite: 45 passed. Live Gemini and PayPal smoke remain credential-blocked.

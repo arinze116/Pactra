@@ -166,7 +166,7 @@ def require_auth_context(
 ) -> AuthContext:
     raw_token = request.cookies.get(SESSION_COOKIE)
     if not raw_token:
-        raise ApiError(401, "AUTH_REQUIRED", "Sign in to continue")
+        raise ApiError(401, "UNAUTHENTICATED", "Sign in to continue")
 
     auth_session = session.exec(
         select(AuthSession).where(
@@ -176,7 +176,7 @@ def require_auth_context(
     ).one_or_none()
     now = utc_now()
     if auth_session is None:
-        raise ApiError(401, "AUTH_REQUIRED", "Sign in to continue")
+        raise ApiError(401, "UNAUTHENTICATED", "Sign in to continue")
     if _as_utc(auth_session.expires_at) <= now or (
         _as_utc(auth_session.last_seen_at) + timedelta(hours=settings.session_idle_hours)
         <= now
@@ -184,11 +184,11 @@ def require_auth_context(
         auth_session.revoked_at = now
         session.add(auth_session)
         session.commit()
-        raise ApiError(401, "SESSION_EXPIRED", "Your session has expired")
+        raise ApiError(401, "UNAUTHENTICATED", "Your session has expired. Sign in to continue.")
 
     user = session.get(User, auth_session.user_id)
     if user is None or user.status != "active":
-        raise ApiError(401, "AUTH_REQUIRED", "Sign in to continue")
+        raise ApiError(401, "UNAUTHENTICATED", "Sign in to continue")
 
     # Touch active sessions at most once every five minutes to limit writes.
     if _as_utc(auth_session.last_seen_at) + timedelta(minutes=5) <= now:

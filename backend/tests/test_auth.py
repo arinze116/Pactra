@@ -120,7 +120,7 @@ def test_csrf_logout_and_expired_sessions_are_enforced(api) -> None:
     missing_csrf = client.post(
         "/api/wallet/topups",
         headers=ORIGIN_HEADERS,
-        json={"amount_cents": 10_000, "idempotency_key": "topup-no-csrf"},
+        json={"amount_cents": 10_000, "idempotency_key": "topup-no-csrf-01"},
     )
     assert missing_csrf.status_code == 403
     assert missing_csrf.json()["error"]["code"] == "CSRF_INVALID"
@@ -132,7 +132,7 @@ def test_csrf_logout_and_expired_sessions_are_enforced(api) -> None:
         session.commit()
     expired = client.get("/api/auth/me")
     assert expired.status_code == 401
-    assert expired.json()["error"]["code"] == "SESSION_EXPIRED"
+    assert expired.json()["error"]["code"] == "UNAUTHENTICATED"
 
 
 def test_topup_is_idempotent_and_owner_scoped(api) -> None:
@@ -142,7 +142,7 @@ def test_topup_is_idempotent_and_owner_scoped(api) -> None:
     try:
         assert register(client_b, "b@example.com").status_code == 201
 
-        request_body = {"amount_cents": 10_000, "idempotency_key": "topup-a-0001"}
+        request_body = {"amount_cents": 10_000, "idempotency_key": "topup-account-a-0001"}
         first = client_a.post(
             "/api/wallet/topups", headers=csrf_headers(client_a), json=request_body
         )
@@ -157,7 +157,7 @@ def test_topup_is_idempotent_and_owner_scoped(api) -> None:
         conflict = client_a.post(
             "/api/wallet/topups",
             headers=csrf_headers(client_a),
-            json={"amount_cents": 50_000, "idempotency_key": "topup-a-0001"},
+            json={"amount_cents": 50_000, "idempotency_key": "topup-account-a-0001"},
         )
         assert conflict.status_code == 409
 

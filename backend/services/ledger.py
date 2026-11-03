@@ -459,6 +459,31 @@ def capture_reservation(
     return journal
 
 
+def reverse_capture(
+    session: Session,
+    *,
+    user_id: str,
+    transaction: PaymentTransaction,
+    idempotency_key: str,
+) -> LedgerJournal:
+    """Post an immutable compensating journal for an internal payment."""
+    if transaction.user_id != user_id:
+        raise LedgerError("Transaction does not belong to this user")
+    ensure_system_accounts(session)
+    wallet = get_wallet_for_user(session, user_id, for_update=True)
+    journal = post_journal(
+        session,
+        user_id=user_id,
+        transaction_id=transaction.id,
+        journal_type="payment_reversal",
+        idempotency_key=idempotency_key,
+        amount_cents=transaction.amount_cents,
+        debit_account_id=SYSTEM_CLEARING_ACCOUNT_ID,
+        credit_account_id=wallet.ledger_account_id,
+    )
+    return journal
+
+
 def _encode_cursor(created_at: datetime, journal_id: str) -> str:
     payload = json.dumps(
         {"created_at": created_at.isoformat(), "journal_id": journal_id},
