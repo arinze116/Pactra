@@ -1,8 +1,9 @@
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, CheckCircle2, ShieldCheck } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { ShieldCheck } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
+import { AssistantWorkspace } from "../components/AssistantWorkspace";
 import { ErrorNotice, PageHeader, Panel } from "../components/UI";
 import type { PayPalStatus, PaymentRail, PolicyEnvelope, TransactionType } from "../types";
 
@@ -143,7 +144,7 @@ export function NewPaymentPage() {
           <fieldset>
             <legend className="text-sm font-medium">Request type</legend>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button className={`h-10 rounded-lg border text-xs font-medium ${type === value ? "border-ink-950 bg-ink-950 text-white" : "border-line bg-white text-ink-600"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
+              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button className={`h-10 rounded-lg border text-xs font-medium transition-colors ${type === value ? "border-pactra-600 bg-pactra-100 text-pactra-700" : "border-line bg-surface text-ink-600 hover:bg-surface-raised"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
             </div>
           </fieldset>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -157,7 +158,7 @@ export function NewPaymentPage() {
           </div>
           <Field label="Business reason"><textarea className="input min-h-28 resize-y py-3" maxLength={500} onChange={(event) => setReason(event.target.value)} required value={reason} /></Field>
           {confirming ? <div className="rounded-xl border border-warning/30 bg-warning-soft p-4"><p className="text-sm font-medium text-warning-dark">Confirm request for {vendor || "this recipient"}</p><p className="mt-1 text-xs leading-5 text-ink-600">${Number(amount).toFixed(2)} will be submitted to the policy engine. Requests above the approval threshold reserve funds and wait for review.</p></div> : null}
-          <button className="h-11 rounded-lg bg-ink-950 px-5 text-sm font-medium text-white disabled:opacity-50" disabled={submitting} type="submit">{submitting ? "Applying policy" : confirming ? "Confirm and create request" : needsConfirmation ? "Review request" : "Create payment request"}</button>
+          <button className="action-primary h-11" disabled={submitting} type="submit">{submitting ? "Applying policy" : confirming ? "Confirm and create request" : needsConfirmation ? "Review request" : "Create payment request"}</button>
         </form>
       </Panel>
       <aside className="space-y-4">
@@ -172,62 +173,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="block text-sm font-medium text-ink-800">{label}<div className="mt-2">{children}</div></label>;
 }
 
-interface UiMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  actions?: number;
-  transactionId?: string;
-}
-
 export function AssistantPage() {
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<UiMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending]);
-
-  async function send() {
-    const value = input.trim();
-    if (!value || sending) return;
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: value }]);
-    setInput("");
-    setSending(true);
-    setError("");
-    try {
-      const response = await api.chat(value, conversationId);
-      setConversationId(response.conversation_id);
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", content: response.reply, actions: response.tool_calls.length, transactionId: response.transactions_created[0] }]);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Assistant unavailable");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void send();
-    }
-  }
-
-  return <>
-    <PageHeader title="Payment assistant" description="Natural-language requests use the same policy and ledger service as the manual form" />
-    {error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}
-    <Panel className="mx-auto flex min-h-[620px] max-w-4xl flex-col overflow-hidden">
-      <div className="flex items-center justify-between border-b border-line px-5 py-4"><div className="flex items-center gap-2 text-sm font-medium"><Bot className="h-4 w-4" />Pactra assistant</div><span className="text-xs text-ink-500">Server-side policy enforced</span></div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {messages.length ? <div className="divide-y divide-line">{messages.map((message) => <article className="px-5 py-5 sm:px-6" key={message.id}><div className="flex items-center justify-between"><p className="text-xs font-medium text-ink-500">{message.role === "user" ? "You" : "Pactra"}</p>{message.actions ? <span className="flex items-center gap-1 text-xs text-positive-dark"><CheckCircle2 className="h-3.5 w-3.5" />{message.actions} validated action{message.actions === 1 ? "" : "s"}</span> : null}</div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-800">{message.content}</p>{message.transactionId ? <Link className="mt-3 inline-flex text-xs font-medium text-ink-950 underline decoration-line underline-offset-4" to={`/app/transactions/${message.transactionId}`}>Open transaction receipt</Link> : null}</article>)}</div> : <div className="grid min-h-[390px] place-items-center p-6 text-center"><div><Bot className="mx-auto h-6 w-6 text-ink-400" /><p className="mt-4 text-sm font-medium">Describe a sandbox payment</p><p className="mt-2 max-w-md text-sm leading-6 text-ink-500">Try “Pay Linear $49 for our monthly software subscription” or ask for your wallet balance.</p><Link className="mt-4 inline-flex text-sm font-medium text-ink-950 underline decoration-line underline-offset-4" to="/app/payments/new">Use the payment form</Link></div></div>}
-        {sending ? <div className="border-t border-line px-5 py-4 text-xs text-ink-500">Checking the request against your policy</div> : null}
-        <div ref={endRef} />
-      </div>
-      <div className="border-t border-line bg-canvas/50 p-4"><div className="rounded-xl border border-line bg-white p-2 focus-within:border-pactra-600"><textarea className="min-h-24 w-full resize-none bg-transparent px-2 py-2 text-sm outline-none" disabled={sending} maxLength={8000} onChange={(event) => setInput(event.target.value)} onKeyDown={keyDown} placeholder="Enter a payment or wallet request" value={input} /><div className="flex items-center justify-between px-2 pb-1"><span className="text-xs text-ink-400">Shift + Enter for a new line</span><button aria-label="Send message" className="grid h-9 w-9 place-items-center rounded-lg bg-ink-950 text-white disabled:opacity-40" disabled={!input.trim() || sending} onClick={() => void send()} type="button"><ArrowUp className="h-4 w-4" /></button></div></div></div>
-    </Panel>
-  </>;
+  return <AssistantWorkspace />;
 }

@@ -23,6 +23,10 @@ class PolicyError(RuntimeError):
     """Raised when a user policy is missing or invalid."""
 
 
+class PolicyUnchanged(PolicyError):
+    """The submitted policy is identical to the current version."""
+
+
 @dataclass(frozen=True)
 class PolicyDecision:
     decision: str
@@ -83,8 +87,11 @@ def save_policy(
     user_id: str,
     policy_json: dict[str, Any],
     event_type: str = "policy.updated",
+    allow_unchanged: bool = False,
 ) -> PolicyVersion:
     current = get_current_policy(session, user_id, for_update=True)
+    if current.policy_json == policy_json and not allow_unchanged:
+        raise PolicyUnchanged("Change at least one policy field before saving")
     policy = PolicyVersion(
         user_id=user_id,
         version=current.version + 1,
@@ -117,6 +124,18 @@ def reset_policy(session: Session, *, user_id: str) -> PolicyVersion:
         user_id=user_id,
         policy_json=default_policy(),
         event_type="policy.reset",
+        allow_unchanged=True,
+    )
+
+
+def list_policy_versions(session: Session, *, user_id: str) -> list[PolicyVersion]:
+    return list(
+        session.exec(
+            select(PolicyVersion)
+            .where(PolicyVersion.user_id == user_id)
+            .order_by(PolicyVersion.version.desc())
+            .limit(100)
+        ).all()
     )
 
 

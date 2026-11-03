@@ -207,3 +207,82 @@ def test_password_change_revokes_other_sessions_and_logout_revokes_current(api) 
     finally:
         client_b.close()
 
+
+def test_conversation_history_persists_and_is_owner_scoped(api) -> None:
+    client, _engine = api
+    assert register(client, "conversation-owner@example.com").status_code == 201
+
+    created = client.post(
+        "/api/conversations",
+        headers=csrf_headers(client),
+        json={"title": "Quarterly vendors"},
+    )
+    assert created.status_code == 201
+    conversation_id = created.json()["id"]
+
+    request = {
+        "conversation_id": conversation_id,
+        "message": "Please take care of the invoice",
+        "request_id": "conversation-api-request-0001",
+    }
+    first = client.post("/api/chat", headers=csrf_headers(client), json=request)
+    replay = client.post("/api/chat", headers=csrf_headers(client), json=request)
+    assert first.status_code == replay.status_code == 200
+    assert first.json() == replay.json()
+
+    messages = client.get(f"/api/conversations/{conversation_id}/messages")
+    assert messages.status_code == 200
+    assert [item["role"] for item in messages.json()["items"]] == [
+        "user",
+        "assistant",
+    ]
+    assert messages.json()["items"][0]["content"] == request["message"]
+
+    renamed = client.patch(
+        f"/api/conversations/{conversation_id}",
+        headers=csrf_headers(client),
+        json={"title": "Approved vendors"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "Approved vendors"
+    assert renamed.json()["message_count"] == 2
+
+    other = TestClient(app, base_url="http://testserver")
+    try:
+        assert register(other, "conversation-other@example.com").status_code == 201
+        assert other.get(f"/api/conversations/{conversation_id}/messages").status_code == 404
+        denied = other.patch(
+            f"/api/conversations/{conversation_id}",
+            headers=csrf_headers(other),
+            json={"title": "Stolen"},
+        )
+        assert denied.status_code == 404
+    finally:
+        other.close()
+
+    archived = client.patch(
+        f"/api/conversations/{conversation_id}",
+        headers=csrf_headers(client),
+        json={"archived": True},
+    )
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+    assert client.get("/api/conversations").json()["items"] == []
+    assert len(client.get("/api/conversations?include_archived=true").json()["items"]) == 1
+
+    blocked_reply = client.post(
+        "/api/chat",
+        headers=csrf_headers(client),
+        json={**request, "request_id": "conversation-api-request-0002"},
+    )
+    assert blocked_reply.status_code == 409
+    assert blocked_reply.json()["error"]["code"] == "CONVERSATION_ARCHIVED"
+
+    restored = client.patch(
+        f"/api/conversations/{conversation_id}",
+        headers=csrf_headers(client),
+        json={"archived": False},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["archived_at"] is None
+

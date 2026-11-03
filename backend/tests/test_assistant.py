@@ -53,6 +53,7 @@ async def test_fallback_creates_governed_transaction_and_persists_messages(
         user=user,
         message="Pay Linear $49 for our monthly software subscription",
         conversation_id=None,
+        request_id="assistant-test-payment-0001",
     )
     assert len(result.transaction_ids) == 1
     transaction = session.get(PaymentTransaction, result.transaction_ids[0])
@@ -67,6 +68,7 @@ async def test_fallback_creates_governed_transaction_and_persists_messages(
     )
     assert [message.role for message in messages] == ["user", "assistant"]
     assert messages[1].tool_calls[0]["name"] == "create_payment_request"
+    assert "completed after backend policy and ledger confirmation" in result.reply
 
 
 @pytest.mark.asyncio
@@ -77,6 +79,7 @@ async def test_ambiguous_fallback_does_not_create_transaction(assistant_db) -> N
         user=user,
         message="Please take care of the invoice",
         conversation_id=None,
+        request_id="assistant-test-ambiguous-0001",
     )
     assert result.transaction_ids == []
     assert "couldn't identify" in result.reply
@@ -91,6 +94,7 @@ async def test_conversation_is_owner_scoped(assistant_db) -> None:
         user=user,
         message="What is my current balance?",
         conversation_id=None,
+        request_id="assistant-test-owner-0001",
     )
     with pytest.raises(ConversationNotFound):
         list_messages(
@@ -109,7 +113,65 @@ async def test_paypal_fallback_does_not_silently_switch_rails(assistant_db) -> N
             "contract work"
         ),
         conversation_id=None,
+        request_id="assistant-test-paypal-0001",
     )
     assert result.transaction_ids == []
     assert "PayPal Sandbox is not configured" in result.reply
     assert session.exec(select(PaymentTransaction)).all() == []
+
+
+@pytest.mark.asyncio
+async def test_request_id_replay_does_not_duplicate_messages_or_payment(
+    assistant_db,
+) -> None:
+    session, user, _other = assistant_db
+    request_id = "assistant-test-replay-0001"
+    first = await run_assistant(
+        session,
+        user=user,
+        message="Pay Linear $49 for our monthly software subscription",
+        conversation_id=None,
+        request_id=request_id,
+    )
+    replay = await run_assistant(
+        session,
+        user=user,
+        message="This changed text must not create another payment",
+        conversation_id=first.conversation_id,
+        request_id=request_id,
+    )
+
+    assert replay == first
+    messages = list_messages(
+        session, user_id=user.id, conversation_id=first.conversation_id
+    )
+    assert [message.role for message in messages] == ["user", "assistant"]
+    assert len(session.exec(select(PaymentTransaction)).all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_request_ids_are_isolated_between_users(assistant_db) -> None:
+    session, user, other = assistant_db
+    request_id = "assistant-cross-user-request-0001"
+    first = await run_assistant(
+        session,
+        user=user,
+        message="Please take care of the first invoice",
+        conversation_id=None,
+        request_id=request_id,
+    )
+    second = await run_assistant(
+        session,
+        user=other,
+        message="Please take care of the second invoice",
+        conversation_id=None,
+        request_id=request_id,
+    )
+
+    assert first.conversation_id != second.conversation_id
+    assert "first invoice" in list_messages(
+        session, user_id=user.id, conversation_id=first.conversation_id
+    )[0].content
+    assert "second invoice" in list_messages(
+        session, user_id=other.id, conversation_id=second.conversation_id
+    )[0].content

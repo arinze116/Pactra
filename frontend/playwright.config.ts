@@ -4,6 +4,7 @@ const frontendPort = process.env.E2E_FRONTEND_PORT ?? "5173";
 const apiPort = process.env.E2E_API_PORT ?? "8000";
 const pythonCommand = process.env.E2E_PYTHON ?? "python";
 const baseURL = `http://127.0.0.1:${frontendPort}`;
+const reuseExistingServer = process.env.E2E_REUSE_SERVER === "true";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -25,15 +26,15 @@ export default defineConfig({
         FRONTEND_URL: baseURL,
       },
       url: `http://127.0.0.1:${apiPort}/api/ready`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer,
       timeout: 120_000,
     },
     {
       command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
       cwd: ".",
-      env: { VITE_API_URL: `http://localhost:${apiPort}` },
+      env: { VITE_API_URL: `http://127.0.0.1:${apiPort}` },
       url: baseURL,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer,
       timeout: 120_000,
     },
   ],

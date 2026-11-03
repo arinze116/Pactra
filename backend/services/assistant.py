@@ -1,5 +1,6 @@
 """Persisted Gemini assistant with allowlisted tools and deterministic fallback."""
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from backend.config import settings
@@ -107,12 +109,23 @@ class ConversationNotFound(RuntimeError):
     """Conversation does not exist for the authenticated user."""
 
 
+class ConversationArchived(RuntimeError):
+    """Archived conversations must be restored before adding messages."""
+
+
 @dataclass(frozen=True)
 class AssistantResult:
     conversation_id: str
     reply: str
     tool_calls: list[dict[str, Any]]
     transaction_ids: list[str]
+
+
+@dataclass(frozen=True)
+class ConversationSummary:
+    conversation: Conversation
+    message_count: int
+    preview: str | None
 
 
 def get_conversation(
@@ -129,6 +142,77 @@ def get_conversation(
     return conversation
 
 
+def create_conversation(
+    session: Session, *, user_id: str, title: str | None = None
+) -> Conversation:
+    conversation = Conversation(
+        user_id=user_id,
+        title=title or "New conversation",
+    )
+    session.add(conversation)
+    session.flush()
+    return conversation
+
+
+def list_conversations(
+    session: Session, *, user_id: str, include_archived: bool = False
+) -> list[ConversationSummary]:
+    statement = select(Conversation).where(Conversation.user_id == user_id)
+    if not include_archived:
+        statement = statement.where(Conversation.archived_at.is_(None))
+    conversations = session.exec(
+        statement.order_by(Conversation.updated_at.desc()).limit(100)
+    ).all()
+    summaries: list[ConversationSummary] = []
+    for conversation in conversations:
+        message_count = int(
+            session.exec(
+                select(func.count(ConversationMessage.id)).where(
+                    ConversationMessage.conversation_id == conversation.id
+                )
+            ).one()
+        )
+        latest = session.exec(
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.conversation_id == conversation.id,
+                ConversationMessage.role.in_(["user", "assistant"]),
+            )
+            .order_by(ConversationMessage.created_at.desc())
+            .limit(1)
+        ).one_or_none()
+        preview = None if latest is None else " ".join(latest.content.split())[:140]
+        summaries.append(
+            ConversationSummary(
+                conversation=conversation,
+                message_count=message_count,
+                preview=preview,
+            )
+        )
+    return summaries
+
+
+def update_conversation(
+    session: Session,
+    *,
+    user_id: str,
+    conversation_id: str,
+    title: str | None = None,
+    archived: bool | None = None,
+) -> Conversation:
+    conversation = get_conversation(
+        session, user_id=user_id, conversation_id=conversation_id
+    )
+    if title is not None:
+        conversation.title = title
+    if archived is not None:
+        conversation.archived_at = utc_now() if archived else None
+    conversation.updated_at = utc_now()
+    session.add(conversation)
+    session.flush()
+    return conversation
+
+
 def list_messages(
     session: Session, *, user_id: str, conversation_id: str
 ) -> list[ConversationMessage]:
@@ -142,6 +226,47 @@ def list_messages(
             .order_by(ConversationMessage.created_at.asc())
         ).all()
     )
+
+
+def _title_from_message(message: str) -> str:
+    title = " ".join(message.split())
+    return title if len(title) <= 72 else f"{title[:69].rstrip()}..."
+
+
+def _transaction_ids(tool_calls: list[dict[str, Any]] | None) -> list[str]:
+    ids: list[str] = []
+    for call in tool_calls or []:
+        result = call.get("result")
+        if isinstance(result, dict) and isinstance(result.get("id"), str):
+            ids.append(result["id"])
+    return ids
+
+
+def _existing_request(
+    session: Session, *, user_id: str, request_id: str
+) -> tuple[Conversation, ConversationMessage, ConversationMessage | None] | None:
+    user_message = session.exec(
+        select(ConversationMessage)
+        .join(Conversation, Conversation.id == ConversationMessage.conversation_id)
+        .where(
+            Conversation.user_id == user_id,
+            ConversationMessage.request_id == request_id,
+            ConversationMessage.role == "user",
+        )
+    ).one_or_none()
+    if user_message is None:
+        return None
+    conversation = get_conversation(
+        session, user_id=user_id, conversation_id=user_message.conversation_id
+    )
+    assistant_message = session.exec(
+        select(ConversationMessage).where(
+            ConversationMessage.conversation_id == conversation.id,
+            ConversationMessage.request_id == request_id,
+            ConversationMessage.role == "assistant",
+        )
+    ).one_or_none()
+    return conversation, user_message, assistant_message
 
 
 def _category_for(text: str, allowed: list[str]) -> str:
@@ -234,18 +359,59 @@ def _safe_transaction(transaction: PaymentTransaction) -> dict[str, Any]:
     }
 
 
+def _payment_reply(transaction: dict[str, Any]) -> str:
+    vendor = str(transaction["vendor"])
+    status = str(transaction["status"])
+    if status == "completed":
+        return f"Payment to {vendor} completed after backend policy and ledger confirmation."
+    if status == "pending_approval":
+        return (
+            f"Payment request for {vendor} is awaiting approval. "
+            "Sandbox funds are reserved, but no payment has completed."
+        )
+    if status == "blocked":
+        return (
+            f"Policy blocked the payment request for {vendor}. "
+            "No sandbox funds were debited."
+        )
+    if status == "executing":
+        return (
+            f"The payment request for {vendor} is processing with the provider. "
+            "It is not complete until payout-item reconciliation confirms success."
+        )
+    if status == "failed":
+        return f"The payment request for {vendor} failed. No completion was recorded."
+    return f"Payment request for {vendor} was recorded with status {status.replace('_', ' ')}."
+
+
+def _authoritative_tool_reply(tool_log: list[dict[str, Any]]) -> str | None:
+    for call in reversed(tool_log):
+        if call.get("name") != "create_payment_request":
+            continue
+        result = call.get("result")
+        if not isinstance(result, dict):
+            return "The payment action returned an invalid result and was not confirmed."
+        if isinstance(result.get("error"), str):
+            return f"The payment action could not be completed: {result['error']}"
+        if "vendor" in result and "status" in result:
+            return _payment_reply(result)
+        return "The payment action was not confirmed by the backend."
+    return None
+
+
 def _create_from_args(
     session: Session,
     *,
     user: User,
     args: dict[str, Any],
     message: str,
-    message_id: str,
+    request_id: str,
 ) -> tuple[dict[str, Any], str | None]:
     proposed = dict(args)
     if proposed.get("rail") == "paypal_sandbox_payouts" and "paypal sandbox" not in message.casefold():
         proposed["rail"] = "internal_sandbox"
-    proposed["idempotency_key"] = f"ai-{message_id.replace('-', '')}"
+    request_digest = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+    proposed["idempotency_key"] = f"ai-{request_digest}"
     request = PaymentRequest.model_validate(proposed)
     if request.type == "payout" and request.recipient is None:
         raise ValueError("A recipient email is required for payouts")
@@ -268,7 +434,7 @@ def _execute_tool(
     name: str,
     args: dict[str, Any],
     message: str,
-    message_id: str,
+    request_id: str,
 ) -> tuple[dict[str, Any], str | None]:
     if name == "create_payment_request":
         return _create_from_args(
@@ -276,7 +442,7 @@ def _execute_tool(
             user=user,
             args=args,
             message=message,
-            message_id=message_id,
+            request_id=request_id,
         )
     if name == "get_wallet_summary":
         wallet = get_wallet_for_user(session, user.id)
@@ -314,6 +480,7 @@ async def _run_gemini(
     conversation: Conversation,
     user_message: ConversationMessage,
     message: str,
+    request_id: str,
 ) -> tuple[str, list[dict[str, Any]], list[str]]:
     history = session.exec(
         select(ConversationMessage)
@@ -367,7 +534,7 @@ async def _run_gemini(
                         name=name,
                         args=args,
                         message=message,
-                        message_id=user_message.id,
+                        request_id=request_id,
                     )
                 except (ValidationError, ValueError, IntegrationUnavailable, TransactionIdempotencyConflict) as exc:
                     session.rollback()
@@ -405,23 +572,41 @@ async def run_assistant(
     user: User,
     message: str,
     conversation_id: str | None,
+    request_id: str,
 ) -> AssistantResult:
-    if conversation_id:
-        conversation = get_conversation(
-            session, user_id=user.id, conversation_id=conversation_id
-        )
+    replay = _existing_request(session, user_id=user.id, request_id=request_id)
+    if replay is not None:
+        conversation, user_message, assistant_message = replay
+        if conversation_id is not None and conversation.id != conversation_id:
+            raise ConversationNotFound("Conversation not found")
+        if assistant_message is not None:
+            return AssistantResult(
+                conversation_id=conversation.id,
+                reply=assistant_message.content,
+                tool_calls=assistant_message.tool_calls or [],
+                transaction_ids=_transaction_ids(assistant_message.tool_calls),
+            )
+        message = user_message.content
     else:
-        conversation = Conversation(user_id=user.id)
-        session.add(conversation)
-        session.flush()
-    user_message = ConversationMessage(
-        conversation_id=conversation.id,
-        role="user",
-        content=message,
-    )
-    conversation.updated_at = utc_now()
-    session.add_all([conversation, user_message])
-    session.commit()
+        if conversation_id:
+            conversation = get_conversation(
+                session, user_id=user.id, conversation_id=conversation_id
+            )
+        else:
+            conversation = create_conversation(session, user_id=user.id)
+        if conversation.archived_at is not None:
+            raise ConversationArchived("Restore this conversation before replying")
+        user_message = ConversationMessage(
+            conversation_id=conversation.id,
+            role="user",
+            request_id=request_id,
+            content=message,
+        )
+        if conversation.title == "New conversation":
+            conversation.title = _title_from_message(message)
+        conversation.updated_at = utc_now()
+        session.add_all([conversation, user_message])
+        session.commit()
 
     tool_log: list[dict[str, Any]] = []
     transaction_ids: list[str] = []
@@ -434,7 +619,9 @@ async def run_assistant(
                 conversation=conversation,
                 user_message=user_message,
                 message=message,
+                request_id=request_id,
             )
+            reply = _authoritative_tool_reply(tool_log) or reply
         except Exception:
             session.rollback()
             reply = ""
@@ -456,7 +643,7 @@ async def run_assistant(
                     user=user,
                     args=parsed,
                     message=message,
-                    message_id=user_message.id,
+                    request_id=request_id,
                 )
                 tool_log.append(
                     {
@@ -467,10 +654,7 @@ async def run_assistant(
                 )
                 if transaction_id:
                     transaction_ids.append(transaction_id)
-                reply = (
-                    f"Payment request created for {result['vendor']}. "
-                    f"Status: {str(result['status']).replace('_', ' ')}."
-                )
+                reply = _payment_reply(result)
             except (ValidationError, ValueError, IntegrationUnavailable, TransactionIdempotencyConflict) as exc:
                 session.rollback()
                 reply = str(exc)
@@ -478,6 +662,7 @@ async def run_assistant(
     assistant_message = ConversationMessage(
         conversation_id=conversation.id,
         role="assistant",
+        request_id=request_id,
         content=reply,
         tool_calls=tool_log or None,
     )

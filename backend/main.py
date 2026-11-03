@@ -42,8 +42,12 @@ from .schemas import (
     AssistantResponse,
     AuthResponse,
     ChangePasswordRequest,
+    ConversationCreateRequest,
+    ConversationListResponse,
     ConversationMessageResponse,
     ConversationMessagesResponse,
+    ConversationSummaryResponse,
+    ConversationUpdateRequest,
     LedgerItemResponse,
     LedgerPageResponse,
     LoginRequest,
@@ -51,6 +55,8 @@ from .schemas import (
     PaymentResponse,
     PolicyInput,
     PolicyResponse,
+    PolicyVersionListResponse,
+    PolicyVersionSummary,
     RegistrationRequest,
     RegistrationResponse,
     RejectionRequest,
@@ -68,9 +74,13 @@ from .schemas import (
 )
 from .services.accounts import EmailAlreadyExists, create_account
 from .services.assistant import (
+    ConversationArchived,
     ConversationNotFound,
+    create_conversation,
+    list_conversations,
     list_messages,
     run_assistant,
+    update_conversation,
 )
 from .services.audit import record_audit_event
 from .services.ledger import (
@@ -84,7 +94,9 @@ from .services.ledger import (
 )
 from .services.policies import (
     PolicyError,
+    PolicyUnchanged,
     get_current_policy,
+    list_policy_versions,
     reset_policy,
     save_policy,
     spend_summary as build_spend_summary,
@@ -175,7 +187,7 @@ async def lifespan(app: FastAPI):
         session.exec(text("SELECT 1 FROM users LIMIT 1")).all()
     app.state.paypal_client = PayPalClient()
     worker: asyncio.Task[None] | None = None
-    if settings.paypal_payouts_enabled:
+    if settings.paypal_payouts_enabled and not settings.paypal_mock_mode:
         worker = asyncio.create_task(_paypal_reconciliation_worker(app))
     logger.info("Pactra sandbox API started")
     try:
@@ -202,7 +214,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token", "X-Request-ID"],
 )
 
@@ -584,9 +596,12 @@ async def chat(
             user=context.user,
             message=payload.message,
             conversation_id=payload.conversation_id,
+            request_id=payload.request_id,
         )
     except ConversationNotFound as exc:
         raise ApiError(404, "NOT_FOUND", "Conversation not found") from exc
+    except ConversationArchived as exc:
+        raise ApiError(409, "CONVERSATION_ARCHIVED", str(exc)) from exc
 
     client = getattr(request.app.state, "paypal_client", None)
     for transaction_id in result.transaction_ids:
@@ -611,6 +626,104 @@ async def chat(
         reply=result.reply,
         tool_calls=result.tool_calls,
         transactions_created=result.transaction_ids,
+    )
+
+
+def _conversation_summary(summary) -> ConversationSummaryResponse:
+    conversation = summary.conversation
+    return ConversationSummaryResponse(
+        id=conversation.id,
+        title=conversation.title,
+        message_count=summary.message_count,
+        preview=summary.preview,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        archived_at=conversation.archived_at,
+    )
+
+
+@app.get("/api/conversations", response_model=ConversationListResponse)
+def get_conversations(
+    context: AuthDependency,
+    db_session: SessionDependency,
+    include_archived: bool = False,
+) -> ConversationListResponse:
+    items = list_conversations(
+        db_session,
+        user_id=context.user.id,
+        include_archived=include_archived,
+    )
+    return ConversationListResponse(items=[_conversation_summary(item) for item in items])
+
+
+@app.post(
+    "/api/conversations",
+    response_model=ConversationSummaryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def start_conversation(
+    payload: ConversationCreateRequest,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> ConversationSummaryResponse:
+    conversation = create_conversation(
+        db_session,
+        user_id=context.user.id,
+        title=payload.title,
+    )
+    db_session.commit()
+    return ConversationSummaryResponse(
+        id=conversation.id,
+        title=conversation.title,
+        message_count=0,
+        preview=None,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        archived_at=conversation.archived_at,
+    )
+
+
+@app.patch(
+    "/api/conversations/{conversation_id}",
+    response_model=ConversationSummaryResponse,
+)
+def change_conversation(
+    conversation_id: str,
+    payload: ConversationUpdateRequest,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> ConversationSummaryResponse:
+    try:
+        conversation = update_conversation(
+            db_session,
+            user_id=context.user.id,
+            conversation_id=conversation_id,
+            title=payload.title,
+            archived=payload.archived,
+        )
+        db_session.commit()
+    except ConversationNotFound as exc:
+        db_session.rollback()
+        raise ApiError(404, "NOT_FOUND", "Conversation not found") from exc
+    messages = list_messages(
+        db_session,
+        user_id=context.user.id,
+        conversation_id=conversation.id,
+    )
+    visible_messages = [message for message in messages if message.role != "tool"]
+    preview = (
+        " ".join(visible_messages[-1].content.split())[:140]
+        if visible_messages
+        else None
+    )
+    return ConversationSummaryResponse(
+        id=conversation.id,
+        title=conversation.title,
+        message_count=len(messages),
+        preview=preview,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        archived_at=conversation.archived_at,
     )
 
 
@@ -656,6 +769,24 @@ def get_policy(
     return PolicyResponse(id=policy.id, version=policy.version, policy=policy.policy_json)
 
 
+@app.get("/api/policies", response_model=PolicyVersionListResponse)
+def get_policy_history(
+    context: AuthDependency, db_session: SessionDependency
+) -> PolicyVersionListResponse:
+    items = list_policy_versions(db_session, user_id=context.user.id)
+    return PolicyVersionListResponse(
+        items=[
+            PolicyVersionSummary(
+                id=item.id,
+                version=item.version,
+                policy=item.policy_json,
+                created_at=item.created_at,
+            )
+            for item in items
+        ]
+    )
+
+
 @app.put("/api/policy", response_model=PolicyResponse)
 def update_policy(
     payload: PolicyInput,
@@ -677,6 +808,9 @@ def update_policy(
     except ValueError as exc:
         db_session.rollback()
         raise ApiError(400, "POLICY_INVALID", str(exc)) from exc
+    except PolicyUnchanged as exc:
+        db_session.rollback()
+        raise ApiError(409, "POLICY_UNCHANGED", str(exc)) from exc
     except PolicyError as exc:
         db_session.rollback()
         raise ApiError(400, "POLICY_INVALID", str(exc)) from exc

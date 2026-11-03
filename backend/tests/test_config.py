@@ -36,6 +36,17 @@ def test_enabled_paypal_requires_complete_sandbox_configuration() -> None:
     assert configured.paypal_base_url == "https://api-m.sandbox.paypal.com"
 
 
+def test_local_mock_mode_keeps_api_available_without_provider_credentials() -> None:
+    configured = Settings(
+        _env_file=None,
+        app_env="development",
+        paypal_payouts_enabled=True,
+        paypal_mock_mode=True,
+    )
+    assert configured.paypal_payouts_enabled is True
+    assert configured.paypal_mock_mode is True
+
+
 def test_enabled_ai_requires_server_key() -> None:
     with pytest.raises(ValidationError, match="GEMINI_API_KEY"):
         production_settings(ai_enabled=True)

@@ -607,6 +607,9 @@ class AuditEvent(SQLModel, table=True):
 
 class Conversation(SQLModel, table=True):
     __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_user_updated", "user_id", "updated_at"),
+    )
 
     id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
     user_id: str = Field(
@@ -614,6 +617,7 @@ class Conversation(SQLModel, table=True):
             String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
+    title: str = Field(default="New conversation", max_length=120)
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -621,6 +625,10 @@ class Conversation(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    archived_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
     )
 
 
@@ -631,6 +639,13 @@ class ConversationMessage(SQLModel, table=True):
             "role IN ('user','assistant','tool')", name="messages_role_valid"
         ),
         Index("ix_messages_conversation_created", "conversation_id", "created_at"),
+        Index(
+            "uq_messages_request_role",
+            "conversation_id",
+            "request_id",
+            "role",
+            unique=True,
+        ),
     )
 
     id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
@@ -642,6 +657,7 @@ class ConversationMessage(SQLModel, table=True):
         )
     )
     role: str = Field(max_length=16)
+    request_id: str | None = Field(default=None, max_length=128)
     content: str = Field(sa_column=Column(Text, nullable=False))
     tool_calls: list[dict[str, Any]] | None = Field(
         default=None,

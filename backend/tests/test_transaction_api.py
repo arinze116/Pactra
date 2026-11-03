@@ -188,6 +188,37 @@ def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
     assert history[0]["id"] == transaction["id"]
 
 
+def test_policy_validation_unchanged_save_and_version_history(api: TestClient) -> None:
+    empty = api.put("/api/policy", headers=mutation_headers(api), json={})
+    assert empty.status_code == 400
+    assert empty.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    current = api.get("/api/policy").json()
+    invalid = {**current["policy"], "allowed_categories": []}
+    invalid["category_budgets_cents"] = {}
+    rejected = api.put("/api/policy", headers=mutation_headers(api), json=invalid)
+    assert rejected.status_code == 400
+    assert rejected.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    unchanged = api.put(
+        "/api/policy", headers=mutation_headers(api), json=current["policy"]
+    )
+    assert unchanged.status_code == 409
+    assert unchanged.json()["error"]["code"] == "POLICY_UNCHANGED"
+
+    changed_policy = {**current["policy"], "approval_threshold_cents": 7_500}
+    saved = api.put(
+        "/api/policy", headers=mutation_headers(api), json=changed_policy
+    )
+    assert saved.status_code == 200
+    assert saved.json()["version"] == 2
+    assert api.get("/api/policy").json() == saved.json()
+
+    history = api.get("/api/policies")
+    assert history.status_code == 200
+    assert [item["version"] for item in history.json()["items"]] == [2, 1]
+
+
 def test_transaction_history_date_filters_and_range_validation(api: TestClient) -> None:
     created = api.post(
         "/api/transactions",

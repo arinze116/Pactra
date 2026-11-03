@@ -30,6 +30,12 @@ export interface Policy {
   currency: "USD";
 }
 export interface PolicyEnvelope { id: string; version: number; policy: Policy }
+export interface PolicyVersion {
+  id: string;
+  version: number;
+  policy: Policy;
+  created_at: string;
+}
 export interface Transaction {
   id: string;
   type: TransactionType;
@@ -112,6 +118,15 @@ export interface ConversationMessage {
   content: string;
   tool_calls: Array<Record<string, unknown>> | null;
   created_at: string;
+}
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  message_count: number;
+  preview: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
 }
 export interface PayPalStatus {
   configured: boolean;

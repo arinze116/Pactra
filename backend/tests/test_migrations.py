@@ -54,6 +54,16 @@ def test_initial_migration_builds_clean_sqlite_database(tmp_path: Path) -> None:
         "alembic_version",
     }
     assert expected_tables.issubset(set(inspector.get_table_names()))
+    conversation_columns = {
+        column["name"] for column in inspector.get_columns("conversations")
+    }
+    message_columns = {
+        column["name"] for column in inspector.get_columns("conversation_messages")
+    }
+    message_indexes = {
+        index["name"]: index
+        for index in inspector.get_indexes("conversation_messages")
+    }
 
     with engine.connect() as connection:
         system_accounts = connection.execute(
@@ -70,4 +80,12 @@ def test_initial_migration_builds_clean_sqlite_database(tmp_path: Path) -> None:
         ("sandbox_clearing_usd", "sandbox_clearing"),
         ("sandbox_issuance_usd", "sandbox_issuance"),
     ]
-    assert revision == "20261103_0001"
+    assert {"title", "archived_at"}.issubset(conversation_columns)
+    assert "request_id" in message_columns
+    assert message_indexes["uq_messages_request_role"]["unique"] == 1
+    assert message_indexes["uq_messages_request_role"]["column_names"] == [
+        "conversation_id",
+        "request_id",
+        "role",
+    ]
+    assert revision == "20261103_0002"

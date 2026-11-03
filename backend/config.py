@@ -86,11 +86,7 @@ class Settings(BaseSettings):
                 raise ValueError("SESSION_COOKIE_SECURE must be true in production")
             if len(self.secret_key) < 32:
                 raise ValueError("SECRET_KEY must contain at least 32 characters")
-        if self.paypal_payouts_enabled:
-            if self.paypal_mock_mode:
-                raise ValueError(
-                    "PAYPAL_MOCK_MODE must be false when PayPal Payouts is enabled"
-                )
+        if self.paypal_payouts_enabled and not self.paypal_mock_mode:
             if not self.paypal_client_id or not self.paypal_client_secret:
                 raise ValueError(
                     "PayPal sandbox client credentials are required when payouts are enabled"

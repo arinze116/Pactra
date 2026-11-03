@@ -57,10 +57,10 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await expect(page.getByText("No requests need approval")).toBeVisible();
 
   await page.getByRole("link", { name: "Assistant" }).first().click();
-  await page.getByPlaceholder("Enter a payment or wallet request").fill("Pay Notion $20 for our software subscription");
+  await page.getByLabel("Message Pactra").fill("Pay Notion $20 for our software subscription");
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText(/Payment request created for Notion/)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open transaction receipt" })).toBeVisible();
+  await expect(page.locator(".assistant-message-assistant").getByText(/Payment to Notion completed after backend policy and ledger confirmation/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open verified receipt" })).toBeVisible();
 
   await page.getByRole("link", { name: "Wallet" }).first().click();
   await page.getByLabel("Type RESET").fill("RESET");
@@ -77,7 +77,7 @@ test("policy changes, blocked requests and rejection remain auditable", async ({
   await page.getByLabel("Allowed categories").press("Tab");
   await expect(page.getByLabel("marketing")).toHaveValue("100.00");
   await page.getByRole("button", { name: "Save policy" }).click();
-  await expect(page.getByText("Policy saved")).toBeVisible();
+  await expect(page.getByText("Policy version 2 saved")).toBeVisible();
   await expect(page.getByText(/Version 2/)).toBeVisible();
 
   await page.goto("/app/payments/new?scenario=auto");
@@ -119,7 +119,6 @@ test("transaction history recovers after a temporary API failure", async ({ page
   let shouldFail = true;
   await page.route("**/api/transactions**", async (route) => {
     if (shouldFail) {
-      shouldFail = false;
       await route.abort("failed");
       return;
     }
@@ -127,6 +126,89 @@ test("transaction history recovers after a temporary API failure", async ({ page
   });
   await page.goto("/app/transactions");
   await expect(page.getByText("Failed to fetch")).toBeVisible();
+  shouldFail = false;
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByText("No matching transactions")).toBeVisible();
+});
+
+test("assistant conversations persist, continue, and retry without duplicates", async ({ page }) => {
+  await register(page, "judge-conversation");
+  await page.getByRole("link", { name: "Assistant" }).first().click();
+
+  const composer = page.getByLabel("Message Pactra");
+  await composer.fill("Please take care");
+  await composer.press("Shift+Enter");
+  await composer.type("of the invoice");
+  await expect(composer).toHaveValue("Please take care\nof the invoice");
+  await composer.press("Enter");
+  await expect(page.locator(".assistant-message-assistant").getByText(/couldn't identify the amount or recipient/i)).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/assistant\/[a-f0-9-]+$/);
+  const conversationUrl = page.url();
+
+  await page.reload();
+  await expect(page.locator(".assistant-message-user").getByText("Please take care", { exact: false })).toBeVisible();
+  await expect(page.locator(".assistant-message-assistant").getByText(/couldn't identify the amount or recipient/i)).toBeVisible();
+
+  let failAfterBackend = true;
+  await page.route("**/api/chat", async (route) => {
+    if (failAfterBackend) {
+      failAfterBackend = false;
+      await route.fetch();
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+  const retryText = "Pay Linear $49 for our software subscription";
+  await composer.fill(retryText);
+  await composer.press("Enter");
+  await expect(page.getByText("Failed to fetch")).toBeVisible();
+  await expect(composer).toHaveValue(retryText);
+  await composer.press("Enter");
+  await expect(page.locator(".assistant-message-assistant").getByText(/Payment to Linear completed after backend policy and ledger confirmation/)).toBeVisible();
+  await page.unroute("**/api/chat");
+
+  await page.goto("/app/assistant");
+  await expect(page.locator(".assistant-history-row").getByText("Please take care of the invoice", { exact: true })).toBeVisible();
+  await page.goto(conversationUrl);
+  await expect(page.locator(".assistant-message-user").getByText(retryText, { exact: true })).toHaveCount(1);
+});
+
+test("policy editor rejects invalid state and only confirms persisted saves", async ({ page }) => {
+  await register(page, "judge-policy-save");
+  await page.getByRole("link", { name: "Policies" }).first().click();
+
+  const save = page.getByRole("button", { name: "Save policy" });
+  const daily = page.getByLabel("Daily limit");
+  await expect(save).toBeDisabled();
+  await daily.fill("");
+  await expect(page.getByText(/Enter an amount greater than \$0/)).toBeVisible();
+  await expect(page.getByText("Policy needs attention")).toBeVisible();
+  await expect(save).toBeDisabled();
+
+  await daily.fill("600.00");
+  await expect(save).toBeEnabled();
+  await page.route("**/api/policy", async (route) => {
+    if (route.request().method() === "PUT") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "TEMPORARY_FAILURE", message: "Temporary save failure" } }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await save.click();
+  await expect(page.getByText("Temporary save failure")).toBeVisible();
+  await expect(daily).toHaveValue("600.00");
+  await expect(page.getByText(/Policy version 2 saved/)).toHaveCount(0);
+
+  await page.unroute("**/api/policy");
+  await save.click();
+  await expect(page.getByText("Policy version 2 saved")).toBeVisible();
+  await page.reload();
+  await expect(daily).toHaveValue("600.00");
+  await expect(page.getByText("Version 2")).toBeVisible();
+  await expect(save).toBeDisabled();
 });

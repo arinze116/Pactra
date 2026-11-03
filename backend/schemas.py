@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -172,6 +172,17 @@ class PolicyResponse(StrictModel):
     policy: dict[str, object]
 
 
+class PolicyVersionSummary(StrictModel):
+    id: str
+    version: int
+    policy: dict[str, object]
+    created_at: datetime
+
+
+class PolicyVersionListResponse(StrictModel):
+    items: list[PolicyVersionSummary]
+
+
 class PaymentRequest(StrictModel):
     type: Literal["vendor_payment", "payout", "sandbox_transfer"]
     vendor: str = Field(min_length=1, max_length=100)
@@ -293,6 +304,9 @@ class ResetResponse(StrictModel):
 class AssistantRequest(StrictModel):
     conversation_id: str | None = Field(default=None, max_length=36)
     message: str = Field(min_length=1, max_length=8000)
+    request_id: str = Field(
+        min_length=16, max_length=128, pattern=r"^[A-Za-z0-9._~-]+$"
+    )
 
     @field_validator("message")
     @classmethod
@@ -320,4 +334,53 @@ class ConversationMessageResponse(StrictModel):
 
 class ConversationMessagesResponse(StrictModel):
     items: list[ConversationMessageResponse]
+
+
+class ConversationSummaryResponse(StrictModel):
+    id: str
+    title: str
+    message_count: int
+    preview: str | None
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None
+
+
+class ConversationListResponse(StrictModel):
+    items: list[ConversationSummaryResponse]
+
+
+class ConversationCreateRequest(StrictModel):
+    title: str | None = Field(default=None, max_length=120)
+
+    @field_validator("title")
+    @classmethod
+    def trim_optional_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Conversation title cannot be blank")
+        return value
+
+
+class ConversationUpdateRequest(StrictModel):
+    title: str | None = Field(default=None, max_length=120)
+    archived: bool | None = None
+
+    @field_validator("title")
+    @classmethod
+    def trim_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Conversation title cannot be blank")
+        return value
+
+    @model_validator(mode="after")
+    def require_change(self) -> "ConversationUpdateRequest":
+        if self.title is None and self.archived is None:
+            raise ValueError("Provide a title or archive state")
+        return self
 

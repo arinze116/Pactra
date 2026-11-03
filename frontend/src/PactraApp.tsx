@@ -20,7 +20,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(error: Error, info: ErrorInfo) { if (import.meta.env.DEV) console.error("Pactra render error", error, info.componentStack); }
   render() {
-    if (this.state.failed) return <div className="grid min-h-screen place-items-center bg-canvas p-6 text-center"><div><h1 className="text-2xl font-medium">The workspace could not render</h1><p className="mt-2 text-sm text-ink-500">Reload the page or return to the overview.</p><div className="mt-5 flex justify-center gap-3"><button className="action-secondary" onClick={() => window.location.reload()}>Reload page</button><a className="inline-flex h-10 items-center rounded-lg bg-ink-950 px-4 text-sm font-medium text-white" href="/app">Go to overview</a></div></div></div>;
+    if (this.state.failed) return <div className="grid min-h-screen place-items-center bg-canvas p-6 text-center"><div><h1 className="text-2xl font-medium">The workspace could not render</h1><p className="mt-2 text-sm text-ink-500">Reload the page or return to the overview.</p><div className="mt-5 flex justify-center gap-3"><button className="action-secondary" onClick={() => window.location.reload()}>Reload page</button><a className="action-primary" href="/app">Go to overview</a></div></div></div>;
     return this.props.children;
   }
 }
@@ -31,7 +31,7 @@ export default function PactraApp() {
   return <AppErrorBoundary><BrowserRouter><AuthProvider><Suspense fallback={<RouteLoader />}><Routes>
     <Route path="/" element={<LandingPage />} />
     <Route element={<GuestRoute />}><Route path="/sign-in" element={<SignInPage />} /><Route path="/sign-up" element={<SignUpPage />} /></Route>
-    <Route element={<ProtectedRoute />}><Route path="/app" element={<AppShell />}><Route index element={<OverviewPage />} /><Route path="payments/new" element={<NewPaymentPage />} /><Route path="assistant" element={<AssistantPage />} /><Route path="approvals" element={<ApprovalsPage />} /><Route path="transactions" element={<TransactionsPage />} /><Route path="transactions/:id" element={<ReceiptPage />} /><Route path="policies" element={<PoliciesPage />} /><Route path="wallet" element={<WalletPage />} /><Route path="settings" element={<SettingsPage />} /><Route path="settings/integrations/paypal" element={<PayPalIntegrationPage />} /><Route path="*" element={<NotFoundPage authenticated />} /></Route></Route>
+    <Route element={<ProtectedRoute />}><Route path="/app" element={<AppShell />}><Route index element={<OverviewPage />} /><Route path="payments/new" element={<NewPaymentPage />} /><Route path="assistant" element={<AssistantPage />} /><Route path="assistant/:conversationId" element={<AssistantPage />} /><Route path="approvals" element={<ApprovalsPage />} /><Route path="transactions" element={<TransactionsPage />} /><Route path="transactions/:id" element={<ReceiptPage />} /><Route path="policies" element={<PoliciesPage />} /><Route path="wallet" element={<WalletPage />} /><Route path="settings" element={<SettingsPage />} /><Route path="settings/integrations/paypal" element={<PayPalIntegrationPage />} /><Route path="*" element={<NotFoundPage authenticated />} /></Route></Route>
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Suspense></AuthProvider></BrowserRouter></AppErrorBoundary>;
 }
