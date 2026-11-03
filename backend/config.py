@@ -76,6 +76,8 @@ class Settings(BaseSettings):
         """Reject unsafe production PayPal configuration at startup."""
         sandbox_url = "https://api-m.sandbox.paypal.com"
         if self.app_env == "production":
+            if self.is_sqlite:
+                raise ValueError("Production must use PostgreSQL, not SQLite")
             if self.paypal_base_url.rstrip("/") != sandbox_url:
                 raise ValueError("Production must use the PayPal Sandbox API host")
             if self.paypal_mock_mode:
@@ -84,6 +86,23 @@ class Settings(BaseSettings):
                 raise ValueError("SESSION_COOKIE_SECURE must be true in production")
             if len(self.secret_key) < 32:
                 raise ValueError("SECRET_KEY must contain at least 32 characters")
+        if self.paypal_payouts_enabled:
+            if self.paypal_mock_mode:
+                raise ValueError(
+                    "PAYPAL_MOCK_MODE must be false when PayPal Payouts is enabled"
+                )
+            if not self.paypal_client_id or not self.paypal_client_secret:
+                raise ValueError(
+                    "PayPal sandbox client credentials are required when payouts are enabled"
+                )
+            if not self.paypal_test_recipient_email:
+                raise ValueError(
+                    "PAYPAL_TEST_RECIPIENT_EMAIL is required when payouts are enabled"
+                )
+        if self.ai_enabled and not self.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY is required when AI_ENABLED is true")
+        if self.ai_enabled and self.gemini_model != "gemini-3.8-flash":
+            raise ValueError("AI_ENABLED requires the configured gemini-3.8-flash model")
         return self
 
     @property

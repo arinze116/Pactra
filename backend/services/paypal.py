@@ -72,6 +72,12 @@ async def submit_or_reconcile_payout(
             batch_id=submission.batch_id,
             batch_status=submission.batch_status,
         )
+        # Preserve the accepted provider reference before local capture. If a
+        # later commit fails, reconciliation can query this exact batch rather
+        # than submitting a second payout.
+        session.commit()
+        session.refresh(transaction)
+        session.refresh(attempt)
 
     try:
         status = await client.get_payout(attempt.provider_batch_id or transaction.provider_batch_id or "")

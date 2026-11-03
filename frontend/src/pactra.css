@@ -41,7 +41,8 @@ body {
 
 button,
 textarea,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -56,6 +57,16 @@ textarea:focus-visible,
 input:focus-visible {
   outline: 2px solid #14805a;
   outline-offset: 2px;
+}
+
+@layer components {
+  .input {
+    @apply h-11 w-full rounded-lg border border-line bg-white px-3 text-sm text-ink-950 outline-none transition-colors duration-150 placeholder:text-ink-400 focus:border-pactra-600 focus:ring-2 focus:ring-pactra-100;
+  }
+
+  .action-secondary {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-medium text-ink-700 transition-colors duration-150 hover:bg-canvas hover:text-ink-950 disabled:opacity-50;
+  }
 }
 
 ::selection {
@@ -81,6 +92,64 @@ input:focus-visible {
 
 .pactra-enter {
   animation: pactra-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.policy-trace > li {
+  position: relative;
+}
+
+.policy-trace > li:not(:last-child)::after {
+  position: absolute;
+  top: 22px;
+  left: 10px;
+  width: 1px;
+  height: 22px;
+  content: "";
+  background: #dde0d8;
+}
+
+.policy-trace > li > span:first-child {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  border: 1px solid #c7ccc5;
+  border-radius: 50%;
+  background: #fff;
+  color: #566159;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+}
+
+.ag-theme-quartz {
+  --ag-background-color: #ffffff;
+  --ag-foreground-color: #29312b;
+  --ag-header-background-color: #f4f4ef;
+  --ag-header-foreground-color: #566159;
+  --ag-border-color: #dde0d8;
+  --ag-row-border-color: #e8eae5;
+  --ag-row-hover-color: #f7f7f3;
+  --ag-selected-row-background-color: #eef8f3;
+  --ag-font-family: "IBM Plex Sans Variable", sans-serif;
+  --ag-font-size: 13px;
+  --ag-grid-size: 7px;
+  --ag-wrapper-border-radius: 0;
+  --ag-borders: none;
+  width: 100%;
+}
+
+.ag-theme-quartz .ag-root-wrapper {
+  border: 0;
+}
+
+.ag-theme-quartz .ag-header-cell-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ag-theme-quartz .ag-row {
+  cursor: pointer;
 }
 
 @keyframes pactra-enter {

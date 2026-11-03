@@ -188,6 +188,27 @@ def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
     assert history[0]["id"] == transaction["id"]
 
 
+def test_transaction_history_date_filters_and_range_validation(api: TestClient) -> None:
+    created = api.post(
+        "/api/transactions",
+        headers=mutation_headers(api),
+        json=payment(amount_cents=4_900, key="api-date-filter-payment-0001"),
+    )
+    assert created.status_code == 201
+
+    today = created.json()["transaction"]["created_at"][:10]
+    assert len(api.get(f"/api/transactions?from={today}&to={today}").json()["items"]) == 1
+    assert api.get("/api/transactions?from=2099-01-01").json()["items"] == []
+
+    reversed_range = api.get("/api/transactions?from=2026-11-03&to=2026-11-02")
+    assert reversed_range.status_code == 400
+    assert reversed_range.json()["error"]["code"] == "INVALID_DATE_RANGE"
+
+    excessive_range = api.get("/api/transactions?from=2026-01-01&to=2026-05-01")
+    assert excessive_range.status_code == 400
+    assert excessive_range.json()["error"]["code"] == "INVALID_DATE_RANGE"
+
+
 def test_another_user_cannot_read_or_action_transaction(api: TestClient) -> None:
     pending = api.post(
         "/api/transactions",

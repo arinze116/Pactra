@@ -1,51 +1,123 @@
-export type TransactionStatus = "approved" | "blocked" | "pending_approval";
-export type TransactionType = "payment" | "payout";
+export type TransactionStatus =
+  | "draft"
+  | "pending_approval"
+  | "executing"
+  | "completed"
+  | "blocked"
+  | "rejected"
+  | "failed"
+  | "cancelled"
+  | "reversed";
 
+export type TransactionType = "vendor_payment" | "payout" | "sandbox_transfer";
+export type PaymentRail = "internal_sandbox" | "paypal_sandbox_payouts";
+
+export interface User { id: string; email: string }
+export interface WalletBalance {
+  currency: "USD";
+  available_cents: number;
+  reserved_cents: number;
+  posted_cents: number;
+  sandbox_generation: number;
+}
+export interface Policy {
+  daily_limit_cents: number;
+  per_transaction_limit_cents: number;
+  approval_threshold_cents: number;
+  allowed_categories: string[];
+  category_budgets_cents: Record<string, number>;
+  blocked_vendors: string[];
+  currency: "USD";
+}
+export interface PolicyEnvelope { id: string; version: number; policy: Policy }
 export interface Transaction {
   id: string;
-  timestamp: string;
+  type: TransactionType;
   vendor: string;
-  amount: number;
-  currency: string;
+  recipient: string | null;
+  amount_cents: number;
+  currency: "USD";
   category: string;
   reason: string;
   status: TransactionStatus;
-  block_reason: string | null;
-  paypal_order_id: string | null;
-  paypal_status: string | null;
-  initiated_by: string;
-  transaction_type: TransactionType;
+  sandbox_generation: number;
+  policy_version: number;
+  rail: PaymentRail;
+  rail_reference: string | null;
+  provider_batch_id: string | null;
+  provider_item_id: string | null;
+  provider_status: string | null;
+  failure_code: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
 }
-
-export interface SpendSummary {
+export interface PaymentRequest {
+  type: TransactionType;
+  vendor: string;
+  recipient: string | null;
+  amount_cents: number;
+  currency: "USD";
   category: string;
-  budget: number;
-  spent_today: number;
-  remaining: number;
-  utilisation_pct: number;
+  reason: string;
+  rail: PaymentRail;
+  idempotency_key: string;
 }
-
-export interface Policy {
-  daily_limit: number;
-  per_transaction_limit: number;
-  require_approval_above: number;
-  approved_categories: string[];
-  blocked_vendors: string[];
-  budgets: Record<string, number>;
-  currency: string;
+export interface PaymentResponse {
+  transaction: Transaction;
+  policy_result: Record<string, unknown>;
+  balance: WalletBalance;
 }
-
-export interface ChatHistoryMessage {
-  role: "user" | "agent";
-  content: string;
+export interface TransactionPage { items: Transaction[]; next_cursor: string | null }
+export interface SpendCategory {
+  category: string;
+  budget_cents: number;
+  committed_cents: number;
+  reserved_cents: number;
+  remaining_cents: number;
+  utilisation_percent: number;
 }
-
-export interface ChatResponse {
+export interface SpendSummary {
+  date: string;
+  daily_limit_cents: number;
+  daily_committed_cents: number;
+  daily_reserved_cents: number;
+  categories: SpendCategory[];
+}
+export interface LedgerItem {
+  journal_id: string;
+  journal_type: string;
+  transaction_id: string | null;
+  wallet_delta_cents: number;
+  counter_account_label: string;
+  created_at: string;
+}
+export interface LedgerPage { items: LedgerItem[]; next_cursor: string | null }
+export interface TransactionDetail {
+  transaction: Transaction;
+  policy_checks: Array<Record<string, unknown>>;
+  ledger_entries: Array<Record<string, unknown>>;
+  events: Array<Record<string, unknown>>;
+  attempts: Array<Record<string, unknown>>;
+}
+export interface AssistantResponse {
+  conversation_id: string;
   reply: string;
-  tool_calls: Array<{
-    name: string;
-    arguments: Record<string, unknown>;
-    result: Record<string, unknown>;
-  }>;
+  tool_calls: Array<Record<string, unknown>>;
   transactions_created: string[];
+}
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  tool_calls: Array<Record<string, unknown>> | null;
+  created_at: string;
+}
+export interface PayPalStatus {
+  configured: boolean;
+  environment: "sandbox";
+  capabilities: string[];
+  test_recipient_email: string | null;
+  last_success_at: string | null;
+  last_error_code: string | null;
 }

@@ -176,6 +176,14 @@ class PayPalClient:
                 "PayPal submission outcome is unknown; reconcile this attempt"
             )
         if response.status_code >= 400:
+            try:
+                error_name = str(response.json().get("name", "")).upper()
+            except (TypeError, ValueError):
+                error_name = ""
+            if error_name == "DUPLICATE_BATCH_ID":
+                raise PayPalUnknownOutcome(
+                    "PayPal already received this stable payout attempt; reconciliation is required"
+                )
             raise PayPalRejected("PayPal Sandbox rejected the payout request")
         try:
             payload = response.json()

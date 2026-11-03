@@ -967,6 +967,8 @@ def list_transactions(
     category: str | None = None,
     transaction_type: str | None = None,
     vendor: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
     cursor: str | None = None,
     limit: int = 25,
 ) -> tuple[list[PaymentTransaction], str | None]:
@@ -981,6 +983,10 @@ def list_transactions(
         statement = statement.where(PaymentTransaction.type == transaction_type)
     if vendor:
         statement = statement.where(PaymentTransaction.vendor.ilike(f"%{vendor.strip()}%"))
+    if created_from:
+        statement = statement.where(PaymentTransaction.created_at >= created_from)
+    if created_to:
+        statement = statement.where(PaymentTransaction.created_at < created_to)
     if cursor:
         created_at, transaction_id = _decode_cursor(cursor)
         statement = statement.where(

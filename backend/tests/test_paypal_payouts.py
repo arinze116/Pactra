@@ -8,7 +8,12 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.config import settings
-from backend.models import FundReservation, LedgerJournal, TransactionAttempt
+from backend.models import (
+    FundReservation,
+    LedgerJournal,
+    PaymentTransaction,
+    TransactionAttempt,
+)
 from backend.paypal_client import PayPalUnknownOutcome, PayoutStatus, PayoutSubmission
 from backend.services.accounts import create_account
 from backend.services.ledger import get_wallet_for_user, wallet_balance
@@ -199,4 +204,50 @@ async def test_unknown_submission_reuses_same_attempt(payout_db) -> None:
     assert wallet_balance(
         session, get_wallet_for_user(session, user.id)
     ).reserved_cents == 4_900
+
+
+@pytest.mark.asyncio
+async def test_provider_batch_survives_local_capture_rollback(payout_db) -> None:
+    session, user = payout_db
+    result = create_payment_request(
+        session,
+        user=user,
+        payload=payout_payload("paypal-capture-recovery-0001"),
+    )
+    session.commit()
+    client = FakePayPalClient(
+        [PayoutStatus("BATCH-123", "SUCCESS", "ITEM-1", "SUCCESS")]
+    )
+
+    await submit_or_reconcile_payout(
+        session, client=client, transaction=result.transaction
+    )
+    # Simulate failure of the caller's final commit after provider success.
+    session.rollback()
+
+    recovered = session.get(PaymentTransaction, result.transaction.id)
+    assert recovered is not None
+    assert recovered.status == "executing"
+    assert recovered.provider_batch_id == "BATCH-123"
+    assert client.create_calls == [(result.transaction.id, 1)]
+
+    client.statuses.append(
+        PayoutStatus("BATCH-123", "SUCCESS", "ITEM-1", "SUCCESS")
+    )
+    await submit_or_reconcile_payout(
+        session, client=client, transaction=recovered
+    )
+    session.commit()
+
+    completed = session.get(PaymentTransaction, result.transaction.id)
+    assert completed is not None
+    assert completed.status == "completed"
+    assert client.create_calls == [(result.transaction.id, 1)]
+    captures = session.exec(
+        select(LedgerJournal).where(
+            LedgerJournal.transaction_id == result.transaction.id,
+            LedgerJournal.journal_type == "payment_capture",
+        )
+    ).all()
+    assert len(captures) == 1
 

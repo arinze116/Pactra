@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
@@ -33,7 +33,7 @@ from .config import settings
 from .database import get_session, session_scope
 from .defaults import INITIAL_SANDBOX_CENTS
 from .errors import ApiError
-from .models import AuthSession, PaymentTransaction, User
+from .models import AuthSession, PaymentTransaction, TransactionAttempt, User
 from .paypal_client import PayPalClient
 from .schemas import (
     ApprovalListResponse,
@@ -659,9 +659,15 @@ def get_policy(
 @app.put("/api/policy", response_model=PolicyResponse)
 def update_policy(
     payload: PolicyInput,
+    request: Request,
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> PolicyResponse:
+    auth_rate_limiter.check(
+        f"policy:{context.user.id}:{client_ip(request)}",
+        limit=20,
+        window=timedelta(hours=1),
+    )
     try:
         policy_json = payload.validated_policy()
         policy = save_policy(
@@ -701,6 +707,11 @@ async def create_transaction(
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> PaymentResponse:
+    auth_rate_limiter.check(
+        f"payment:{context.user.id}:{client_ip(request)}",
+        limit=30,
+        window=timedelta(minutes=1),
+    )
     if payload.type == "payout" and payload.recipient is None:
         raise ApiError(400, "VALIDATION_ERROR", "A recipient email is required for payouts")
     if payload.rail == "paypal_sandbox_payouts" and payload.type != "payout":
@@ -797,10 +808,27 @@ def list_account_transactions(
         Query(alias="type", pattern="^(vendor_payment|payout|sandbox_transfer)$"),
     ] = None,
     vendor: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+    from_date: Annotated[date | None, Query(alias="from")] = None,
+    to_date: Annotated[date | None, Query(alias="to")] = None,
     generation: Literal["current", "all"] = "current",
     cursor: Annotated[str | None, Query(max_length=1000)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> TransactionPageResponse:
+    if from_date and to_date:
+        if to_date < from_date:
+            raise ApiError(400, "INVALID_DATE_RANGE", "End date must be on or after start date")
+        if (to_date - from_date).days > 90:
+            raise ApiError(400, "INVALID_DATE_RANGE", "Date range cannot exceed 90 days")
+    created_from = (
+        datetime.combine(from_date, time.min, tzinfo=timezone.utc)
+        if from_date
+        else None
+    )
+    created_to = (
+        datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
+        if to_date
+        else None
+    )
     wallet = get_wallet_for_user(db_session, context.user.id)
     try:
         items, next_cursor = query_transactions(
@@ -811,6 +839,8 @@ def list_account_transactions(
             category=category,
             transaction_type=transaction_type,
             vendor=vendor,
+            created_from=created_from,
+            created_to=created_to,
             cursor=cursor,
             limit=limit,
         )
@@ -986,7 +1016,9 @@ async def approve_pending_transaction(
 
 
 @app.get("/api/integrations/paypal/status")
-def paypal_integration_status(_context: AuthDependency) -> dict[str, Any]:
+def paypal_integration_status(
+    context: AuthDependency, db_session: SessionDependency
+) -> dict[str, Any]:
     configured = bool(
         settings.paypal_payouts_enabled
         and settings.paypal_client_id
@@ -995,13 +1027,42 @@ def paypal_integration_status(_context: AuthDependency) -> dict[str, Any]:
         and settings.paypal_base_url.rstrip("/")
         == "https://api-m.sandbox.paypal.com"
     )
+    latest_success = db_session.exec(
+        select(TransactionAttempt.finished_at)
+        .join(
+            PaymentTransaction,
+            PaymentTransaction.id == TransactionAttempt.transaction_id,
+        )
+        .where(
+            PaymentTransaction.user_id == context.user.id,
+            TransactionAttempt.rail == "paypal_sandbox_payouts",
+            TransactionAttempt.status == "completed",
+        )
+        .order_by(TransactionAttempt.finished_at.desc())
+        .limit(1)
+    ).one_or_none()
+    latest_error = db_session.exec(
+        select(TransactionAttempt.response_code)
+        .join(
+            PaymentTransaction,
+            PaymentTransaction.id == TransactionAttempt.transaction_id,
+        )
+        .where(
+            PaymentTransaction.user_id == context.user.id,
+            TransactionAttempt.rail == "paypal_sandbox_payouts",
+            TransactionAttempt.response_code.is_not(None),
+            TransactionAttempt.status.in_(["failed", "unknown"]),
+        )
+        .order_by(TransactionAttempt.started_at.desc())
+        .limit(1)
+    ).one_or_none()
     return {
         "configured": configured,
         "environment": "sandbox",
         "capabilities": ["payouts"],
         "test_recipient_email": settings.paypal_test_recipient_email or None,
-        "last_success_at": None,
-        "last_error_code": None,
+        "last_success_at": latest_success,
+        "last_error_code": latest_error,
     }
 
 
@@ -1095,9 +1156,16 @@ def readiness(db_session: SessionDependency) -> dict[str, Any]:
         "status": "ready",
         "database": "ok",
         "sandbox_mode": True,
+        "internal_sandbox_available": True,
+        "ai_enabled": settings.ai_enabled,
+        "ai_configured": bool(settings.ai_enabled and settings.gemini_api_key),
         "paypal_payouts_configured": bool(
             settings.paypal_payouts_enabled
             and settings.paypal_client_id
             and settings.paypal_client_secret
+            and settings.paypal_test_recipient_email
+            and not settings.paypal_mock_mode
+            and settings.paypal_base_url.rstrip("/")
+            == "https://api-m.sandbox.paypal.com"
         ),
     }
