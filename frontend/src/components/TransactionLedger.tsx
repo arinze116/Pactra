@@ -4,8 +4,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  ReceiptText,
   RefreshCw,
-  ShieldCheck,
   X,
 } from "lucide-react";
 import { api } from "../api";
@@ -110,21 +110,20 @@ export function TransactionLedger({
   return (
     <section
       aria-labelledby="transactions-title"
-      className="relative min-w-0 overflow-hidden rounded-2xl border border-line bg-white shadow-card"
+      aria-busy={loading}
+      className="relative flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-card"
       id="transactions"
     >
-      <header className="border-b border-line px-5 py-5 sm:px-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <header className="border-b border-line px-5 pt-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-canvas text-ink-700">
-              <ShieldCheck aria-hidden="true" className="h-5 w-5" strokeWidth={1.5} />
-            </span>
+            <ReceiptText aria-hidden="true" className="h-4 w-4 text-ink-500" strokeWidth={1.5} />
             <div>
               <h2 className="text-sm font-medium text-ink-950" id="transactions-title">
-                Transaction ledger
+                Decisions
               </h2>
               <p className="mt-1 text-xs text-ink-500">
-                Policy decisions and PayPal outcomes
+                {transactions.length} payment {transactions.length === 1 ? "record" : "records"}
               </p>
             </div>
           </div>
@@ -143,14 +142,14 @@ export function TransactionLedger({
           </button>
         </div>
 
-        <div className="mt-5 flex items-center gap-1 overflow-x-auto rounded-lg bg-canvas p-1">
+        <div className="mt-3 flex items-center gap-5 overflow-x-auto">
           {filters.map((filter) => (
             <button
               aria-pressed={statusFilter === filter.value}
-              className={`shrink-0 rounded-md px-3 py-2 text-xs font-medium transition-colors duration-150 ${
+              className={`shrink-0 border-b-2 px-0 py-3 text-xs font-medium transition-colors duration-150 ${
                 statusFilter === filter.value
-                  ? "bg-white text-ink-950 shadow-sm"
-                  : "text-ink-500 hover:text-ink-950"
+                  ? "border-ink-950 text-ink-950"
+                  : "border-transparent text-ink-500 hover:border-ink-300 hover:text-ink-950"
               }`}
               key={filter.value}
               onClick={() => setStatusFilter(filter.value)}
@@ -160,7 +159,7 @@ export function TransactionLedger({
               <span className="hidden sm:inline">{filter.label}</span>
             </button>
           ))}
-          <span className="ml-auto hidden shrink-0 px-2 font-mono text-xs text-ink-400 sm:block">
+          <span className="ml-auto hidden shrink-0 py-3 font-mono text-xs text-ink-400 sm:block">
             {filteredTransactions.length} records
           </span>
         </div>
@@ -266,17 +265,15 @@ export function TransactionLedger({
           </div>
         </>
       ) : (
-        <div className="grid min-h-64 place-items-center px-6 py-12 text-center">
+        <div className="grid min-h-64 flex-1 place-items-center px-6 py-12 text-center">
           <div>
-            <p className="text-sm font-medium text-ink-800">No decisions in this view</p>
-            <p className="mt-2 text-sm text-ink-500">
-              New governed payments will appear here
-            </p>
+            <p className="text-sm font-medium text-ink-800">No payment activity</p>
+            <p className="mt-2 text-sm text-ink-500">Records will appear after a request is submitted</p>
           </div>
         </div>
       )}
 
-      <footer className="flex items-center justify-between gap-4 border-t border-line px-5 py-4 sm:px-6">
+      <footer className="mt-auto flex items-center justify-between gap-4 border-t border-line px-5 py-4 sm:px-6">
         <p className="font-mono text-xs text-ink-400">
           Page {page + 1} of {pageCount}
         </p>
@@ -335,10 +332,10 @@ export function TransactionLedger({
               </button>
             </div>
             <h3 className="mt-5 text-xl font-medium tracking-[-0.02em] text-ink-950" id="approval-title">
-              Review payment exception
+              Approve payment
             </h3>
             <p className="mt-2 text-sm leading-6 text-ink-600">
-              This request exceeded the automatic approval threshold. Confirm the details before releasing it to PayPal.
+              Confirm the request details before releasing the payment for execution
             </p>
             <dl className="mt-6 divide-y divide-line rounded-xl border border-line px-4 text-sm">
               <div className="flex justify-between gap-4 py-3">
