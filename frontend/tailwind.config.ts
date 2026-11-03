@@ -5,25 +5,40 @@ export default {
   theme: {
     extend: {
       colors: {
+        canvas: "#f4f4ef",
+        "canvas-deep": "#e9ebe4",
+        line: "#dde0d8",
         ink: {
-          950: "#080b12",
-          900: "#0d111b",
-          850: "#111722",
-          800: "#171e2b"
+          950: "#121713",
+          800: "#29312b",
+          700: "#3f4942",
+          600: "#566159",
+          500: "#6f7971",
+          400: "#909890",
+          300: "#b3b9b3"
         },
         pactra: {
-          300: "#71f5cf",
-          400: "#3ee6b4",
-          500: "#18c997",
-          600: "#10a77d"
-        }
+          50: "#eef8f3",
+          100: "#d9eee3",
+          300: "#72c8a2",
+          600: "#14805a",
+          700: "#0b6748"
+        },
+        positive: "#249264",
+        "positive-dark": "#176843",
+        negative: "#c2413d",
+        "negative-soft": "#fff2f1",
+        warning: "#c58a2c",
+        "warning-dark": "#845812",
+        "warning-soft": "#fff8e9"
+      },
+      fontFamily: {
+        sans: ["IBM Plex Sans Variable", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["IBM Plex Mono", "SFMono-Regular", "Consolas", "monospace"]
       },
       boxShadow: {
-        panel: "0 24px 70px rgba(0, 0, 0, 0.24)",
-        glow: "0 0 0 1px rgba(62, 230, 180, 0.1), 0 14px 50px rgba(24, 201, 151, 0.08)"
-      },
-      backgroundImage: {
-        "page-glow": "radial-gradient(circle at 15% 0%, rgba(44, 211, 162, 0.10), transparent 35%), radial-gradient(circle at 100% 10%, rgba(115, 98, 255, 0.09), transparent 28%)"
+        card: "0 1px 2px rgba(18, 23, 19, 0.04)",
+        float: "0 24px 60px rgba(18, 23, 19, 0.18)"
       }
     }
   },

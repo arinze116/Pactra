@@ -13,7 +13,7 @@ Built for the PayPal AI Hackathon 2026.
 - Live transaction audit log with approved, blocked, and pending states
 - Daily and category utilisation dashboard
 - Deterministic PayPal mock mode for a credential-free judge experience
-- Responsive React/TypeScript interface with AG Grid
+- Responsive React/TypeScript operations interface with an accessible transaction ledger
 - SQLite persistence via SQLModel and Render deployment blueprint
 
 ## Architecture
@@ -36,7 +36,7 @@ The Gemini model can request a tool, but it never receives PayPal credentials an
 
 ## Quick start
 
-Requirements: Python 3.11+, Node.js 20+, and a free Gemini API key.
+Requirements: Python 3.11+, Node.js 20.19+ (or 22.12+), and a free Gemini API key.
 
 ```powershell
 Copy-Item .env.example .env

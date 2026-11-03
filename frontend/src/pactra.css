@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  color: #121713;
+  background: #f4f4ef;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  background: #f4f4ef;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  max-width: 100%;
+  margin: 0;
+  overflow-x: hidden;
+}
+
+#root {
+  min-width: 0;
+  min-height: 100vh;
+  max-width: 100%;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+textarea:focus-visible,
+input:focus-visible {
+  outline: 2px solid #14805a;
+  outline-offset: 2px;
+}
+
+::selection {
+  color: #121713;
+  background: #b9dfcd;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #b3b9b3;
+  background-clip: padding-box;
+}
+
+.pactra-enter {
+  animation: pactra-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes pactra-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
