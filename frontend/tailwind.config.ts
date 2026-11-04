@@ -5,42 +5,42 @@ export default {
   theme: {
     extend: {
       colors: {
-        canvas: "#0c100c",
-        "canvas-deep": "#101510",
-        surface: "#151a15",
-        "surface-raised": "#1b211b",
-        line: "#293129",
+        canvas: "#050506",
+        "canvas-deep": "#020203",
+        surface: "#0b0b0d",
+        "surface-raised": "#141416",
+        line: "#232326",
         ink: {
-          950: "#f3f6ee",
-          800: "#d9dfd3",
-          700: "#bdc6b9",
-          600: "#a0aa9d",
-          500: "#7f8a7d",
-          400: "#626d60",
-          300: "#495448"
+          950: "#f7f7f8",
+          800: "#dedee1",
+          700: "#c1c1c7",
+          600: "#a2a2aa",
+          500: "#85858e",
+          400: "#686871",
+          300: "#4b4b53"
         },
         pactra: {
-          50: "#182118",
-          100: "#22301f",
-          300: "#9fdc55",
-          600: "#b8ff5a",
-          700: "#ccff87"
+          50: "#21060c",
+          100: "#350811",
+          300: "#ff6b82",
+          600: "#e0002b",
+          700: "#f11942"
         },
-        positive: "#68d391",
-        "positive-dark": "#8be0aa",
-        negative: "#f06d69",
-        "negative-soft": "#2a1717",
-        warning: "#e4b860",
-        "warning-dark": "#f0ca7b",
-        "warning-soft": "#2a2214"
+        positive: "#10b981",
+        "positive-dark": "#6ee7b7",
+        negative: "#f87171",
+        "negative-soft": "#260d0d",
+        warning: "#eab308",
+        "warning-dark": "#fde047",
+        "warning-soft": "#211b05"
       },
       fontFamily: {
         sans: ["IBM Plex Sans Variable", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["IBM Plex Mono", "SFMono-Regular", "Consolas", "monospace"]
       },
       boxShadow: {
-        card: "inset 0 1px 0 rgba(255,255,255,0.025)",
-        float: "0 20px 48px rgba(0,0,0,0.32)"
+        card: "inset 0 1px 0 rgba(255,255,255,0.035)",
+        float: "0 24px 80px rgba(0,0,0,0.48)"
       }
     }
   },

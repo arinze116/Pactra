@@ -30,11 +30,11 @@ export function Status({ value }: { value: TransactionStatus }) {
 }
 
 export function PageHeader({ title, description, action }: { title: string; description?: string; action?: React.ReactNode }) {
-  return <header className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-[30px] font-medium leading-9 text-ink-950 sm:text-[34px]">{title}</h1>{description ? <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">{description}</p> : null}</div>{action}</header>;
+  return <header className="mb-7 flex flex-wrap items-start justify-between gap-4"><div className="border-l-2 border-pactra-600 pl-4"><h1 className="text-[30px] font-medium leading-9 tracking-[-0.035em] text-ink-950 sm:text-[36px]">{title}</h1>{description ? <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">{description}</p> : null}</div>{action}</header>;
 }
 
 export function Panel({ children, className = "" }: { children?: React.ReactNode; className?: string }) {
-  return <section className={`rounded-2xl border border-line bg-surface shadow-card ${className}`}>{children}</section>;
+  return <section className={`rounded-[14px] border border-line bg-surface shadow-card ${className}`}>{children}</section>;
 }
 
 export function EmptyState({ title, description, icon: Icon = Inbox }: { title: string; description: string; icon?: LucideIcon }) {
@@ -46,5 +46,5 @@ export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: (
 }
 
 export function LoadingBlock({ className = "h-24" }: { className?: string }) {
-  return <div className={`rounded-xl border border-line bg-surface ${className}`} aria-label="Loading" />;
+  return <div aria-busy="true" aria-label="Loading" className={`loading-placeholder rounded-xl border border-line bg-surface ${className}`} />;
 }
