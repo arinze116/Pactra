@@ -10,7 +10,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from backend.agent import PactraAgent
 from backend.config import Settings
 from backend.models import Transaction
-from backend.paypal_client import PayPalClient
+from backend.paypal_client import PayPalClient, PayPalError
 from backend.policy_engine import PolicyEngine
 
 
@@ -66,7 +66,7 @@ def app_settings() -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_approved_payment_executes_and_records_spend(
+async def test_legacy_mock_payment_cannot_claim_provider_success(
     policy_path: Path, session: Session, app_settings: Settings
 ) -> None:
     policy_engine = PolicyEngine(policy_path)
@@ -86,16 +86,16 @@ async def test_approved_payment_executes_and_records_spend(
         await paypal_client.close()
 
     transaction = session.get(Transaction, result["transaction_id"])
-    assert result["outcome"] == "approved"
-    assert result["paypal_order_id"].startswith("DEMO-ORDER-")
+    assert result["outcome"] == "failed"
+    assert "Mock PayPal mode" in result["error"]
     assert transaction is not None
-    assert transaction.paypal_status == "COMPLETED"
+    assert transaction.paypal_status == "FAILED"
     software = next(
         item
         for item in policy_engine.get_summary(session)
         if item.category == "software"
     )
-    assert software.spent_today == 49
+    assert software.spent_today == 0
 
 
 @pytest.mark.asyncio
@@ -120,18 +120,18 @@ async def test_pending_payment_waits_for_human_then_executes(
         assert transaction.status == "pending_approval"
         assert transaction.paypal_order_id is None
 
-        approved = await agent.approve_transaction(
-            transaction,
-            policy_engine,
-            paypal_client,
-            session,
-        )
+        with pytest.raises(PayPalError, match="Mock PayPal mode"):
+            await agent.approve_transaction(
+                transaction,
+                policy_engine,
+                paypal_client,
+                session,
+            )
     finally:
         await paypal_client.close()
 
-    assert approved.status == "approved"
-    assert approved.paypal_order_id is not None
-    assert approved.paypal_order_id.startswith("DEMO-PAYOUT-")
+    assert transaction.status == "pending_approval"
+    assert transaction.paypal_order_id is None
 
 
 @pytest.mark.asyncio

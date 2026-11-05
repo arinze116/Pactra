@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Any, Literal
 
-import google.generativeai as genai
+from google import genai
 from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 from sqlmodel import Session
 

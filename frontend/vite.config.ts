@@ -5,15 +5,6 @@ export default defineConfig({
   plugins: [react()],
   build: {
     chunkSizeWarningLimit: 1_300,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          "react-vendor": ["react", "react-dom"],
-          "data-grid": ["ag-grid-community", "ag-grid-react"],
-          icons: ["lucide-react"],
-        },
-      },
-    },
   },
   server: {
     host: "0.0.0.0",

@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pactra
+          POSTGRES_PASSWORD: pactra
+          POSTGRES_DB: pactra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pactra -d pactra_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_ENV: test
+      SECRET_KEY: ci-only-secret-key-with-at-least-32-bytes
+      DATABASE_URL: postgresql+psycopg://pactra:pactra@localhost:5432/pactra_test
+      AI_ENABLED: "false"
+      PAYPAL_PAYOUTS_ENABLED: "false"
+      PAYPAL_MOCK_MODE: "false"
+      PAYPAL_BASE_URL: https://api-m.sandbox.paypal.com
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pip check
+      - run: alembic upgrade head
+      - run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pactra
+          POSTGRES_PASSWORD: pactra
+          POSTGRES_DB: pactra_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pactra -d pactra_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      APP_ENV: test
+      SECRET_KEY: ci-only-secret-key-with-at-least-32-bytes
+      DATABASE_URL: postgresql+psycopg://pactra:pactra@localhost:5432/pactra_e2e
+      AI_ENABLED: "false"
+      PAYPAL_PAYOUTS_ENABLED: "false"
+      PAYPAL_MOCK_MODE: "false"
+      PAYPAL_BASE_URL: https://api-m.sandbox.paypal.com
+      CORS_ORIGINS: http://localhost:5173
+      FRONTEND_URL: http://localhost:5173
+      VITE_API_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r requirements-dev.txt
+      - run: alembic upgrade head
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:e2e
+        working-directory: frontend
