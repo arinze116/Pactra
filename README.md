@@ -2,7 +2,7 @@
 
 Pactra is an AI-agent payment governance layer for PayPal. It lets an operations leader delegate payments to a Gemini-powered agent while enforcing deterministic category, vendor, transaction, daily-spend, and approval rules before any request reaches PayPal.
 
-Built for the PayPal AI Hackathon 2026. The hosted judge experience uses the deployed React frontend and FastAPI backend; the README documents the actual demo path, policy behaviour, and integration modes so an evaluator can verify claims against the product.
+Built for the PayPal AI Hackathon 2026.
 
 ## What works
 
@@ -14,7 +14,7 @@ Built for the PayPal AI Hackathon 2026. The hosted judge experience uses the dep
 - Daily and category utilisation dashboard
 - Deterministic PayPal mock mode for a credential-free judge experience
 - Responsive React/TypeScript interface with AG Grid
-- SQLModel persistence: SQLite for local development and PostgreSQL on the hosted Render deployment
+- SQLite persistence via SQLModel and Render deployment blueprint
 
 ## Architecture
 
@@ -65,16 +65,6 @@ npm run dev
 ```
 
 Open <http://localhost:5173>. API documentation is available at <http://localhost:8000/docs>.
-
-## Judge walkthrough
-
-1. Open the hosted app at <https://pactra-frontend.onrender.com>.
-2. Use the chat to request one allowed payment, one payment that requires approval, and one payment that violates a hard limit.
-3. Inspect the resulting transaction status and audit entry; confirm that the policy decision is visible and that blocked requests do not execute.
-4. Open the spend summary and policy view to verify the resulting utilisation and active limits.
-5. For a deterministic walkthrough, use mock mode. Mock references are explicitly marked `DEMO-*` and do not represent real PayPal movement.
-
-The judge path demonstrates the key claim: the agent proposes an action, while deterministic policy code decides whether it can proceed. A model response alone is not evidence that a payment executed; verify the transaction state in the audit log.
 
 ## Demo prompts
 
@@ -144,7 +134,7 @@ The policy suite covers every decision branch, case-insensitive vendor blocking,
 - Pending payments are re-evaluated against hard limits immediately before approval.
 - CORS is restricted to configured origins.
 
-Local development defaults to SQLite. The hosted Render service is configured with PostgreSQL for persisted audit data. Production deployments should still use managed database backups, retention controls, and concurrency-aware operational monitoring.
+SQLite on Render's free, ephemeral filesystem is suitable for the hackathon demo. Use a managed database for durable production audit retention and multi-instance concurrency.
 
 ## License
 
