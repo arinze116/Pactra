@@ -244,4 +244,3 @@ def client_ip(request: Request) -> str:
 def login_rate_key(request: Request, email: str) -> str:
     email_digest = hashlib.sha256(email.encode("utf-8")).hexdigest()
     return f"login:{client_ip(request)}:{email_digest}"
-

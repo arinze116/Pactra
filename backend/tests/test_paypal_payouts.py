@@ -250,4 +250,3 @@ async def test_provider_batch_survives_local_capture_rollback(payout_db) -> None
         )
     ).all()
     assert len(captures) == 1
-

@@ -12,4 +12,3 @@ class ApiError(Exception):
     code: str
     message: str
     details: dict[str, Any] | None = None
-

@@ -152,7 +152,7 @@ policy/ledger/provider lifecycle.
   -----------------------------------------------------------------------------------------------------------------------------------------------
   Closest        Link                                                               What it does                 Won?           How Pactra
   existing                                                                                                                      differs
-  project                                                                                                                       
+  project
   -------------- ------------------------------------------------------------------ ---------------------------- -------------- -----------------
   BOLT ---       https://devpost.com/software/bolt-agentic-payments-control-plane   PayPal Sandbox               Not verified   Pactra
   Agentic                                                                           policy/approval control                     prioritises the
@@ -329,22 +329,22 @@ rules](https://paypalaihackathon.devpost.com/rules).
   Best Use of AG    Use AG Grid       AG Grid Community is  Transactions page
   Grid              tools; official   used as the real      and receipt
   (1st/2nd/3rd)     rules list        transaction           drill-in
-                    \$5,000 / \$2,000 operations grid with  
-                    / \$1,000 awards  sorting, filtering,   
-                                      status/category       
-                                      columns, selection    
-                                      and row-to-receipt    
-                                      navigation; no        
-                                      decorative grid       
+                    \$5,000 / \$2,000 operations grid with
+                    / \$1,000 awards  sorting, filtering,
+                                      status/category
+                                      columns, selection
+                                      and row-to-receipt
+                                      navigation; no
+                                      decorative grid
 
   Best Use of       Eligible          Gemini function       Assistant →
   PayPal + AI       submission        calling creates       approval → PayPal
   Honorable Mention meaningfully uses governed payout       sandbox batch →
   (\$5,000)         PayPal and AI     requests; PayPal      receipt
-                                      Sandbox Payouts       
-                                      executes/reconciles   
-                                      approved payout       
-                                      requests              
+                                      Sandbox Payouts
+                                      executes/reconciles
+                                      approved payout
+                                      requests
   ---------------------------------------------------------------------------
 
 Prize amounts and eligibility are from [official rules, Section
@@ -907,64 +907,64 @@ governed vendor/contractor disbursements while remaining sandbox-only.
   Route                                 Screen            Auth       Purpose                Key components   Data               Rendering
   ------------------------------------- ----------------- ---------- ---------------------- ---------------- ------------------ -----------
   `/`                                   Marketing/entry   No         Explain product and    Wordmark,        Public config      Client
-                                                                     route to sign-up       concise product                     
-                                                                                            statement,                          
-                                                                                            sandbox notice,                     
-                                                                                            sign-up/login                       
-                                                                                            CTAs                                
+                                                                     route to sign-up       concise product
+                                                                                            statement,
+                                                                                            sandbox notice,
+                                                                                            sign-up/login
+                                                                                            CTAs
 
   `/sign-up`                            Registration      No         Create account         Email/password   Auth API           Client
-                                                                                            form, validation                    
+                                                                                            form, validation
 
   `/sign-in`                            Login             No         Authenticate           Form, error      Auth API           Client
-                                                                                            state                               
+                                                                                            state
 
   `/app`                                Overview          Yes        Wallet, spend, pending App shell,       Wallet, policy,    Client
-                                                                     approvals, recent      balance card,    transactions       
-                                                                     activity               spend chart,                        
-                                                                                            activity list                       
+                                                                     approvals, recent      balance card,    transactions
+                                                                     activity               spend chart,
+                                                                                            activity list
 
   `/app/payments/new`                   New payment       Yes        Manual payment request Payment form     Policy, wallet     Client
 
   `/app/assistant`                      Assistant         Yes        Natural-language       Chat, tool       Conversation,      Client
-                                                                     payment requests       outcome cards    transactions       
+                                                                     payment requests       outcome cards    transactions
 
   `/app/approvals`                      Approvals         Yes        Review pending         Approval         Pending            Client
-                                                                     requests               table/cards,     transactions       
-                                                                                            detail drawer                       
+                                                                     requests               table/cards,     transactions
+                                                                                            detail drawer
 
   `/app/transactions`                   Transaction       Yes        Search/filter          Data table,      Transactions       Client
-                                        history                      transactions           filters,                            
-                                                                                            pagination                          
+                                        history                      transactions           filters,
+                                                                                            pagination
 
   `/app/transactions/:id`               Receipt/detail    Yes        Inspect lifecycle and  Receipt,         Transaction,       Client
-                                                                     audit                  timeline, policy ledger, events     
-                                                                                            trace                               
+                                                                     audit                  timeline, policy ledger, events
+                                                                                            trace
 
   `/app/policies`                       Policy settings   Yes        Configure controls     Policy editor    Current            Client
-                                                                                                             policy/version     
+                                                                                                             policy/version
 
   `/app/wallet`                         Wallet            Yes        Balance and test-fund  Balance, top-up, Wallet, ledger     Client
-                                                                     actions                reset                               
+                                                                     actions                reset
 
   `/app/settings`                       Account settings  Yes        Profile, session,      Account form,    User               Client
-                                                                     sandbox controls       logout                              
+                                                                     sandbox controls       logout
 
-  `/app/settings/integrations/paypal`   PayPal Sandbox    Yes        Show provider          Integration      Client             
-                                        integration                  configuration/health   status API                          
-                                                                     and last payout                                            
-                                                                     reconciliation; never                                      
-                                                                     expose credentials                                         
+  `/app/settings/integrations/paypal`   PayPal Sandbox    Yes        Show provider          Integration      Client
+                                        integration                  configuration/health   status API
+                                                                     and last payout
+                                                                     reconciliation; never
+                                                                     expose credentials
 
   `/health`                             Health            No         Liveness/readiness     JSON             DB                 Server
-                                                                                                             readiness/config   
-                                                                                                             mode               
+                                                                                                             readiness/config
+                                                                                                             mode
 
   `*`                                   Not found         No/Yes     Recover from bad route 404, home/app    None               Client
-                                                                                            link                                
+                                                                                            link
 
   Error boundary                        Global error      No/Yes     Recover from render    Error message,   Error context      Client
-                                                                     errors                 retry                               
+                                                                     errors                 retry
   -----------------------------------------------------------------------------------------------------------------------------------------
 
 No sitemap/robots is required for the authenticated app. Public `/` may
@@ -1220,33 +1220,33 @@ PWA icon is stretch; if implemented, use 192×192 and 512×512 variants.
   Component             Path                                                Base              Props          Variants/states               Used on
   --------------------- --------------------------------------------------- ----------------- -------------- ----------------------------- ---------------------
   AppShell              `frontend/src/components/AppShell.tsx`              Custom            children,      desktop/mobile                App routes
-                                                                                              activeRoute                                  
+                                                                                              activeRoute
 
   SidebarNav            `frontend/src/components/SidebarNav.tsx`            Custom + Lucide   activeRoute,   expanded/drawer               App shell
-                                                                                              pendingCount                                 
+                                                                                              pendingCount
 
   PageHeader            `frontend/src/components/PageHeader.tsx`            Custom            title,         standard                      All app pages
-                                                                                              description,                                 
-                                                                                              actions                                      
+                                                                                              description,
+                                                                                              actions
 
   StatusBadge           `frontend/src/components/StatusBadge.tsx`           Existing/custom   status         all lifecycle states          Tables/detail
 
   Money                 `frontend/src/components/Money.tsx`                 Custom            cents,         positive/negative             Wallet/transactions
-                                                                                              currency                                     
+                                                                                              currency
 
   WalletSummary         `frontend/src/components/WalletSummary.tsx`         Custom            wallet         loading/error                 Overview/wallet
 
   PaymentForm           `frontend/src/components/PaymentForm.tsx`           Custom            policy,        pristine/invalid/submitting   New payment
-                                                                                              onSubmit                                     
+                                                                                              onSubmit
 
   PolicyEditor          `frontend/src/components/PolicyEditor.tsx`          Existing refactor policy, onSave dirty/saving/error            Policies
 
   ApprovalPanel         `frontend/src/components/ApprovalPanel.tsx`         Custom            transaction,   pending/conflict              Approvals
-                                                                                              actions                                      
+                                                                                              actions
 
   TransactionTable      `frontend/src/components/TransactionTable.tsx`      AG Grid Community rows, filters, loading/empty/error           History
-                                                                            31.3.4, custom    column state                                 
-                                                                            cell renderers                                                 
+                                                                            31.3.4, custom    column state
+                                                                            cell renderers
 
   TransactionTimeline   `frontend/src/components/TransactionTimeline.tsx`   Custom            events         complete/failed               Detail
 
@@ -1257,17 +1257,17 @@ PWA icon is stretch; if implemented, use 192×192 and 512×512 variants.
   ToolResultCard        `frontend/src/components/ToolResultCard.tsx`        Custom            result         success/blocked/pending       Assistant
 
   ConfirmDialog         `frontend/src/components/ConfirmDialog.tsx`         Custom accessible title, body,   open/busy                     Destructive actions
-                                                                            dialog            confirm                                      
+                                                                            dialog            confirm
 
   ToastProvider         `frontend/src/components/ToastProvider.tsx`         Custom            ---            success/error/info            App
 
   ErrorBoundary         `frontend/src/components/ErrorBoundary.tsx`         React             children       error                         App
 
   FormField             `frontend/src/components/FormField.tsx`             Custom            label, error,  valid/invalid                 Forms
-                                                                                              children                                     
+                                                                                              children
 
   EmptyState            `frontend/src/components/EmptyState.tsx`            Custom            title, body,   ---                           Data views
-                                                                                              action                                       
+                                                                                              action
 
   LoadingSkeleton       `frontend/src/components/LoadingSkeleton.tsx`       Custom            variant        ---                           Data views
   --------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1283,54 +1283,54 @@ backend additions are pinned in `requirements.txt` and
   Layer         Choice                        Exact version Why                     Source checked
   ------------- ---------------------- -------------------- ----------------------- ------------------------------------------------
   Runtime       Python                              3.11.10 Existing Render runtime Existing `render.yaml`
-                                                            and backend             
-                                                            compatibility           
+                                                            and backend
+                                                            compatibility
 
   API           FastAPI                             0.162.0 Backend API             https://pypi.org/project/fastapi/
 
   ORM           SQLModel                             0.0.47 Typed SQL persistence   https://pypi.org/project/sqlmodel/
 
   SQL toolkit   SQLAlchemy                           2.0.50 Transaction/locking     https://pypi.org/project/SQLAlchemy/
-                                                            layer                   
+                                                            layer
 
   Validation    Pydantic                             2.14.2 Typed schemas and       https://pypi.org/project/pydantic/
-                                                            validation              
+                                                            validation
 
   Settings      pydantic-settings                    2.16.2 Environment             https://pypi.org/project/pydantic-settings/
-                                                            configuration           
+                                                            configuration
 
   ASGI server   Uvicorn                              0.54.0 API server              https://pypi.org/project/uvicorn/
 
   HTTP client   httpx                                0.28.1 PayPal REST calls and   https://pypi.org/project/httpx/
-                                                            API tests               
+                                                            API tests
 
   AI SDK        google-genai                         2.23.0 Current Google Gen AI   https://pypi.org/project/google-genai/
-                                                            SDK; replaces           
-                                                            deprecated              
-                                                            `google-generativeai`   
+                                                            SDK; replaces
+                                                            deprecated
+                                                            `google-generativeai`
 
   AI model      Gemini 3.8 Flash         `gemini-3.8-flash` Function calling and    https://ai.google.dev/gemini-api/docs/models
-                                                     stable intent parsing          
+                                                     stable intent parsing
 
   Email         email-validator                       2.3.0 Registration and payout https://pypi.org/project/email-validator/
-  validation                                                recipient validation    
+  validation                                                recipient validation
 
   Password      argon2-cffi                          25.1.0 Argon2id password       https://pypi.org/project/argon2-cffi/
-  hashing                                                   hashing                 
+  hashing                                                   hashing
 
   Migrations    Alembic                              1.20.1 Database schema         https://pypi.org/project/alembic/
-                                                            migrations              
+                                                            migrations
 
   PostgreSQL    psycopg\[binary\]                     3.3.6 Production PostgreSQL   https://pypi.org/project/psycopg/
-  driver                                                                            
+  driver
 
   Backend tests pytest                                9.2.0 Unit/integration tests  https://pypi.org/project/pytest/
 
   Async tests   pytest-asyncio                  1.4.1.post1 Async API/provider      https://pypi.org/project/pytest-asyncio/
-                                                            tests                   
+                                                            tests
 
   Frontend      Node.js                             22.23.2 Build and dev runtime   https://nodejs.org/en/download
-  runtime                                                                           
+  runtime
 
   Frontend      React / React DOM                    18.3.1 Existing app            `frontend/package-lock.json`
 
@@ -1344,12 +1344,12 @@ backend additions are pinned in `requirements.txt` and
 
   Grid          AG Grid Community                    31.3.4 Real transaction        `frontend/package-lock.json`;
                                                             operations grid;        https://www.ag-grid.com/react-data-grid/
-                                                            sponsor-prize target    
+                                                            sponsor-prize target
 
   Icons         lucide-react                        0.468.0 Existing icon set       `frontend/package-lock.json`
 
   Frontend      Zod                                   4.6.7 API/form validation     https://www.npmjs.com/package/zod
-  validation                                                                        
+  validation
 
   E2E           @playwright/test                     1.64.1 Judge journeys          https://www.npmjs.com/package/@playwright/test
 
@@ -1358,15 +1358,15 @@ backend additions are pinned in `requirements.txt` and
   React plugin  @vitejs/plugin-react                  4.7.0 Existing lockfile       `frontend/package-lock.json`
 
   Payment       PayPal Payouts REST                REST API Sandbox payout          https://developer.paypal.com/payouts/overview/
-  integration   API v1                                      execution and           
-                                                            reconciliation          
+  integration   API v1                                      execution and
+                                                            reconciliation
 
   Database      PostgreSQL production;   PostgreSQL managed Durable persistence and https://www.postgresql.org/docs/
-                SQLite local/test       by host; SQLite for transactional           
-                                                local tests concurrency             
+                SQLite local/test       by host; SQLite for transactional
+                                                local tests concurrency
 
   Web3          Not applicable: web2                    --- No contracts or wallet  ---
-                build                                       integration             
+                build                                       integration
   ----------------------------------------------------------------------------------------------------------------------------------
 
 The current `google-generativeai` Python SDK is deprecated and its
@@ -2011,30 +2011,30 @@ Not applicable: web2 build.
   ------------ ------------------ ------------------------------ ------------- -------------- ------------------ -------------
   Google       Natural-language   `google-genai==2.23.0`;        Server API    Provider       Manual form and    Required AI
   Gemini API   intent and typed   `gemini-3.8-flash`             key           quota; enforce deterministic      capability
-               function calls                                                  per-user       parser remain      
-                                                                               request limits usable; no payment 
-                                                                                              action is created  
-                                                                                              on ambiguous       
-                                                                                              intent             
+               function calls                                                  per-user       parser remain
+                                                                               request limits usable; no payment
+                                                                                              action is created
+                                                                                              on ambiguous
+                                                                                              intent
 
   PayPal       Real sandbox       REST API v1; backend           Sandbox OAuth PayPal sandbox Keep reservation   Required
   Sandbox      payout batch       `httpx==0.28.1`                client        limits and     for unknown        PayPal
   Payouts      creation and                                      credentials   account        status; release    integration
-               provider-state                                                  capabilities   only on definitive 
-               reconciliation                                                                 failure; internal  
-                                                                                              sandbox rail       
-                                                                                              remains available  
+               provider-state                                                  capabilities   only on definitive
+               reconciliation                                                                 failure; internal
+                                                                                              sandbox rail
+                                                                                              remains available
 
   AG Grid      Transaction        `ag-grid-community==31.3.4`,   None          Community      Accessible table   Best Use of
   Community    operations grid    `ag-grid-react==31.3.4`                      feature set    fallback only for  AG Grid
                                                                                               runtime failure;   target
-                                                                                              primary table uses 
-                                                                                              AG Grid            
+                                                                                              primary table uses
+                                                                                              AG Grid
 
   PostgreSQL   Durable production `psycopg==3.3.6`               Server        Host plan      Readiness fails if No
-  host         DB                                                connection                   DB unavailable; no 
-                                                                 string                       silent fallback to 
-                                                                                              ephemeral SQLite   
+  host         DB                                                connection                   DB unavailable; no
+                                                                 string                       silent fallback to
+                                                                                              ephemeral SQLite
 
   Render (if   Hosting            Existing blueprint             Deployment    Host plan      Roll back previous Render prize
   retained)                                                      env vars                     deploy;            only if
@@ -2062,45 +2062,45 @@ calling](https://ai.google.dev/gemini-api/docs/function-calling).
   Name                               Required      Scope          Example format                       Where to get it Used in
   ---------------------------------- ------------- -------------- ------------------------------------ --------------- ---------------
   `APP_ENV`                          Yes           Server         `production`                         Deployment      Safety checks
-                                                                                                       config          
+                                                                                                       config
 
   `SECRET_KEY`                       Yes           Server         random 32+ bytes                     Secret manager  Sessions/CSRF
 
   `DATABASE_URL`                     Yes           Server         `postgresql+psycopg://...`           Managed         DB
-                                                                                                       PostgreSQL      
+                                                                                                       PostgreSQL
 
   `CORS_ORIGINS`                     Yes           Server         `https://pactra.example`             Deployment      CORS
-                                                                                                       domain          
+                                                                                                       domain
 
   `FRONTEND_URL`                     Yes           Server         `https://pactra.example`             Deployment      Links
-                                                                                                       domain          
+                                                                                                       domain
 
   `GEMINI_API_KEY`                   Required for  Server         secret value                         Google AI       AI assistant
-                                     public judge                                                      Studio          
-                                     deployment;                                                                       
-                                     optional                                                                          
-                                     local dev                                                                         
+                                     public judge                                                      Studio
+                                     deployment;
+                                     optional
+                                     local dev
 
   `GEMINI_MODEL`                     No            Server         `gemini-3.8-flash`                   Google model    AI assistant
-                                                                                                       catalogue       
+                                                                                                       catalogue
 
   `AI_ENABLED`                       Required      Server         `true`                               Deployment      AI toggle
-                                     `true` for                                                                        
-                                     public judge                                                                      
-                                     deployment;                                                                       
-                                     local default                                                                     
-                                     `false`                                                                           
+                                     `true` for
+                                     public judge
+                                     deployment;
+                                     local default
+                                     `false`
 
   `PAYPAL_PAYOUTS_ENABLED`           Yes           Server         `true`                               Deployment      PayPal rail
                                                                                                                        availability
 
   `PAYPAL_CLIENT_ID`                 Required when Server         sandbox client ID                    PayPal          OAuth
-                                     PayPal                                                            Developer       
-                                     enabled                                                           Dashboard       
+                                     PayPal                                                            Developer
+                                     enabled                                                           Dashboard
 
   `PAYPAL_CLIENT_SECRET`             Required when Server         sandbox secret                       PayPal          OAuth
-                                     PayPal                                                            Developer       
-                                     enabled                                                           Dashboard       
+                                     PayPal                                                            Developer
+                                     enabled                                                           Dashboard
 
   `PAYPAL_BASE_URL`                  Yes           Server         `https://api-m.sandbox.paypal.com`   PayPal docs     Sandbox API
                                                                                                                        host; live host
@@ -2214,47 +2214,47 @@ data unnecessarily, or raw AI prompts by default.
   Code                     User message            Recovery
   ------------------------ ----------------------- -----------------------
   `VALIDATION_ERROR`       Check the highlighted   Correct form
-                           fields and try again.   
+                           fields and try again.
 
   `INVALID_CREDENTIALS`    Email or password is    Retry
-                           incorrect.              
+                           incorrect.
 
   `EMAIL_EXISTS`           An account with this    Sign in
-                           email already exists.   
+                           email already exists.
 
   `UNAUTHENTICATED`        Your session expired.   Sign in
-                           Sign in to continue.    
+                           Sign in to continue.
 
   `FORBIDDEN`              You don't have access   Return to overview
-                           to this item.           
+                           to this item.
 
   `POLICY_BLOCKED`         This request is blocked View policy
-                           by your spending        
-                           policy.                 
+                           by your spending
+                           policy.
 
   `INSUFFICIENT_FUNDS`     Your available sandbox  Top up
-                           balance is too low.     
+                           balance is too low.
 
   `ALREADY_ACTIONED`       This request has        Refresh
-                           already been actioned.  
+                           already been actioned.
 
   `IDEMPOTENCY_CONFLICT`   This request key was    Retry with new action
-                           used for a different    
-                           action.                 
+                           used for a different
+                           action.
 
   `AI_UNAVAILABLE`         Assistant is            Open payment form
-                           unavailable. You can    
-                           still use the payment   
-                           form.                   
+                           unavailable. You can
+                           still use the payment
+                           form.
 
   `RATE_LIMITED`           Too many requests. Wait Retry after delay
-                           a moment and try again. 
+                           a moment and try again.
 
   `INTERNAL_ERROR`         Something went wrong.   Retry/check history
-                           Your balance has not    
-                           been changed unless the 
-                           transaction shows       
-                           completed.              
+                           Your balance has not
+                           been changed unless the
+                           transaction shows
+                           completed.
   ------------------------------------------------------------------------
 
 Retry policy: GET requests retry up to 2 times with exponential backoff

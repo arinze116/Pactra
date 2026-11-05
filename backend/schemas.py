@@ -383,4 +383,3 @@ class ConversationUpdateRequest(StrictModel):
         if self.title is None and self.archived is None:
             raise ValueError("Provide a title or archive state")
         return self
-

@@ -216,4 +216,3 @@ def test_concurrent_reservations_cannot_overdraw_wallet(tmp_path: Path) -> None:
         assert session.exec(select(func.count(PaymentTransaction.id))).one() == 1
     SQLModel.metadata.drop_all(engine)
     engine.dispose()
-

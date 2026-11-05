@@ -92,4 +92,3 @@ def create_account(
         wallet=wallet,
         balance=wallet_balance(session, wallet),
     )
-

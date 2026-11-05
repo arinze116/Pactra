@@ -309,4 +309,3 @@ def test_conversation_history_persists_and_is_owner_scoped(api) -> None:
     )
     assert restored.status_code == 200
     assert restored.json()["archived_at"] is None
-

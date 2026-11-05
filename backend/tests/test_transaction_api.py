@@ -319,4 +319,3 @@ def test_reset_restores_balance_cancels_holds_and_preserves_history(
     assert pending_receipt["transaction"]["status"] == "cancelled"
     assert api.get(f"/api/transactions/{completed['id']}").status_code == 200
     assert api.get("/api/policy").json()["version"] == 2
-
