@@ -4,7 +4,18 @@ Source of truth: `Pactra-PRD-Judge-Ready.md` v1.1, dated 3 November 2026.
 
 Status legend: `[x]` complete and verified, `[~]` partially present, `[ ]` not implemented, `[B]` externally blocked.
 
-## Existing architecture
+## Final release candidate — 5 November 2026
+
+- Active release branch: `feat/red-dark-fintech-redesign`; PR #2 targets `main`.
+- Backend verification: `63 passed, 2 skipped`; the skipped tests are PostgreSQL-only UUID/runtime and concurrent-policy locking checks that run in CI.
+- Frontend verification: lint passed, production build passed, production dependency audit found zero vulnerabilities, and all 9 Chromium judge journeys passed.
+- A clean SQLite database migrated through Alembic revisions `20261103_0001` and `20261103_0002`.
+- Cross-origin production auth uses Secure SameSite=None HttpOnly cookies plus an exposed synchronizer-token response header; production configuration rejects unsafe secrets, origins, SQLite, mock PayPal, and live PayPal hosts.
+- Gemini tool/failure paths are covered deterministically, including a partial provider failure after a payment tool has committed. A real provider request reached Google but returned `503 UNAVAILABLE`; live Gemini success is not claimed.
+- A real PayPal Sandbox payout was submitted with mock mode disabled. Its item reached `FAILED`; Pactra released the reservation and preserved the posted balance. Item-level success remains an external release gate.
+- The Render blueprint uses unique unassigned service names and managed PostgreSQL, but no Render API/CLI access is available in this workspace. Public deployment is not claimed.
+
+## Historical baseline before judge-ready implementation
 
 - Backend: FastAPI + SQLModel monolith in `backend/main.py`.
 - Persistence: SQLite through `SQLModel.metadata.create_all`; no Alembic migrations.
@@ -32,7 +43,7 @@ Status legend: `[x]` complete and verified, `[~]` partially present, `[ ]` not i
 
 Local runtime note: the existing `.venv` uses Python 3.13.14, while deployment and PRD target Python 3.11.10. Node 22.23.2 matches the PRD.
 
-## Phase 0 revalidation — current feature branch
+## Historical phase 0 revalidation — 3 November 2026
 
 The repository is now on `feat/judge-ready-product` at `ed96828`, with `origin/main` already contained in the branch. The working tree also contains an uncommitted frontend route/workflow implementation plus transaction date filtering. These changes pre-date this revalidation and are being preserved in place; no pull, reset, clean, checkout, or branch switch was performed.
 
@@ -119,7 +130,7 @@ Current architecture reality:
 - [x] Ledger capture only after item `SUCCESS`
 - [x] Terminal failure release and returned/reversed/refunded compensation
 - [x] DB-backed reconciliation worker and manual refresh endpoint
-- [B] Live sandbox smoke test requires owner-provided sandbox credentials and recipient email
+- [B] Real Sandbox submission was verified through item-level `FAILED`; terminal `SUCCESS` still requires a distinct active Sandbox recipient that can receive USD
 
 ### AI assistant
 
@@ -130,7 +141,7 @@ Current architecture reality:
 - [x] Strict allowlisted tools using authenticated transaction services
 - [x] Deterministic parser fallback and clarification behavior
 - [x] AI rate/turn/input/output limits and prompt-injection boundaries
-- [B] Live Gemini verification requires deployment `GEMINI_API_KEY`
+- [B] Live Gemini request reached the configured model but returned provider `503 UNAVAILABLE`; deployed tool-call success remains unverified
 
 ### Frontend and judge experience
 
@@ -145,8 +156,8 @@ Current architecture reality:
 
 ### Quality, deployment and documentation
 
-- [x] Backend unit/integration/concurrency/security coverage: 50 tests pass, including provider local-capture recovery
-- [x] Six Playwright journeys cover the core flow, policy lifecycle, cross-user isolation, API recovery, persisted assistant conversations and failed policy saves
+- [x] Backend unit/integration/concurrency/security coverage: 63 tests pass locally, with 2 PostgreSQL-only runtime tests delegated to CI
+- [x] Nine Playwright journeys cover the core flow, policy lifecycle, cross-user isolation, API recovery, persisted assistant conversations, retry idempotency, auth error handling and mobile layout
 - [x] CI with PostgreSQL migration/test jobs, frontend lint/build/audit and Playwright
 - [x] Managed PostgreSQL Render blueprint and Alembic pre-deploy migration step
 - [x] `/api/health` and `/api/ready`
@@ -169,15 +180,15 @@ Current architecture reality:
 
 ### Remaining external or owner-controlled work
 
-1. Supply a Gemini API key and verify the configured `gemini-3.8-flash` call in the deployed environment.
-2. Supply PayPal Sandbox Payouts credentials plus the configured sandbox recipient, then complete an item-level payout smoke test.
+1. Add the verified Gemini key to the deployed environment and rerun the configured `gemini-3.8-flash` tool path after the provider's temporary `503 UNAVAILABLE` condition clears.
+2. Configure a distinct active PayPal Sandbox recipient that can receive USD, then rerun the payout until item-level `SUCCESS`; the latest real attempt ended `FAILED` and was reconciled safely.
 3. Deploy the Render blueprint, run the documented public smoke path, and add the final live/demo URLs.
 4. Retire the inactive legacy `agent.py` / `policy_engine.py` / PayPal Orders compatibility code in a separately approved cleanup; it is not imported or mounted by `backend/main.py`, but remains importable for pre-existing legacy tests.
 
 ### Exact remaining acceptance tests
 
 - No route mounted by the active FastAPI app uses float money, global policy snapshots, PayPal Orders, or demo-success provider IDs. Legacy compatibility modules remain isolated from the app pending separately approved removal.
-- `pytest -q` covers account isolation, ledger idempotency/concurrency, approval single-use, reset preservation, PayPal item states, unknown outcomes, and local capture recovery.
+- `pytest -ra` covers account isolation, ledger idempotency/concurrency, approval single-use, reset preservation, PayPal item states, unknown outcomes, local capture recovery, and Gemini partial failures.
 - Policy UI can add/remove valid categories while keeping one positive budget per category; invalid edits never save.
 - A fresh browser account can top up, auto-execute, create/approve/reject, block, use assistant fallback, inspect a receipt, filter history, and reset without duplicate postings.
 - PayPal-disabled UI never offers or labels a provider payout; PayPal-enabled configuration exposes only the sandbox recipient shortcut and honest provider state.
@@ -237,7 +248,7 @@ Checkpoints follow the PRD: database/auth/ledger before payment features; comple
 - A fresh judge can register, see 1,000 USD sandbox funds, top up, edit policy, create manual/AI requests, approve/reject, view receipts and reset.
 - AG Grid filters and opens transaction detail; mobile history remains usable.
 - Errors never claim completion or optimistic balance changes.
-- The six implemented Playwright journeys pass and collectively exercise the credential-independent P0 flow; credential-dependent and public-deployment smoke is reported separately.
+- The nine implemented Playwright journeys pass and collectively exercise the credential-independent P0 flow; credential-dependent and public-deployment smoke is reported separately.
 
 ## Progress log
 
@@ -248,3 +259,4 @@ Checkpoints follow the PRD: database/auth/ledger before payment features; comple
 - 2026-11-03: Phase 0 revalidation of the current branch complete. PRD read in full; current uncommitted work preserved. Backend suite passes 46 tests with a sandbox-local temp directory, clean SQLite migration passes, frontend lint/build pass, and production npm audit reports zero vulnerabilities. Playwright is currently blocked before test execution by the managed sandbox denying its spawned Vite/esbuild child process; this is recorded separately from product failures.
 - 2026-11-03: Final local verification complete. Backend suite: 50 passed with one upstream Starlette/httpx deprecation warning. A new SQLite database migrated to head. Frontend lint and Vite production build passed with 1,614 modules transformed. Production dependency audit reported zero vulnerabilities. Four Chromium Playwright journeys passed against fresh migrated state. YAML parsing, secret-pattern scanning, route/auth review and `git diff --check` found no release-blocking local defect. Live PostgreSQL, Gemini, PayPal Sandbox and public deployment smoke remain external-environment blockers and are not claimed.
 - 2026-11-03: Conversation, policy UX and frontend redesign complete. Added migration `20261103_0002`, owner-scoped conversation lifecycle APIs, chronological persisted messages, assistant request replay protection, truthful backend-confirmed action wording, strict policy create/edit validation and immutable version history. Reworked the authenticated shell and all judge-facing surfaces into the restrained dark control-room system, including a mobile composer that remains visible with dynamic viewport changes. Final verification: 55 backend tests passed, frontend lint passed, production TypeScript/Vite build passed with 1,616 modules transformed, clean SQLite migration reached `20261103_0002`, and all 6 Chromium journeys passed. Live Gemini, PayPal Sandbox and public deployment smoke remain credential/environment blocked and are not claimed.
+- 2026-11-05: Final release hardening complete. Fixed PostgreSQL UUID/runtime compatibility, production cross-origin CSRF/session handling, strict production configuration, policy version concurrency, reservation accounting, Gemini retry/error disclosure and post-tool partial failures, PayPal reconciliation wording, retry-stable frontend mutations, transaction pagination, draft hydration, auth error handling, CI runner setup and unique Render service names. Verification: 63 backend tests passed with 2 PostgreSQL-only skips, clean migration passed, lint/build/pip check/production npm audit passed, and all 9 Chromium journeys passed. Live Gemini success, PayPal item success and public deployment remain explicitly unclaimed.

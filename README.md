@@ -6,8 +6,10 @@ Pactra is a sandbox-only payment operations workspace built for the PayPal AI Ha
 
 No real money moves. Pactra's append-only ledger is the source of truth for the in-app test wallet. PayPal Sandbox Payouts is a separate external test rail and is never reported as successful until the individual payout item succeeds and Pactra's ledger capture commits.
 
-- Live app: pending owner deployment and smoke verification
+- Live app: pending deployment and smoke verification at the unique Render service names in `render.yaml`
 - Demo video: pending owner recording/upload
+- Product contract: [`Pactra-PRD-Judge-Ready.md`](./Pactra-PRD-Judge-Ready.md)
+- Judge demo and release gates: [`DEMO.md`](./DEMO.md) and [`SUBMISSION.md`](./SUBMISSION.md)
 
 ## What works
 
@@ -61,7 +63,7 @@ npm ci
 cd ..
 ```
 
-Do not put real-money credentials in `.env`. For a real provider test, use only a PayPal sandbox business app and sandbox recipient, set `PAYPAL_MOCK_MODE=false`, then enable `PAYPAL_PAYOUTS_ENABLED=true`. Mock mode never produces a PayPal-branded success.
+Do not put real-money credentials in `.env`. The safe default is `PAYPAL_MOCK_MODE=false` with payouts disabled. For a real provider test, use only a PayPal Sandbox business app and a distinct Sandbox recipient, keep `PAYPAL_MOCK_MODE=false`, then enable `PAYPAL_PAYOUTS_ENABLED=true`. Pactra never presents mock output as a PayPal result.
 
 Start the API:
 
@@ -143,7 +145,7 @@ npm run test:e2e
 npm audit --omit=dev --audit-level=high
 ```
 
-Playwright starts the API and frontend in normal local/CI environments. Run `alembic upgrade head` first. Tests use the internal rail and deterministic assistant fallback, so judges and CI do not need external credentials.
+Playwright starts the API and frontend, migrates an isolated local SQLite database automatically, and explicitly disables Gemini and PayPal. CI keeps its isolated PostgreSQL database. The suite never inherits the root `.env` database or provider flags. Judges and CI do not need external credentials for the internal sandbox path.
 
 ## Judge walkthrough
 
@@ -158,9 +160,41 @@ Playwright starts the API and frontend in normal local/CI environments. Run `ale
 9. Filter Transactions, inspect lifecycle/ledger details, reject another pending request, and reset the sandbox by typing `RESET`.
 10. If the PayPal integration page reports `Configured`, use the provided test-recipient shortcut, approve the payout, and refresh until the payout item reaches a truthful terminal state.
 
+## Environment configuration
+
+Server-only secrets must be stored in the hosting provider, never in Vite variables or source control.
+
+| Variable | Production value or purpose |
+|---|---|
+| `APP_ENV` | `production` |
+| `SECRET_KEY` | Unique random secret, 32+ characters; the development default is rejected |
+| `DATABASE_URL` | Managed PostgreSQL connection string |
+| `FRONTEND_URL` | Exact HTTPS frontend origin |
+| `BACKEND_URL` | Exact HTTPS API origin |
+| `CORS_ORIGINS` | Comma-separated exact HTTPS frontend origins; no wildcard |
+| `SESSION_COOKIE_SECURE` | `true` |
+| `SESSION_COOKIE_SAMESITE` | `none` for the separate Render frontend/API hosts |
+| `SESSION_TTL_HOURS`, `SESSION_IDLE_HOURS` | Defaults: `168` and `24` |
+| `AI_ENABLED` | Set `true` only after `GEMINI_API_KEY` is present |
+| `GEMINI_API_KEY` | Server-side Google AI Studio key |
+| `GEMINI_MODEL` | `gemini-3.8-flash`, verified in the provider model catalogue |
+| `MAX_CHAT_HISTORY` | Default `20` |
+| `PAYPAL_PAYOUTS_ENABLED` | Set `true` only after all Sandbox values below are present |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal Sandbox business-app credentials |
+| `PAYPAL_TEST_RECIPIENT_EMAIL` | Distinct active PayPal Sandbox recipient account |
+| `PAYPAL_BASE_URL` | Exactly `https://api-m.sandbox.paypal.com` |
+| `PAYPAL_MOCK_MODE` | `false` in production and for real Sandbox tests |
+| `PAYPAL_REQUEST_TIMEOUT_SECONDS` | Default `15` |
+| `VITE_API_URL` | Public API origin; contains no secret |
+| `SEED_DEMO_ACCOUNT` | `false` in production |
+
+The API returns the CSRF synchronizer token through an explicitly exposed response header while keeping both auth cookies HttpOnly. Production uses Secure, SameSite=None cookies because Render's two `onrender.com` service hosts are cross-site.
+
 ## Deployment
 
-`render.yaml` provisions a managed PostgreSQL database, runs `alembic upgrade head` before the API starts, and deploys the Vite SPA separately. Before a public judge release, configure server-side `GEMINI_API_KEY`, PayPal sandbox client credentials, and `PAYPAL_TEST_RECIPIENT_EMAIL`; then set `AI_ENABLED=true` and `PAYPAL_PAYOUTS_ENABLED=true`. Never put those values in Vite variables or the repository.
+`render.yaml` provisions `pactra-sandbox-db`, runs `alembic upgrade head` before the API starts, and defines the unique services `pactra-sandbox-api-arinze116` and `pactra-sandbox-arinze116`. The previous short Render names are occupied by unrelated products and must not be used for this repository.
+
+Before a public judge release, add server-side `GEMINI_API_KEY`, PayPal Sandbox client credentials, and `PAYPAL_TEST_RECIPIENT_EMAIL`; then set `AI_ENABLED=true` and `PAYPAL_PAYOUTS_ENABLED=true`. Keep `PAYPAL_MOCK_MODE=false`. Never put those values in Vite variables or the repository. If either optional integration is unavailable, leave only its feature flag off; the internal sandbox ledger and deterministic assistant fallback remain usable and the UI reports the provider state honestly.
 
 The release is not submission-ready until a real PayPal Sandbox Payouts batch has been created and reconciled at item level in the deployed environment. A mock or internal-ledger transaction is never evidence of that provider smoke test.
 
@@ -182,9 +216,10 @@ The PRD-pinned Vite 5 development toolchain currently reports upstream dev-serve
 
 ## Known external blockers
 
-- Live Gemini verification requires an operator-supplied API key.
-- Live PayPal verification requires a sandbox business app with Payouts capability and a sandbox recipient account.
-- Public deployment smoke testing and Devpost/YouTube submission require the owner's hosting and submission access.
+- Gemini credentials and `gemini-3.8-flash` catalogue availability were verified locally. A live generation attempt on 5 November 2026 returned provider `503 UNAVAILABLE` due high demand, so deployed Gemini tool execution is not yet claimed; bounded retry and deterministic fallback were verified.
+- A real PayPal Sandbox Payouts batch was submitted locally with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires confirming that `PAYPAL_TEST_RECIPIENT_EMAIL` is a distinct active Sandbox recipient able to receive USD, then rerunning the payout.
+- No Render API/CLI access is available in this workspace. The operator must create or sync the blueprint, add secrets, enable the two feature flags, and run the documented deployed smoke test.
+- Devpost submission and the public demo-video upload remain owner actions.
 
 ## License
 

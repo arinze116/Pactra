@@ -27,23 +27,24 @@ jobs:
       DATABASE_URL: postgresql+psycopg://pactra:pactra@localhost:5432/pactra_test
       AI_ENABLED: "false"
       PAYPAL_PAYOUTS_ENABLED: "false"
-      PAYPAL_MOCK_MODE: "true"
+      PAYPAL_MOCK_MODE: "false"
       PAYPAL_BASE_URL: https://api-m.sandbox.paypal.com
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11.10"
+          python-version: "3.11"
           cache: pip
       - run: pip install -r requirements-dev.txt
+      - run: python -m pip check
       - run: alembic upgrade head
       - run: pytest -q
 
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.23.2"
           cache: npm
@@ -79,18 +80,18 @@ jobs:
       DATABASE_URL: postgresql+psycopg://pactra:pactra@localhost:5432/pactra_e2e
       AI_ENABLED: "false"
       PAYPAL_PAYOUTS_ENABLED: "false"
-      PAYPAL_MOCK_MODE: "true"
+      PAYPAL_MOCK_MODE: "false"
       PAYPAL_BASE_URL: https://api-m.sandbox.paypal.com
       CORS_ORIGINS: http://localhost:5173
       FRONTEND_URL: http://localhost:5173
       VITE_API_URL: http://127.0.0.1:8000
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11.10"
+          python-version: "3.11"
           cache: pip
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.23.2"
           cache: npm
