@@ -11,7 +11,11 @@ def production_settings(**overrides: object) -> Settings:
         "app_env": "production",
         "secret_key": "production-test-secret-key-at-least-32-bytes",
         "database_url": "postgresql+psycopg://pactra:pactra@localhost/pactra",
+        "frontend_url": "https://pactra-sandbox-arinze116.onrender.com",
+        "backend_url": "https://pactra-sandbox-api-arinze116.onrender.com",
+        "cors_origins": ["https://pactra-sandbox-arinze116.onrender.com"],
         "session_cookie_secure": True,
+        "session_cookie_samesite": "none",
         "paypal_mock_mode": False,
     }
     values.update(overrides)
@@ -56,4 +60,27 @@ def test_enabled_ai_requires_server_key() -> None:
             ai_enabled=True,
             gemini_api_key="test-key",
             gemini_model="gemini-2.0-flash",
+        )
+
+
+def test_production_rejects_default_secret_and_unsafe_origins() -> None:
+    with pytest.raises(ValidationError, match="non-default secret"):
+        production_settings(secret_key="development-only-change-me-32-bytes")
+
+    with pytest.raises(ValidationError, match="exact HTTPS origin"):
+        production_settings(cors_origins=["*"])
+
+    with pytest.raises(ValidationError, match="include FRONTEND_URL"):
+        production_settings(cors_origins=["https://example.com"])
+
+
+def test_cross_origin_production_requires_none_samesite() -> None:
+    with pytest.raises(ValidationError, match="SESSION_COOKIE_SAMESITE=none"):
+        production_settings(session_cookie_samesite="lax")
+
+    with pytest.raises(ValidationError, match="SESSION_COOKIE_SECURE=true"):
+        Settings(
+            _env_file=None,
+            session_cookie_samesite="none",
+            session_cookie_secure=False,
         )

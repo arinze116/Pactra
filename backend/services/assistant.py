@@ -1,7 +1,9 @@
 """Persisted Gemini assistant with allowlisted tools and deterministic fallback."""
 
+import asyncio
 import hashlib
 import json
+import logging
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -17,6 +19,7 @@ from backend.config import settings
 from backend.models import Conversation, ConversationMessage, PaymentTransaction, User, utc_now
 from backend.schemas import PaymentRequest
 from backend.services.ledger import get_wallet_for_user, wallet_balance
+from backend.services.audit import record_audit_event
 from backend.services.policies import get_current_policy
 from backend.services.transactions import (
     IntegrationUnavailable,
@@ -37,6 +40,8 @@ status or transaction ID. Default every payment to internal_sandbox. Select
 paypal_sandbox_payouts only when the user explicitly asks for PayPal Sandbox.
 Ask one short clarification when required payment fields are missing.
 """.strip()
+
+logger = logging.getLogger(__name__)
 
 
 TOOLS = [
@@ -111,6 +116,22 @@ class ConversationNotFound(RuntimeError):
 
 class ConversationArchived(RuntimeError):
     """Archived conversations must be restored before adding messages."""
+
+
+class GeminiRunFailed(RuntimeError):
+    """Preserve committed tool results when a later Gemini turn fails."""
+
+    def __init__(
+        self,
+        *,
+        tool_log: list[dict[str, Any]],
+        transaction_ids: list[str],
+        cause_type: str,
+    ) -> None:
+        super().__init__("Gemini request failed")
+        self.tool_log = tool_log
+        self.transaction_ids = transaction_ids
+        self.cause_type = cause_type
 
 
 @dataclass(frozen=True)
@@ -399,6 +420,57 @@ def _authoritative_tool_reply(tool_log: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def refresh_assistant_payment_state(
+    session: Session,
+    *,
+    user_id: str,
+    request_id: str,
+    result: AssistantResult,
+) -> AssistantResult:
+    """Refresh persisted tool results after an external rail changes status."""
+    if not result.transaction_ids:
+        return result
+    transactions = session.exec(
+        select(PaymentTransaction).where(
+            PaymentTransaction.user_id == user_id,
+            PaymentTransaction.id.in_(result.transaction_ids),
+        )
+    ).all()
+    by_id = {transaction.id: transaction for transaction in transactions}
+    tool_calls = json.loads(json.dumps(result.tool_calls, default=str))
+    for call in tool_calls:
+        if call.get("name") != "create_payment_request":
+            continue
+        call_result = call.get("result")
+        if not isinstance(call_result, dict):
+            continue
+        transaction = by_id.get(str(call_result.get("id", "")))
+        if transaction is not None:
+            call["result"] = _safe_transaction(transaction)
+    reply = _authoritative_tool_reply(tool_calls) or result.reply
+    assistant_message = session.exec(
+        select(ConversationMessage)
+        .join(Conversation, Conversation.id == ConversationMessage.conversation_id)
+        .where(
+            Conversation.user_id == user_id,
+            Conversation.id == result.conversation_id,
+            ConversationMessage.request_id == request_id,
+            ConversationMessage.role == "assistant",
+        )
+    ).one_or_none()
+    if assistant_message is not None:
+        assistant_message.content = reply
+        assistant_message.tool_calls = tool_calls or None
+        session.add(assistant_message)
+        session.flush()
+    return AssistantResult(
+        conversation_id=result.conversation_id,
+        reply=reply,
+        tool_calls=tool_calls,
+        transaction_ids=result.transaction_ids,
+    )
+
+
 def _create_from_args(
     session: Session,
     *,
@@ -502,19 +574,35 @@ async def _run_gemini(
     transaction_ids: list[str] = []
     try:
         for _ in range(8):
-            response = await client.aio.models.generate_content(
-                model=settings.gemini_model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    tools=TOOLS,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        disable=True
-                    ),
-                    temperature=0.1,
-                    max_output_tokens=2000,
-                ),
-            )
+            response = None
+            for attempt in range(3):
+                try:
+                    response = await client.aio.models.generate_content(
+                        model=settings.gemini_model,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            tools=TOOLS,
+                            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                                disable=True
+                            ),
+                            temperature=0.1,
+                            max_output_tokens=2000,
+                        ),
+                    )
+                    break
+                except Exception as exc:
+                    retryable = getattr(exc, "code", None) in {
+                        429,
+                        500,
+                        502,
+                        503,
+                        504,
+                    }
+                    if not retryable or attempt == 2:
+                        raise
+                    await asyncio.sleep(0.5 * (2**attempt))
+            assert response is not None
             candidate = (response.candidates or [None])[0]
             content = getattr(candidate, "content", None)
             parts = getattr(content, "parts", None) or []
@@ -562,8 +650,17 @@ async def _run_gemini(
             tool_log,
             transaction_ids,
         )
+    except Exception as exc:
+        raise GeminiRunFailed(
+            tool_log=tool_log,
+            transaction_ids=transaction_ids,
+            cause_type=type(exc).__name__,
+        ) from exc
     finally:
-        await client.aio.aclose()
+        try:
+            await client.aio.aclose()
+        except Exception:
+            logger.warning("Gemini client cleanup failed", exc_info=False)
 
 
 async def run_assistant(
@@ -611,6 +708,7 @@ async def run_assistant(
     tool_log: list[dict[str, Any]] = []
     transaction_ids: list[str] = []
     reply: str
+    ai_failed = False
     if settings.ai_enabled and settings.gemini_api_key:
         try:
             reply, tool_log, transaction_ids = await _run_gemini(
@@ -622,9 +720,34 @@ async def run_assistant(
                 request_id=request_id,
             )
             reply = _authoritative_tool_reply(tool_log) or reply
-        except Exception:
+        except GeminiRunFailed as exc:
+            logger.warning(
+                "Gemini request failed for user %s (%s); using deterministic fallback",
+                user.id,
+                exc.cause_type,
+            )
             session.rollback()
-            reply = ""
+            tool_log = exc.tool_log
+            transaction_ids = exc.transaction_ids
+            record_audit_event(
+                session,
+                user_id=user.id,
+                actor_type="system",
+                actor_id=None,
+                entity_type="conversation",
+                entity_id=conversation.id,
+                event_type="assistant.error",
+                payload={"code": "AI_UNAVAILABLE", "model": settings.gemini_model},
+            )
+            session.commit()
+            ai_failed = True
+            authoritative_reply = _authoritative_tool_reply(tool_log)
+            reply = (
+                "Gemini became unavailable after Pactra processed the tool request. "
+                f"{authoritative_reply}"
+                if authoritative_reply
+                else ""
+            )
     else:
         reply = ""
 
@@ -632,7 +755,8 @@ async def run_assistant(
         policy = get_current_policy(session, user.id)
         parsed = parse_fallback(message, list(policy.policy_json["allowed_categories"]))
         if parsed is None:
-            reply = (
+            prefix = "AI is temporarily unavailable. " if ai_failed else ""
+            reply = prefix + (
                 "I couldn't identify the amount or recipient. Use the payment form "
                 "or clarify your request."
             )
@@ -655,6 +779,11 @@ async def run_assistant(
                 if transaction_id:
                     transaction_ids.append(transaction_id)
                 reply = _payment_reply(result)
+                if ai_failed:
+                    reply = (
+                        "Gemini is temporarily unavailable, so I used Pactra's "
+                        f"deterministic parser. {reply}"
+                    )
             except (ValidationError, ValueError, IntegrationUnavailable, TransactionIdempotencyConflict) as exc:
                 session.rollback()
                 reply = str(exc)

@@ -1,6 +1,7 @@
 """Policy precedence and unified internal transaction lifecycle tests."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 from threading import Barrier
 
@@ -10,9 +11,9 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.defaults import default_policy
-from backend.models import FundReservation, LedgerJournal, PaymentTransaction, User
+from backend.models import FundReservation, LedgerJournal, PaymentTransaction, User, utc_now
 from backend.services.accounts import create_account
-from backend.services.ledger import get_wallet_for_user, wallet_balance
+from backend.services.ledger import get_wallet_for_user, list_wallet_ledger, wallet_balance
 from backend.services.policies import save_policy
 from backend.services.transactions import (
     AlreadyActioned,
@@ -114,6 +115,11 @@ def test_auto_payment_captures_once_and_reversal_compensates(transaction_db) -> 
     assert transaction.status == "reversed"
     assert reversal.journal_type == "payment_reversal"
     assert wallet_balance(session, wallet).posted_cents == 100_000
+    ledger_items, _ = list_wallet_ledger(session, user_id=user.id, limit=10)
+    reversal_item = next(
+        item for item in ledger_items if item.journal_type == "payment_reversal"
+    )
+    assert reversal_item.counter_account_label == "Sandbox clearing"
 
 
 def test_approval_reserves_then_captures_and_is_single_use(transaction_db) -> None:
@@ -190,6 +196,42 @@ def test_rejection_releases_hold_without_posting(transaction_db) -> None:
         )
     ).one()
     assert reservation.status == "released"
+
+
+def test_active_hold_from_prior_day_still_consumes_policy_capacity(
+    transaction_db,
+) -> None:
+    session, user = transaction_db
+    policy = default_policy()
+    policy["daily_limit_cents"] = 15_000
+    policy["approval_threshold_cents"] = 5_000
+    policy["category_budgets_cents"]["software"] = 20_000
+    save_policy(session, user_id=user.id, policy_json=policy)
+    session.commit()
+
+    pending = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(amount_cents=10_000, key="prior-day-hold-0001"),
+    )
+    session.commit()
+    reservation = session.exec(
+        select(FundReservation).where(
+            FundReservation.transaction_id == pending.transaction.id
+        )
+    ).one()
+    reservation.created_at = utc_now() - timedelta(days=1)
+    session.add(reservation)
+    session.commit()
+
+    with pytest.raises(PolicyBlocked) as caught:
+        create_payment_request(
+            session,
+            user=user,
+            payload=payment_payload(amount_cents=6_000, key="prior-day-hold-0002"),
+        )
+    session.commit()
+    assert caught.value.decision.reason_code == "DAILY_LIMIT_EXCEEDED"
 
 
 @pytest.mark.parametrize(

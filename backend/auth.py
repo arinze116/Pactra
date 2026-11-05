@@ -91,6 +91,11 @@ def csrf_token(raw_token: str) -> str:
     ).hexdigest()
 
 
+def set_csrf_response_header(response: Response, raw_token: str) -> None:
+    """Expose the synchronizer token without exposing the session cookie."""
+    response.headers[CSRF_HEADER] = csrf_token(raw_token)
+
+
 def create_auth_session(session: Session, *, user_id: str) -> tuple[AuthSession, str]:
     raw_token = secrets.token_urlsafe(32)
     now = utc_now()
@@ -108,29 +113,42 @@ def create_auth_session(session: Session, *, user_id: str) -> tuple[AuthSession,
 
 def set_session_cookies(response: Response, raw_token: str) -> None:
     max_age = settings.session_ttl_hours * 60 * 60
+    set_csrf_response_header(response, raw_token)
     response.set_cookie(
         SESSION_COOKIE,
         raw_token,
         max_age=max_age,
         httponly=True,
         secure=settings.session_cookie_secure,
-        samesite="lax",
+        samesite=settings.session_cookie_samesite,
         path="/",
     )
     response.set_cookie(
         CSRF_COOKIE,
         csrf_token(raw_token),
         max_age=max_age,
-        httponly=False,
+        httponly=True,
         secure=settings.session_cookie_secure,
-        samesite="lax",
+        samesite=settings.session_cookie_samesite,
         path="/",
     )
 
 
 def clear_session_cookies(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(CSRF_COOKIE, path="/")
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite=settings.session_cookie_samesite,
+    )
+    response.delete_cookie(
+        CSRF_COOKIE,
+        path="/",
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite=settings.session_cookie_samesite,
+    )
 
 
 def _as_utc(value: datetime) -> datetime:

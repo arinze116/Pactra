@@ -20,7 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgresUUID
 from sqlmodel import Field, SQLModel
 
 
@@ -38,6 +38,7 @@ def new_id() -> str:
 
 
 JSON_VALUE = JSON().with_variant(JSONB(), "postgresql")
+UUID_STRING = String(36).with_variant(PostgresUUID(as_uuid=False), "postgresql")
 SYSTEM_ISSUANCE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000001"
 SYSTEM_CLEARING_ACCOUNT_ID = "00000000-0000-4000-8000-000000000002"
 
@@ -176,7 +177,10 @@ class User(SQLModel, table=True):
         ),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     email: str = Field(max_length=254, unique=True, index=True)
     password_hash: str
     status: str = Field(default="active", max_length=16)
@@ -192,10 +196,13 @@ class AuthSession(SQLModel, table=True):
         Index("ix_sessions_user_expiry", "user_id", "expires_at"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     token_hash: bytes = Field(
@@ -232,11 +239,14 @@ class LedgerAccount(SQLModel, table=True):
         ),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str | None = Field(
         default=None,
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
         ),
     )
     code: str = Field(max_length=64, unique=True)
@@ -260,10 +270,13 @@ class Wallet(SQLModel, table=True):
         ),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("users.id", ondelete="CASCADE"),
             nullable=False,
             unique=True,
@@ -271,7 +284,7 @@ class Wallet(SQLModel, table=True):
     )
     ledger_account_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
             nullable=False,
             unique=True,
@@ -294,10 +307,13 @@ class PolicyVersion(SQLModel, table=True):
         Index("ix_policies_user_version", "user_id", "version"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     version: int
@@ -312,7 +328,7 @@ class PolicyVersion(SQLModel, table=True):
     created_by: str | None = Field(
         default=None,
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+            UUID_STRING, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
         ),
     )
 
@@ -347,10 +363,13 @@ class PaymentTransaction(SQLModel, table=True):
         Index("ix_transactions_provider_batch", "provider_batch_id"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     idempotency_key: str = Field(max_length=128)
@@ -400,16 +419,19 @@ class LedgerJournal(SQLModel, table=True):
         Index("ix_journals_transaction", "transaction_id"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     transaction_id: str | None = Field(
         default=None,
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("transactions.id", ondelete="RESTRICT"),
             nullable=True,
         ),
@@ -435,17 +457,20 @@ class LedgerEntry(SQLModel, table=True):
         Index("ix_ledger_journal", "journal_id"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     journal_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("ledger_journals.id", ondelete="RESTRICT"),
             nullable=False,
         )
     )
     account_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
             nullable=False,
         )
@@ -477,20 +502,23 @@ class FundReservation(SQLModel, table=True):
         ),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     wallet_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False
+            UUID_STRING, ForeignKey("wallets.id", ondelete="RESTRICT"), nullable=False
         )
     )
     transaction_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("transactions.id", ondelete="RESTRICT"),
             nullable=False,
         )
@@ -518,10 +546,13 @@ class TransactionAttempt(SQLModel, table=True):
         Index("ix_attempts_status_started", "status", "started_at"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     transaction_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("transactions.id", ondelete="RESTRICT"),
             nullable=False,
         )
@@ -554,17 +585,20 @@ class ApprovalAction(SQLModel, table=True):
         ),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     transaction_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("transactions.id", ondelete="RESTRICT"),
             nullable=False,
         )
     )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     idempotency_key: str = Field(max_length=128)
@@ -584,16 +618,22 @@ class AuditEvent(SQLModel, table=True):
         Index("ix_audit_entity", "entity_type", "entity_id"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     actor_type: str = Field(max_length=16)
-    actor_id: str | None = Field(default=None, max_length=36)
+    actor_id: str | None = Field(
+        default=None,
+        sa_column=Column(UUID_STRING, nullable=True),
+    )
     entity_type: str = Field(max_length=32)
-    entity_id: str = Field(max_length=36)
+    entity_id: str = Field(sa_column=Column(UUID_STRING, nullable=False))
     event_type: str = Field(max_length=64)
     payload: dict[str, Any] = Field(
         default_factory=dict,
@@ -611,10 +651,13 @@ class Conversation(SQLModel, table=True):
         Index("ix_conversations_user_updated", "user_id", "updated_at"),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     user_id: str = Field(
         sa_column=Column(
-            String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+            UUID_STRING, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
         )
     )
     title: str = Field(default="New conversation", max_length=120)
@@ -648,10 +691,13 @@ class ConversationMessage(SQLModel, table=True):
         ),
     )
 
-    id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
     conversation_id: str = Field(
         sa_column=Column(
-            String(36),
+            UUID_STRING,
             ForeignKey("conversations.id", ondelete="CASCADE"),
             nullable=False,
         )

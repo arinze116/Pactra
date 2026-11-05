@@ -544,7 +544,7 @@ def list_wallet_ledger(
             ),
             counter_account_label=(
                 "Sandbox clearing"
-                if journal.journal_type in {"payment_capture", "reversal"}
+                if journal.journal_type in {"payment_capture", "payment_reversal"}
                 else "Sandbox issuance"
             ),
             created_at=journal.created_at,

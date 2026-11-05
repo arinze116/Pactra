@@ -25,6 +25,7 @@ from .auth import (
     require_auth_context,
     require_csrf,
     require_same_origin,
+    set_csrf_response_header,
     set_session_cookies,
     session_token_hash,
     verify_password,
@@ -79,6 +80,7 @@ from .services.assistant import (
     create_conversation,
     list_conversations,
     list_messages,
+    refresh_assistant_payment_state,
     run_assistant,
     update_conversation,
 )
@@ -216,6 +218,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
     allow_headers=["Content-Type", "X-CSRF-Token", "X-Request-ID"],
+    expose_headers=["X-CSRF-Token", "X-Request-ID"],
 )
 
 
@@ -407,7 +410,8 @@ def login(
 
 
 @app.get("/api/auth/me", response_model=AuthResponse)
-def current_user(context: AuthDependency) -> AuthResponse:
+def current_user(response: Response, context: AuthDependency) -> AuthResponse:
+    set_csrf_response_header(response, context.raw_token)
     return AuthResponse(user=_user_response(context.user))
 
 
@@ -621,6 +625,13 @@ async def chat(
             db_session.commit()
         except ProviderUnavailable:
             db_session.commit()
+    result = refresh_assistant_payment_state(
+        db_session,
+        user_id=context.user.id,
+        request_id=payload.request_id,
+        result=result,
+    )
+    db_session.commit()
     return AssistantResponse(
         conversation_id=result.conversation_id,
         reply=result.reply,

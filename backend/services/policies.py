@@ -89,7 +89,14 @@ def save_policy(
     event_type: str = "policy.updated",
     allow_unchanged: bool = False,
 ) -> PolicyVersion:
-    current = get_current_policy(session, user_id, for_update=True)
+    # Lock a stable per-user row. Locking only the latest policy version does
+    # not serialize two inserts that both calculate the same next version.
+    owner = session.exec(
+        select(User).where(User.id == user_id).with_for_update()
+    ).one_or_none()
+    if owner is None:
+        raise PolicyError("Account was not found")
+    current = get_current_policy(session, user_id)
     if current.policy_json == policy_json and not allow_unchanged:
         raise PolicyUnchanged("Change at least one policy field before saving")
     policy = PolicyVersion(
@@ -177,7 +184,6 @@ def _reserved_spend(
             FundReservation.user_id == user_id,
             FundReservation.status == "active",
             PaymentTransaction.sandbox_generation == generation,
-            FundReservation.created_at >= _today_start(),
         )
     )
     if category is not None:

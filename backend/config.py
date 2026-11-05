@@ -3,12 +3,14 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_SECRET_KEY = "development-only-change-me-32-bytes"
 
 
 class Settings(BaseSettings):
@@ -22,7 +24,7 @@ class Settings(BaseSettings):
     )
 
     app_env: Literal["development", "test", "production"] = "development"
-    secret_key: str = "development-only-change-me-32-bytes"
+    secret_key: str = DEFAULT_SECRET_KEY
 
     database_url: str = "sqlite:///./pactra.db"
     frontend_url: str = "http://localhost:5173"
@@ -34,21 +36,22 @@ class Settings(BaseSettings):
     ai_enabled: bool = False
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
-    max_chat_history: int = 20
+    max_chat_history: int = Field(default=20, ge=1, le=100)
 
     paypal_payouts_enabled: bool = False
     paypal_client_id: str = ""
     paypal_client_secret: str = ""
     paypal_base_url: str = "https://api-m.sandbox.paypal.com"
     paypal_test_recipient_email: str = ""
-    paypal_request_timeout_seconds: float = 15.0
+    paypal_request_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     # Retained only for local compatibility while the provider adapter is
     # migrated. Production readiness never treats mock IDs as PayPal results.
     paypal_mock_mode: bool = True
 
     session_cookie_secure: bool = False
-    session_ttl_hours: int = 168
-    session_idle_hours: int = 24
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    session_ttl_hours: int = Field(default=168, gt=0, le=720)
+    session_idle_hours: int = Field(default=24, gt=0, le=168)
     policy_config_path: str = "./backend/policy.json"
     seed_demo_account: bool = False
 
@@ -71,10 +74,21 @@ class Settings(BaseSettings):
             return value.replace("postgresql://", "postgresql+psycopg://", 1)
         return value
 
+    @field_validator("frontend_url", "backend_url")
+    @classmethod
+    def normalise_origin(cls, value: str) -> str:
+        return value.strip().rstrip("/")
+
     @model_validator(mode="after")
     def enforce_sandbox_provider_configuration(self) -> "Settings":
         """Reject unsafe production PayPal configuration at startup."""
         sandbox_url = "https://api-m.sandbox.paypal.com"
+        if self.session_cookie_samesite == "none" and not self.session_cookie_secure:
+            raise ValueError(
+                "SESSION_COOKIE_SAMESITE=none requires SESSION_COOKIE_SECURE=true"
+            )
+        if self.session_idle_hours > self.session_ttl_hours:
+            raise ValueError("SESSION_IDLE_HOURS cannot exceed SESSION_TTL_HOURS")
         if self.app_env == "production":
             if self.is_sqlite:
                 raise ValueError("Production must use PostgreSQL, not SQLite")
@@ -84,8 +98,46 @@ class Settings(BaseSettings):
                 raise ValueError("PAYPAL_MOCK_MODE cannot be enabled in production")
             if not self.session_cookie_secure:
                 raise ValueError("SESSION_COOKIE_SECURE must be true in production")
-            if len(self.secret_key) < 32:
-                raise ValueError("SECRET_KEY must contain at least 32 characters")
+            if len(self.secret_key) < 32 or self.secret_key == DEFAULT_SECRET_KEY:
+                raise ValueError(
+                    "SECRET_KEY must be a non-default secret with at least 32 characters"
+                )
+            if self.seed_demo_account:
+                raise ValueError("SEED_DEMO_ACCOUNT cannot be enabled in production")
+
+            def require_https_origin(name: str, value: str) -> str:
+                parsed = urlsplit(value)
+                if (
+                    parsed.scheme != "https"
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.query
+                    or parsed.fragment
+                    or parsed.path not in {"", "/"}
+                    or "*" in value
+                ):
+                    raise ValueError(f"{name} must be an exact HTTPS origin")
+                return f"{parsed.scheme}://{parsed.netloc}"
+
+            frontend_origin = require_https_origin("FRONTEND_URL", self.frontend_url)
+            backend_origin = require_https_origin("BACKEND_URL", self.backend_url)
+            if not self.cors_origins:
+                raise ValueError("CORS_ORIGINS must contain at least one HTTPS origin")
+            cors_origins = {
+                require_https_origin("CORS_ORIGINS", origin)
+                for origin in self.cors_origins
+            }
+            if frontend_origin not in cors_origins:
+                raise ValueError("CORS_ORIGINS must include FRONTEND_URL")
+            if (
+                frontend_origin != backend_origin
+                and self.session_cookie_samesite != "none"
+            ):
+                raise ValueError(
+                    "Cross-origin production deployments require "
+                    "SESSION_COOKIE_SAMESITE=none"
+                )
         if self.paypal_payouts_enabled and not self.paypal_mock_mode:
             if not self.paypal_client_id or not self.paypal_client_secret:
                 raise ValueError(

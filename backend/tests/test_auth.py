@@ -78,6 +78,16 @@ def test_registration_bootstraps_isolated_sandbox_account(api) -> None:
     assert payload["sandbox_funds_cents"] == 100_000
     assert "pactra_session" in client.cookies
     assert CSRF_COOKIE in client.cookies
+    assert response.headers[CSRF_HEADER] == client.cookies.get(CSRF_COOKIE)
+    assert any(
+        CSRF_COOKIE in value and "HttpOnly" in value
+        for value in response.headers.get_list("set-cookie")
+    )
+
+    current = client.get("/api/auth/me", headers=ORIGIN_HEADERS)
+    assert current.status_code == 200
+    assert current.headers[CSRF_HEADER] == client.cookies.get(CSRF_COOKIE)
+    assert CSRF_HEADER.lower() in current.headers["access-control-expose-headers"].lower()
 
     with Session(engine) as session:
         user = session.exec(select(User)).one()
@@ -115,7 +125,8 @@ def test_duplicate_registration_and_login_use_safe_errors(api) -> None:
 
 def test_csrf_logout_and_expired_sessions_are_enforced(api) -> None:
     client, engine = api
-    assert register(client).status_code == 201
+    registered = register(client)
+    assert registered.status_code == 201
 
     missing_csrf = client.post(
         "/api/wallet/topups",
@@ -124,6 +135,14 @@ def test_csrf_logout_and_expired_sessions_are_enforced(api) -> None:
     )
     assert missing_csrf.status_code == 403
     assert missing_csrf.json()["error"]["code"] == "CSRF_INVALID"
+
+    header_token = registered.headers[CSRF_HEADER]
+    valid = client.post(
+        "/api/wallet/topups",
+        headers={**ORIGIN_HEADERS, CSRF_HEADER: header_token},
+        json={"amount_cents": 10_000, "idempotency_key": "topup-header-csrf-01"},
+    )
+    assert valid.status_code == 201
 
     with Session(engine) as session:
         auth_session = session.exec(select(AuthSession)).one()
@@ -189,6 +208,7 @@ def test_password_change_revokes_other_sessions_and_logout_revokes_current(api) 
         )
         assert login.status_code == 200
 
+        old_token = client_a.cookies.get(CSRF_COOKIE)
         changed = client_a.post(
             "/api/auth/change-password",
             headers=csrf_headers(client_a),
@@ -198,7 +218,11 @@ def test_password_change_revokes_other_sessions_and_logout_revokes_current(api) 
             },
         )
         assert changed.status_code == 204
-        assert client_a.get("/api/auth/me").status_code == 200
+        assert changed.headers[CSRF_HEADER] == client_a.cookies.get(CSRF_COOKIE)
+        assert changed.headers[CSRF_HEADER] != old_token
+        current = client_a.get("/api/auth/me")
+        assert current.status_code == 200
+        assert current.headers[CSRF_HEADER] == changed.headers[CSRF_HEADER]
         assert client_b.get("/api/auth/me").status_code == 401
 
         logout = client_a.post("/api/auth/logout", headers=csrf_headers(client_a))

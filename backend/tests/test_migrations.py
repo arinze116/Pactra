@@ -6,6 +6,9 @@ import subprocess
 import sys
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.dialects.postgresql import UUID as PostgresUUID, dialect as postgres_dialect
+
+from backend.models import SQLModel
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -89,3 +92,29 @@ def test_initial_migration_builds_clean_sqlite_database(tmp_path: Path) -> None:
         "role",
     ]
     assert revision == "20261103_0002"
+
+
+def test_runtime_models_use_postgresql_uuid_for_migrated_identifiers() -> None:
+    identifier_columns = {
+        "users": ["id"],
+        "sessions": ["id", "user_id"],
+        "ledger_accounts": ["id", "user_id"],
+        "wallets": ["id", "user_id", "ledger_account_id"],
+        "policies": ["id", "user_id", "created_by"],
+        "transactions": ["id", "user_id"],
+        "ledger_journals": ["id", "user_id", "transaction_id"],
+        "ledger_entries": ["id", "journal_id", "account_id"],
+        "fund_reservations": ["id", "user_id", "wallet_id", "transaction_id"],
+        "transaction_attempts": ["id", "transaction_id"],
+        "approval_actions": ["id", "transaction_id", "user_id"],
+        "audit_events": ["id", "user_id", "actor_id", "entity_id"],
+        "conversations": ["id", "user_id"],
+        "conversation_messages": ["id", "conversation_id"],
+    }
+    pg = postgres_dialect()
+    for table_name, column_names in identifier_columns.items():
+        table = SQLModel.metadata.tables[table_name]
+        for column_name in column_names:
+            assert isinstance(
+                table.c[column_name].type.dialect_impl(pg), PostgresUUID
+            ), f"{table_name}.{column_name} must bind as PostgreSQL UUID"
