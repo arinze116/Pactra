@@ -12,22 +12,40 @@ export function OverviewPage() {
   const [approvals, setApprovals] = useState(0);
   const [paypal, setPaypal] = useState<PayPalStatus | null>(null);
   const [error, setError] = useState("");
+  const [paypalError, setPaypalError] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setError("");
-    return Promise.all([
+    setPaypalError("");
+    setLoading(true);
+    const [coreResult, paypalResult] = await Promise.allSettled([
+      Promise.all([
       api.wallet(),
       api.spendSummary(),
       api.transactions("limit=100"),
       api.approvals(),
+      ]),
       api.paypalStatus(),
-    ]).then(([nextWallet, nextSummary, nextTransactions, nextApprovals, nextPayPal]) => {
+    ]);
+
+    if (coreResult.status === "fulfilled") {
+      const [nextWallet, nextSummary, nextTransactions, nextApprovals] = coreResult.value;
       setWallet(nextWallet);
       setSummary(nextSummary);
       setTransactions(nextTransactions.items);
       setApprovals(nextApprovals.items.length);
-      setPaypal(nextPayPal);
-    }).catch((caught) => setError(caught instanceof Error ? caught.message : "Overview unavailable"));
+    } else {
+      setError(coreResult.reason instanceof Error ? coreResult.reason.message : "Overview unavailable");
+    }
+
+    if (paypalResult.status === "fulfilled") {
+      setPaypal(paypalResult.value);
+    } else {
+      setPaypal(null);
+      setPaypalError(paypalResult.reason instanceof Error ? paypalResult.reason.message : "PayPal Sandbox status unavailable");
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -54,7 +72,7 @@ export function OverviewPage() {
     <PageHeader title="Payment operations" description="Live sandbox position, policy capacity, and requests that need attention" action={<Link className="action-primary" to="/app/payments/new"><Plus className="h-4 w-4" />New payment</Link>} />
     {error ? <div className="mb-5"><ErrorNotice message={error} onRetry={() => void load()} /></div> : null}
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-12">
-      {wallet ? <><Metric className="xl:col-span-4" label="Available" value={formatCents(wallet.available_cents)} /><Metric className="xl:col-span-3" label="Reserved" value={formatCents(wallet.reserved_cents)} /><Metric className="xl:col-span-3" label="Posted balance" value={formatCents(wallet.posted_cents)} /><Metric className="xl:col-span-2" label="Pending approvals" value={String(approvals)} /></> : Array.from({ length: 4 }, (_, index) => <LoadingBlock key={index} className={`h-28 ${index === 0 ? "xl:col-span-4" : index === 3 ? "xl:col-span-2" : "xl:col-span-3"}`} />)}
+      {wallet ? <><Metric className="xl:col-span-4" label="Available" value={formatCents(wallet.available_cents)} /><Metric className="xl:col-span-3" label="Reserved" value={formatCents(wallet.reserved_cents)} /><Metric className="xl:col-span-3" label="Posted balance" value={formatCents(wallet.posted_cents)} /><Metric className="xl:col-span-2" label="Pending approvals" value={String(approvals)} /></> : loading ? Array.from({ length: 4 }, (_, index) => <LoadingBlock key={index} className={`h-28 ${index === 0 ? "xl:col-span-4" : index === 3 ? "xl:col-span-2" : "xl:col-span-3"}`} />) : null}
     </div>
     <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_0.7fr]">
       <Panel>
@@ -67,7 +85,7 @@ export function OverviewPage() {
       </Panel>
     </div>
     {summary ? <Panel className="mt-6"><div className="flex items-center justify-between border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Category capacity</h2><Link className="text-xs font-medium text-ink-600" to="/app/policies">Edit policy</Link></div><div className="grid gap-6 p-5 sm:grid-cols-2 sm:p-6 xl:grid-cols-4">{summary.categories.map((item) => <div key={item.category}><div className="flex justify-between text-xs"><span className="capitalize text-ink-600">{item.category}</span><span className="font-mono text-ink-400">{item.utilisation_percent.toFixed(0)}%</span></div><p className="mt-2 text-xl font-medium tabular-nums">{formatCents(item.remaining_cents)} <span className="text-xs font-normal text-ink-400">left</span></p><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-canvas-deep"><div className="h-full bg-pactra-600" style={{ width: `${Math.min(100, item.utilisation_percent)}%` }} /></div></div>)}</div></Panel> : null}
-    <Panel className="mt-6 flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6"><div><p className="text-sm font-medium">PayPal Sandbox Payouts</p><p className="mt-1 text-xs text-ink-500">{paypal?.configured ? "Configured for a real sandbox provider test" : "Not configured; internal sandbox remains fully available"}</p></div><Link className="action-secondary" to="/app/settings/integrations/paypal">View status</Link></Panel>
+    <Panel className="mt-6 flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6"><div><p className="text-sm font-medium">PayPal Sandbox Payouts</p><p aria-live="polite" className="mt-1 text-xs text-ink-500">{paypalError ? `Status could not be verified (${paypalError}); internal sandbox remains fully available` : paypal?.configured ? "Configured for a real sandbox provider test" : "Not configured; internal sandbox remains fully available"}</p></div><Link className="action-secondary" to="/app/settings/integrations/paypal">View status</Link></Panel>
   </>;
 }
 

@@ -42,7 +42,7 @@ export function EmptyState({ title, description, icon: Icon = Inbox }: { title: 
 }
 
 export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }) {
-  return <div className="flex items-start gap-3 rounded-xl border border-negative/20 bg-negative-soft px-4 py-3 text-sm text-negative"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span className="flex-1">{message}</span>{onRetry ? <button className="shrink-0 font-medium underline decoration-negative/30 underline-offset-4" onClick={onRetry} type="button">Try again</button> : null}</div>;
+  return <div aria-live="assertive" className="flex items-start gap-3 rounded-xl border border-negative/20 bg-negative-soft px-4 py-3 text-sm text-negative" role="alert"><AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /><span className="flex-1">{message}</span>{onRetry ? <button className="shrink-0 font-medium underline decoration-negative/30 underline-offset-4" onClick={onRetry} type="button">Try again</button> : null}</div>;
 }
 
 export function LoadingBlock({ className = "h-24" }: { className?: string }) {

@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { CircleDollarSign, ShieldCheck } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, createIdempotencyKey, isAmbiguousMutationError } from "../api";
 import { useAuth } from "../auth";
 import { EmptyState, ErrorNotice, formatCents, PageHeader, Panel } from "../components/UI";
 import type { LedgerItem, PayPalStatus, WalletBalance } from "../types";
@@ -13,10 +13,21 @@ export function WalletPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState("");
-  const load = () => Promise.all([api.wallet(), api.ledger()]).then(([balance, history]) => { setWallet(balance); setLedger(history.items); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Wallet unavailable"));
-  useEffect(() => { void load(); }, []);
-  async function topUp(amount: number) { if (!window.confirm(`Add ${formatCents(amount)} in sandbox test funds? No real money moves.`)) return; setBusy(true); setError(""); try { await api.topUp(amount); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Top-up failed"); } finally { setBusy(false); } }
-  async function reset() { if (confirmReset !== "RESET") return; setBusy(true); setError(""); try { await api.resetSandbox(); setConfirmReset(""); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Reset failed"); } finally { setBusy(false); } }
+  const topUpKeysRef = useRef(new Map<number, string>());
+  const resetKeyRef = useRef<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const [balance, history] = await Promise.all([api.wallet(), api.ledger()]);
+      setWallet(balance);
+      setLedger(history.items);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Wallet unavailable");
+      throw caught;
+    }
+  }, []);
+  useEffect(() => { void load().catch(() => undefined); }, [load]);
+  async function topUp(amount: number) { if (!window.confirm(`Add ${formatCents(amount)} in sandbox test funds? No real money moves.`)) return; const requestKey = topUpKeysRef.current.get(amount) ?? createIdempotencyKey("topup"); topUpKeysRef.current.set(amount, requestKey); setBusy(true); setError(""); try { const result = await api.topUp(amount, requestKey); setWallet(result.balance); await load(); topUpKeysRef.current.delete(amount); } catch (caught) { if (!isAmbiguousMutationError(caught)) topUpKeysRef.current.delete(amount); setError(caught instanceof Error ? caught.message : "Top-up failed"); } finally { setBusy(false); } }
+  async function reset() { if (confirmReset !== "RESET") return; const requestKey = resetKeyRef.current ?? createIdempotencyKey("reset"); resetKeyRef.current = requestKey; setBusy(true); setError(""); try { await api.resetSandbox(requestKey); await load(); resetKeyRef.current = null; setConfirmReset(""); } catch (caught) { if (!isAmbiguousMutationError(caught)) resetKeyRef.current = null; setError(caught instanceof Error ? caught.message : "Reset failed"); } finally { setBusy(false); } }
   return <><PageHeader title="Sandbox wallet" description="Available equals posted balance minus active reservations. Every change is ledger-backed." />{error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}<div className="grid gap-4 md:grid-cols-3">{wallet ? <><WalletMetric label="Available" value={wallet.available_cents} /><WalletMetric label="Reserved" value={wallet.reserved_cents} /><WalletMetric label="Posted total" value={wallet.posted_cents} /></> : null}</div><div className="mt-6 grid gap-6 xl:grid-cols-[1fr_380px]"><Panel><div className="border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Ledger history</h2><p className="mt-1 text-xs text-ink-500">Generation {wallet?.sandbox_generation ?? "—"}</p></div>{ledger.length ? <div className="divide-y divide-line">{ledger.map((item) => <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6" key={item.journal_id}><div><p className="text-sm font-medium capitalize">{item.journal_type.replace(/_/g, " ")}</p><p className="mt-1 text-xs text-ink-500">{item.counter_account_label} · {new Date(item.created_at).toLocaleString()}</p></div><p className={`font-mono text-sm font-medium tabular-nums ${item.wallet_delta_cents >= 0 ? "text-positive-dark" : "text-ink-950"}`}>{item.wallet_delta_cents >= 0 ? "+" : ""}{formatCents(item.wallet_delta_cents)}</p></div>)}</div> : <EmptyState title="No ledger activity" description="Initial issuance appears after account creation" />}</Panel><div className="space-y-6"><Panel className="p-5"><div className="flex items-center gap-2 text-sm font-medium"><CircleDollarSign className="h-4 w-4" />Add test funds</div><p className="mt-2 text-xs leading-5 text-ink-500">Preset credits are sandbox issuance, not deposits or real cash.</p><div className="mt-4 grid grid-cols-3 gap-2">{[10_000, 50_000, 100_000].map((amount) => <button className="h-10 rounded-lg border border-line text-xs font-medium hover:bg-canvas disabled:opacity-50" disabled={busy} key={amount} onClick={() => void topUp(amount)}>{formatCents(amount)}</button>)}</div></Panel><Panel className="border-negative/20 p-5"><p className="text-sm font-medium text-negative">Reset sandbox</p><p className="mt-2 text-xs leading-5 text-ink-500">Restores the posted balance to $1,000, resets policy defaults, cancels pending requests, and preserves receipts.</p><label className="mt-4 block text-xs font-medium text-ink-600">Type RESET<input className="input mt-2" onChange={(event) => setConfirmReset(event.target.value)} value={confirmReset} /></label><button className="mt-3 h-10 w-full rounded-lg border border-negative/30 text-sm font-medium text-negative disabled:opacity-40" disabled={busy || confirmReset !== "RESET"} onClick={() => void reset()}>Reset sandbox</button></Panel></div></div></>;
 }
 
@@ -30,10 +41,23 @@ export function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  useEffect(() => { api.paypalStatus().then(setPaypal).catch(() => undefined); }, []);
+  const [paypalError, setPaypalError] = useState("");
+  const [paypalLoading, setPaypalLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    api.paypalStatus()
+      .then((status) => { if (active) setPaypal(status); })
+      .catch((caught) => {
+        if (!active) return;
+        setPaypal(null);
+        setPaypalError(caught instanceof Error ? caught.message : "PayPal Sandbox status unavailable");
+      })
+      .finally(() => { if (active) setPaypalLoading(false); });
+    return () => { active = false; };
+  }, []);
   async function change(event: FormEvent) { event.preventDefault(); setError(""); setMessage(""); try { await api.changePassword(currentPassword, newPassword); setCurrentPassword(""); setNewPassword(""); setMessage("Password changed and other sessions revoked"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Password change failed"); } }
-  async function logout() { await signOut(); navigate("/sign-in", { replace: true }); }
-  return <><PageHeader title="Settings" description="Account security and sandbox integration status" />{error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}{message ? <div className="success-notice mb-5">{message}</div> : null}<div className="grid gap-6 xl:grid-cols-2"><Panel className="p-5 sm:p-6"><div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-pactra-600" />Account</div><p className="mt-4 text-sm text-ink-600">{user?.email}</p><form className="mt-6 space-y-4" onSubmit={change}><label className="block text-sm font-medium">Current password<input className="input mt-2" onChange={(event) => setCurrentPassword(event.target.value)} required type="password" value={currentPassword} /></label><label className="block text-sm font-medium">New password<input className="input mt-2" minLength={12} onChange={(event) => setNewPassword(event.target.value)} required type="password" value={newPassword} /></label><button className="action-primary" type="submit">Change password</button></form><button className="mt-8 text-sm font-medium text-negative" onClick={() => void logout()} type="button">Sign out of this session</button></Panel><Panel className="p-5 sm:p-6"><h2 className="text-sm font-medium">PayPal integration</h2><div className="mt-4 flex items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${paypal?.configured ? "bg-positive" : "bg-ink-300"}`} /><p className="text-sm font-medium">{paypal?.configured ? "PayPal Sandbox Payouts configured" : "PayPal Sandbox not configured"}</p></div><p className="mt-3 text-sm leading-6 text-ink-500">Pactra wallet funds are simulated. Provider payouts are sent by the configured PayPal sandbox business account; no real money moves.</p>{paypal?.test_recipient_email ? <div className="mt-5 rounded-xl bg-canvas p-4"><p className="text-xs text-ink-500">Judge test recipient</p><p className="mt-1 break-all text-sm font-medium">{paypal.test_recipient_email}</p></div> : null}<Link className="mt-5 inline-flex text-sm font-medium text-pactra-600" to="/app/settings/integrations/paypal">View integration details</Link></Panel></div></>;
+  async function logout() { setError(""); try { await signOut(); navigate("/sign-in", { replace: true }); } catch (caught) { setError(caught instanceof Error ? caught.message : "Sign out failed"); } }
+  return <><PageHeader title="Settings" description="Account security and sandbox integration status" />{error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}{message ? <div aria-live="polite" className="success-notice mb-5" role="status">{message}</div> : null}<div className="grid gap-6 xl:grid-cols-2"><Panel className="p-5 sm:p-6"><div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-pactra-600" />Account</div><p className="mt-4 text-sm text-ink-600">{user?.email}</p><form className="mt-6 space-y-4" onSubmit={change}><label className="block text-sm font-medium">Current password<input className="input mt-2" onChange={(event) => setCurrentPassword(event.target.value)} required type="password" value={currentPassword} /></label><label className="block text-sm font-medium">New password<input className="input mt-2" minLength={12} onChange={(event) => setNewPassword(event.target.value)} required type="password" value={newPassword} /></label><button className="action-primary" type="submit">Change password</button></form><button className="mt-8 text-sm font-medium text-negative" onClick={() => void logout()} type="button">Sign out of this session</button></Panel><Panel className="p-5 sm:p-6"><h2 className="text-sm font-medium">PayPal integration</h2><div aria-live="polite" className="mt-4 flex items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${paypal?.configured ? "bg-positive" : "bg-ink-300"}`} /><p className="text-sm font-medium">{paypalLoading ? "Checking PayPal Sandbox status" : paypalError ? "PayPal Sandbox status unavailable" : paypal?.configured ? "PayPal Sandbox Payouts configured" : "PayPal Sandbox not configured"}</p></div>{paypalError ? <p className="mt-3 text-sm leading-6 text-negative">{paypalError}. This is not treated as provider success; the internal sandbox remains available.</p> : null}<p className="mt-3 text-sm leading-6 text-ink-500">Pactra wallet funds are simulated. Provider payouts are sent by the configured PayPal sandbox business account; no real money moves.</p>{paypal?.test_recipient_email ? <div className="mt-5 rounded-xl bg-canvas p-4"><p className="text-xs text-ink-500">Judge test recipient</p><p className="mt-1 break-all text-sm font-medium">{paypal.test_recipient_email}</p></div> : null}<Link className="mt-5 inline-flex text-sm font-medium text-pactra-600" to="/app/settings/integrations/paypal">View integration details</Link></Panel></div></>;
 }
 
 export function PayPalIntegrationPage() {

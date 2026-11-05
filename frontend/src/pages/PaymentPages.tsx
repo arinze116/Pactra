@@ -1,11 +1,54 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ApiError, api } from "../api";
+import { ApiError, api, createIdempotencyKey, isAmbiguousMutationError } from "../api";
 import { useAuth } from "../auth";
 import { AssistantWorkspace } from "../components/AssistantWorkspace";
 import { ErrorNotice, PageHeader, Panel } from "../components/UI";
-import type { PayPalStatus, PaymentRail, PolicyEnvelope, TransactionType } from "../types";
+import type { PayPalStatus, PaymentRail, PaymentRequest, PolicyEnvelope, TransactionType } from "../types";
+
+type PaymentPayload = Omit<PaymentRequest, "idempotency_key">;
+
+interface PendingPaymentAttempt {
+  key: string;
+  digest: string;
+}
+
+async function paymentPayloadDigest(payload: PaymentPayload) {
+  const canonical = JSON.stringify({
+    type: payload.type,
+    vendor: payload.vendor,
+    recipient: payload.recipient,
+    amount_cents: payload.amount_cents,
+    currency: payload.currency,
+    category: payload.category,
+    reason: payload.reason,
+    rail: payload.rail,
+  });
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(bytes), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function readPendingPaymentAttempt(storageKey: string): PendingPaymentAttempt | null {
+  try {
+    const stored = sessionStorage.getItem(storageKey);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as Partial<PendingPaymentAttempt>;
+    return typeof parsed.key === "string" && typeof parsed.digest === "string"
+      ? { key: parsed.key, digest: parsed.digest }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePendingPaymentAttempt(storageKey: string, attempt: PendingPaymentAttempt) {
+  try { sessionStorage.setItem(storageKey, JSON.stringify(attempt)); } catch { /* in-memory retry still works */ }
+}
+
+function removePendingPaymentAttempt(storageKey: string) {
+  try { sessionStorage.removeItem(storageKey); } catch { /* storage may be unavailable */ }
+}
 
 const scenarioPresets: Record<
   string,
@@ -40,16 +83,30 @@ export function NewPaymentPage() {
   const [amount, setAmount] = useState(preset?.amount ?? "");
   const [category, setCategory] = useState(preset?.category ?? "software");
   const [reason, setReason] = useState(preset?.reason ?? "");
-  const [rail, setRail] = useState<PaymentRail>(preset?.rail ?? "internal_sandbox");
+  const [rail, setRail] = useState<PaymentRail>(scenario === "paypal" ? "internal_sandbox" : preset?.rail ?? "internal_sandbox");
   const [error, setError] = useState("");
+  const [paypalError, setPaypalError] = useState("");
+  const [policyLoading, setPolicyLoading] = useState(true);
+  const [paypalLoading, setPaypalLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  const paymentAttemptRef = useRef<PendingPaymentAttempt | null>(null);
   const draftKey = `pactra-payment-draft:${user?.id ?? "anonymous"}`;
+  const attemptKey = `pactra-payment-attempt:${user?.id ?? "anonymous"}`;
 
   useEffect(() => {
-    if (preset || !user) return;
+    setDraftHydrated(false);
+    if (!user) return;
+    if (preset) {
+      setDraftHydrated(true);
+      return;
+    }
     const stored = sessionStorage.getItem(draftKey);
-    if (!stored) return;
+    if (!stored) {
+      setDraftHydrated(true);
+      return;
+    }
     try {
       const draft = JSON.parse(stored) as Partial<{ type: TransactionType; vendor: string; recipient: string; amount: string; category: string; reason: string; rail: PaymentRail }>;
       if (draft.type) setType(draft.type);
@@ -62,36 +119,75 @@ export function NewPaymentPage() {
     } catch {
       sessionStorage.removeItem(draftKey);
     }
+    setDraftHydrated(true);
   }, [draftKey, preset, user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !draftHydrated) return;
     sessionStorage.setItem(draftKey, JSON.stringify({ type, vendor, recipient, amount, category, reason, rail }));
-  }, [amount, category, draftKey, rail, reason, recipient, type, user, vendor]);
+  }, [amount, category, draftHydrated, draftKey, rail, reason, recipient, type, user, vendor]);
 
   useEffect(() => {
-    Promise.all([api.policy(), api.paypalStatus()])
-      .then(([nextPolicy, nextPayPal]) => {
+    let active = true;
+    setPolicyLoading(true);
+    setPaypalLoading(true);
+    setPaypalError("");
+    if (scenario === "paypal") setRail("internal_sandbox");
+
+    api.policy()
+      .then((nextPolicy) => {
+        if (!active) return;
         setPolicy(nextPolicy);
-        setPaypal(nextPayPal);
         if (!preset) {
           setCategory((current) => nextPolicy.policy.allowed_categories.includes(current) ? current : nextPolicy.policy.allowed_categories[0] ?? "ops");
         }
+      })
+      .catch((caught) => {
+        if (!active) return;
+        setPolicy(null);
+        setError(caught instanceof Error ? caught.message : "Payment form unavailable");
+      })
+      .finally(() => {
+        if (active) setPolicyLoading(false);
+      });
+
+    api.paypalStatus()
+      .then((nextPayPal) => {
+        if (!active) return;
+        setPaypal(nextPayPal);
         if (scenario === "paypal") {
           setRail(nextPayPal.configured ? "paypal_sandbox_payouts" : "internal_sandbox");
           setRecipient(nextPayPal.test_recipient_email ?? "");
         }
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "Payment form unavailable"));
+      .catch((caught) => {
+        if (!active) return;
+        setPaypal(null);
+        setRail("internal_sandbox");
+        setPaypalError(caught instanceof Error ? caught.message : "PayPal Sandbox status unavailable");
+      })
+      .finally(() => {
+        if (active) setPaypalLoading(false);
+      });
+
+    return () => { active = false; };
   }, [preset, scenario]);
 
   useEffect(() => {
     if (type !== "payout") setRail("internal_sandbox");
   }, [type]);
 
+  useEffect(() => {
+    setConfirming(false);
+  }, [amount, category, rail, reason, recipient, type, vendor]);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    if (!policy) {
+      setError("Wait for the active policy to load before creating a request");
+      return;
+    }
     const numeric = Number(amount);
     if (!Number.isFinite(numeric) || numeric <= 0 || !/^\d+(\.\d{1,2})?$/.test(amount)) {
       setError("Enter a valid amount with no more than two decimal places");
@@ -103,23 +199,35 @@ export function NewPaymentPage() {
       return;
     }
     setSubmitting(true);
+    const paymentPayload: PaymentPayload = {
+      type,
+      vendor: vendor.trim(),
+      recipient: type === "payout" ? recipient.trim() : null,
+      amount_cents: amountCents,
+      currency: "USD",
+      category,
+      reason: reason.trim(),
+      rail,
+    };
     try {
-      const result = await api.createPayment({
-        type,
-        vendor: vendor.trim(),
-        recipient: type === "payout" ? recipient.trim() : null,
-        amount_cents: amountCents,
-        currency: "USD",
-        category,
-        reason: reason.trim(),
-        rail,
-      });
+      const digest = await paymentPayloadDigest(paymentPayload);
+      let attempt = paymentAttemptRef.current ?? readPendingPaymentAttempt(attemptKey);
+      if (!attempt || attempt.digest !== digest) {
+        attempt = { key: createIdempotencyKey("payment"), digest };
+        writePendingPaymentAttempt(attemptKey, attempt);
+      }
+      paymentAttemptRef.current = attempt;
+      const result = await api.createPayment(paymentPayload, attempt.key);
+      paymentAttemptRef.current = null;
+      removePendingPaymentAttempt(attemptKey);
       sessionStorage.removeItem(draftKey);
       navigate(`/app/transactions/${result.transaction.id}`);
     } catch (caught) {
       if (caught instanceof ApiError) {
         const transaction = caught.details?.transaction as { id?: string } | undefined;
         if (transaction?.id) {
+          paymentAttemptRef.current = null;
+          removePendingPaymentAttempt(attemptKey);
           sessionStorage.removeItem(draftKey);
           navigate(`/app/transactions/${transaction.id}`);
           return;
@@ -127,6 +235,10 @@ export function NewPaymentPage() {
         setError(caught.message);
       } else {
         setError("Payment request could not be created");
+      }
+      if (!isAmbiguousMutationError(caught)) {
+        paymentAttemptRef.current = null;
+        removePendingPaymentAttempt(attemptKey);
       }
     } finally {
       setSubmitting(false);
@@ -138,13 +250,14 @@ export function NewPaymentPage() {
   return <>
     <PageHeader title="New payment" description="Policy and wallet checks run on the server before any sandbox funds move" />
     {error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}
+    {paypalError ? <div className="mb-5"><ErrorNotice message={`${paypalError}. Internal sandbox payments remain available.`} /></div> : null}
     <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
       <Panel className="p-5 sm:p-6">
         <form className="space-y-6" onSubmit={submit}>
           <fieldset>
             <legend className="text-sm font-medium">Request type</legend>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button className={`h-10 rounded-lg border text-xs font-medium transition-colors ${type === value ? "border-pactra-600 bg-pactra-100 text-pactra-700" : "border-line bg-surface text-ink-600 hover:bg-surface-raised"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
+              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button aria-pressed={type === value} className={`h-10 rounded-lg border text-xs font-medium transition-colors ${type === value ? "border-pactra-600 bg-pactra-100 text-pactra-700" : "border-line bg-surface text-ink-600 hover:bg-surface-raised"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
             </div>
           </fieldset>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -158,12 +271,12 @@ export function NewPaymentPage() {
           </div>
           <Field label="Business reason"><textarea className="input min-h-28 resize-y py-3" maxLength={500} onChange={(event) => setReason(event.target.value)} required value={reason} /></Field>
           {confirming ? <div className="rounded-xl border border-warning/30 bg-warning-soft p-4"><p className="text-sm font-medium text-warning-dark">Confirm request for {vendor || "this recipient"}</p><p className="mt-1 text-xs leading-5 text-ink-600">${Number(amount).toFixed(2)} will be submitted to the policy engine. Requests above the approval threshold reserve funds and wait for review.</p></div> : null}
-          <button className="action-primary h-11" disabled={submitting} type="submit">{submitting ? "Applying policy" : confirming ? "Confirm and create request" : needsConfirmation ? "Review request" : "Create payment request"}</button>
+          <button className="action-primary h-11" disabled={submitting || policyLoading || !policy} type="submit">{policyLoading ? "Loading policy" : submitting ? "Applying policy" : confirming ? "Confirm and create request" : needsConfirmation ? "Review request" : "Create payment request"}</button>
         </form>
       </Panel>
       <aside className="space-y-4">
         <Panel className="p-5"><div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-pactra-700" />Decision order</div><ol className="policy-trace mt-5 space-y-4 text-xs text-ink-600">{["Account and category", "Vendor and payment cap", "Daily and category budgets", "Available wallet funds", "Approval threshold"].map((item, index) => <li className="flex items-center gap-3" key={item}><span>{index + 1}</span>{item}</li>)}</ol></Panel>
-        <Panel className="p-5"><p className="text-sm font-medium">Rail disclosure</p><p className="mt-2 text-xs leading-5 text-ink-500">Internal payments use Pactra's simulated ledger. PayPal Sandbox payouts are sent by the configured sandbox business account. The balances are not linked.</p><p className={`mt-4 text-xs font-medium ${paypal?.configured ? "text-positive-dark" : "text-ink-500"}`}>{paypal?.configured ? "PayPal Sandbox configured" : "PayPal Sandbox unavailable"}</p><Link className="mt-3 inline-flex text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" to="/app/settings/integrations/paypal">Integration details</Link></Panel>
+        <Panel className="p-5"><p className="text-sm font-medium">Rail disclosure</p><p className="mt-2 text-xs leading-5 text-ink-500">Internal payments use Pactra's simulated ledger. PayPal Sandbox payouts are sent by the configured sandbox business account. The balances are not linked.</p><p aria-live="polite" className={`mt-4 text-xs font-medium ${paypal?.configured ? "text-positive-dark" : "text-ink-500"}`}>{paypalLoading ? "Checking PayPal Sandbox status" : paypalError ? "PayPal status could not be verified; internal sandbox only" : paypal?.configured ? "PayPal Sandbox configured" : "PayPal Sandbox unavailable"}</p><Link className="mt-3 inline-flex text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" to="/app/settings/integrations/paypal">Integration details</Link></Panel>
       </aside>
     </div>
   </>;

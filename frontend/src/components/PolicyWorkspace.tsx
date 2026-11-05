@@ -173,8 +173,12 @@ export function PolicyWorkspace() {
       setBaseline(saved.policy);
       setForm(savedForm);
       setSuccess(`Policy version ${saved.version} saved`);
-      const history = await api.policyHistory();
-      setVersions(history.items);
+      try {
+        const history = await api.policyHistory();
+        setVersions(history.items);
+      } catch {
+        setError("Policy saved, but version history could not refresh. Reload to see the latest immutable version.");
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Policy could not be saved");
     } finally {
@@ -192,8 +196,12 @@ export function PolicyWorkspace() {
       setBaseline(saved.policy);
       setForm(formFromPolicy(saved.policy));
       setSuccess(`Policy version ${saved.version} restored to defaults`);
-      const history = await api.policyHistory();
-      setVersions(history.items);
+      try {
+        const history = await api.policyHistory();
+        setVersions(history.items);
+      } catch {
+        setError("Policy defaults were restored, but version history could not refresh. Reload to see the latest immutable version.");
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Policy reset failed");
     } finally {
@@ -207,7 +215,7 @@ export function PolicyWorkspace() {
   return <>
     <PageHeader title="Spending policy" description="Edit the active controls. Every confirmed save creates a new immutable version." action={<button className="action-secondary" disabled={saving} onClick={() => void reset()} type="button"><RotateCcw className="h-4 w-4" />Reset defaults</button>} />
     {error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}
-    {success ? <div className="success-notice mb-5"><CheckCircle2 className="h-4 w-4" />{success}</div> : null}
+    {success ? <div aria-live="polite" className="success-notice mb-5" role="status"><CheckCircle2 aria-hidden="true" className="h-4 w-4" />{success}</div> : null}
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <form className="space-y-5" noValidate onSubmit={save}>
         <Panel className="p-5 sm:p-6">
