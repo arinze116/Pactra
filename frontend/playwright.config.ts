@@ -37,6 +37,7 @@ const backendEnv = {
   PAYPAL_TEST_RECIPIENT_EMAIL: "",
   PAYPAL_BASE_URL: "https://api-m.sandbox.paypal.com",
   SESSION_COOKIE_SECURE: "false",
+  AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR: "100",
   SEED_DEMO_ACCOUNT: "false",
 };
 
