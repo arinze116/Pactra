@@ -43,6 +43,12 @@ Ask one short clarification when required payment fields are missing.
 
 logger = logging.getLogger(__name__)
 
+_EXPLICIT_AMOUNT = re.compile(
+    r"(?:\$\s*(?P<dollar>\d+(?:\.\d{1,2})?)|"
+    r"(?P<named>\d+(?:\.\d{1,2})?)\s*(?:usd|dollars?))",
+    flags=re.IGNORECASE,
+)
+
 
 TOOLS = [
     types.Tool(
@@ -480,8 +486,36 @@ def _create_from_args(
     request_id: str,
 ) -> tuple[dict[str, Any], str | None]:
     proposed = dict(args)
+    explicit_amounts = {
+        cents
+        for match in _EXPLICIT_AMOUNT.finditer(message)
+        if (cents := _amount_to_cents(match.group("dollar") or match.group("named")))
+        is not None
+    }
+    if proposed.get("amount_cents") not in explicit_amounts:
+        raise ValueError("The payment amount must be explicit in the current message")
+
+    message_folded = " ".join(message.casefold().split())
+    payment_type = proposed.get("type")
+    if payment_type == "payout":
+        recipient = str(proposed.get("recipient") or "").strip()
+        if not recipient or recipient.casefold() not in message_folded:
+            raise ValueError("The payout recipient must be explicit in the current message")
+    else:
+        vendor = " ".join(str(proposed.get("vendor") or "").casefold().split())
+        if not vendor or vendor not in message_folded:
+            raise ValueError("The payment vendor must be explicit in the current message")
+
     if proposed.get("rail") == "paypal_sandbox_payouts" and "paypal sandbox" not in message.casefold():
         proposed["rail"] = "internal_sandbox"
+    policy = get_current_policy(session, user.id)
+    allowed_categories = list(policy.policy_json["allowed_categories"])
+    proposed_category = str(proposed.get("category") or "").casefold()
+    if proposed_category not in message_folded:
+        proposed["category"] = _category_for(
+            f"{proposed.get('vendor', '')} {proposed.get('reason', '')} {message}",
+            allowed_categories,
+        )
     request_digest = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
     proposed["idempotency_key"] = f"ai-{request_digest}"
     request = PaymentRequest.model_validate(proposed)
@@ -577,28 +611,28 @@ async def _run_gemini(
             response = None
             for attempt in range(3):
                 try:
-                    response = await client.aio.models.generate_content(
-                        model=settings.gemini_model,
-                        contents=contents,
-                        config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
-                            tools=TOOLS,
-                            automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                                disable=True
+                    response = await asyncio.wait_for(
+                        client.aio.models.generate_content(
+                            model=settings.gemini_model,
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                system_instruction=SYSTEM_PROMPT,
+                                tools=TOOLS,
+                                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                                    disable=True
+                                ),
+                                temperature=0.1,
+                                max_output_tokens=2000,
                             ),
-                            temperature=0.1,
-                            max_output_tokens=2000,
                         ),
+                        timeout=settings.gemini_request_timeout_seconds,
                     )
                     break
                 except Exception as exc:
-                    retryable = getattr(exc, "code", None) in {
-                        429,
-                        500,
-                        502,
-                        503,
-                        504,
-                    }
+                    retryable = isinstance(exc, TimeoutError) or (
+                        getattr(exc, "code", None)
+                        in {429, 500, 502, 503, 504}
+                    )
                     if not retryable or attempt == 2:
                         raise
                     await asyncio.sleep(0.5 * (2**attempt))

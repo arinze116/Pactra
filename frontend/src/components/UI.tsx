@@ -46,5 +46,5 @@ export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: (
 }
 
 export function LoadingBlock({ className = "h-24" }: { className?: string }) {
-  return <div aria-busy="true" aria-label="Loading" className={`loading-placeholder rounded-xl border border-line bg-surface ${className}`} />;
+  return <div aria-busy="true" className={`loading-placeholder rounded-xl border border-line bg-surface ${className}`} role="status"><span className="sr-only">Loading content</span></div>;
 }

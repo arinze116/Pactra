@@ -1,6 +1,7 @@
 """PayPal Sandbox submission and item-level reconciliation safety tests."""
 
 from collections import deque
+from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import event
@@ -19,6 +20,7 @@ from backend.services.accounts import create_account
 from backend.services.ledger import get_wallet_for_user, wallet_balance
 from backend.services.paypal import ProviderUnavailable, submit_or_reconcile_payout
 from backend.services.transactions import create_payment_request
+from backend.worker import reconcile_pending_payouts
 
 
 class FakePayPalClient:
@@ -242,6 +244,54 @@ async def test_provider_batch_survives_local_capture_rollback(payout_db) -> None
     completed = session.get(PaymentTransaction, result.transaction.id)
     assert completed is not None
     assert completed.status == "completed"
+    assert client.create_calls == [(result.transaction.id, 1)]
+    captures = session.exec(
+        select(LedgerJournal).where(
+            LedgerJournal.transaction_id == result.transaction.id,
+            LedgerJournal.journal_type == "payment_capture",
+        )
+    ).all()
+    assert len(captures) == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_restart_reuses_persisted_provider_batch(payout_db) -> None:
+    session, user = payout_db
+    result = create_payment_request(
+        session,
+        user=user,
+        payload=payout_payload("paypal-worker-restart-0001"),
+    )
+    session.commit()
+    engine = session.get_bind()
+
+    @contextmanager
+    def worker_session():
+        with Session(engine, expire_on_commit=False) as worker_db:
+            try:
+                yield worker_db
+                worker_db.commit()
+            except Exception:
+                worker_db.rollback()
+                raise
+
+    pending = PayoutStatus("BATCH-123", "PENDING", "ITEM-1", "PENDING")
+    success = PayoutStatus("BATCH-123", "SUCCESS", "ITEM-1", "SUCCESS")
+    client = FakePayPalClient([pending, success])
+
+    assert await reconcile_pending_payouts(
+        client=client,
+        session_factory=worker_session,
+    ) == 1
+    assert await reconcile_pending_payouts(
+        client=client,
+        session_factory=worker_session,
+    ) == 1
+
+    session.expire_all()
+    transaction = session.get(PaymentTransaction, result.transaction.id)
+    assert transaction is not None
+    assert transaction.status == "completed"
     assert client.create_calls == [(result.transaction.id, 1)]
     captures = session.exec(
         select(LedgerJournal).where(

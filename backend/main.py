@@ -1,6 +1,5 @@
 """FastAPI application exposing Pactra's agent and governance dashboard APIs."""
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
@@ -134,73 +133,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def _paypal_reconciliation_worker(app: FastAPI) -> None:
-    """Reconcile persisted executing payouts without creating new attempts."""
-    while True:
-        await asyncio.sleep(20)
-        try:
-            with session_scope() as session:
-                transaction_ids = list(
-                    session.exec(
-                        select(PaymentTransaction.id)
-                        .where(
-                            PaymentTransaction.rail == "paypal_sandbox_payouts",
-                            PaymentTransaction.status == "executing",
-                        )
-                        .order_by(PaymentTransaction.updated_at.asc())
-                        .limit(50)
-                    ).all()
-                )
-            for transaction_id in transaction_ids:
-                try:
-                    with session_scope() as session:
-                        transaction = session.exec(
-                            select(PaymentTransaction)
-                            .where(
-                                PaymentTransaction.id == transaction_id,
-                                PaymentTransaction.status == "executing",
-                            )
-                            .with_for_update()
-                        ).one_or_none()
-                        if transaction is None:
-                            continue
-                        try:
-                            await submit_or_reconcile_payout(
-                                session,
-                                client=app.state.paypal_client,
-                                transaction=transaction,
-                            )
-                        except ProviderUnavailable:
-                            pass
-                except Exception:
-                    logger.exception(
-                        "PayPal reconciliation failed for transaction %s",
-                        transaction_id,
-                    )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("PayPal reconciliation scan failed")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     with session_scope() as session:
         session.exec(text("SELECT 1 FROM users LIMIT 1")).all()
     app.state.paypal_client = PayPalClient()
-    worker: asyncio.Task[None] | None = None
-    if settings.paypal_payouts_enabled and not settings.paypal_mock_mode:
-        worker = asyncio.create_task(_paypal_reconciliation_worker(app))
     logger.info("Pactra sandbox API started")
     try:
         yield
     finally:
-        if worker is not None:
-            worker.cancel()
-            try:
-                await worker
-            except asyncio.CancelledError:
-                pass
         await app.state.paypal_client.close()
 
 
