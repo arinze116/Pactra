@@ -210,7 +210,7 @@ The release is not submission-ready until a real PayPal Sandbox Payouts batch ha
 
 - Secrets are loaded only from environment variables and `.env` is ignored.
 - Gemini sees tool results, never PayPal credentials or bearer tokens.
-- Tool inputs are validated independently of model output.
+- Tool inputs are validated independently of model output; payment amounts and payees must be explicit in the current user message, so conversation history and retrieved transaction text cannot authorize movement.
 - PayPal error messages are sanitised; credentials and response bodies are not logged.
 - Payout emails are validated and all payment amounts must be finite and positive.
 - Pending payments are re-evaluated against hard limits immediately before approval.
@@ -224,7 +224,7 @@ The PRD-pinned Vite 5 development toolchain currently reports upstream dev-serve
 
 ## Known external blockers
 
-- Gemini credentials and the configured model catalogue entry are verified, but live balance-tool smokes returned a provider `ServerError` and then timed out. The application now enforces a 12-second per-attempt deadline, retries three times, and reached deterministic fallback in 37.7 seconds. Live Gemini tool execution is therefore not claimed.
+- Gemini credentials and the configured model catalogue entry are verified, but live balance-tool smokes returned a provider `ServerError` and then timed out. The application now enforces a 12-second per-attempt deadline, retries three times, and reached deterministic fallback in 37.7 seconds. Regression coverage also proves malicious conversation history and retrieved transaction text cannot authorize a payment. Live Gemini tool execution is therefore not claimed.
 - A new `$0.01` PayPal Sandbox Payouts smoke ran on 6 November 2026 with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires a distinct active Sandbox recipient able to receive USD and a Payouts-capable business app.
 - No controlled Pactra API domain/TLS certificate or Vercel project linkage is present on this VPS. The operator must point a controlled API hostname to the VPS and provide/link the Vercel project before the Nginx and rewrite templates can be activated.
 - Devpost submission and the public demo-video upload remain owner actions.

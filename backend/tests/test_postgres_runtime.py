@@ -10,9 +10,23 @@ from sqlmodel import Session, select
 from backend.config import settings
 from backend.database import engine
 from backend.defaults import default_policy
-from backend.models import User, Wallet
+from backend.models import (
+    ApprovalAction,
+    FundReservation,
+    LedgerJournal,
+    PaymentTransaction,
+    User,
+    Wallet,
+)
 from backend.services.accounts import create_account
+from backend.services.ledger import get_wallet_for_user, wallet_balance
 from backend.services.policies import get_current_policy, save_policy
+from backend.services.transactions import (
+    AlreadyActioned,
+    approve_transaction,
+    create_payment_request,
+    reject_transaction,
+)
 from backend.worker import reconciliation_lease
 
 
@@ -69,3 +83,98 @@ def test_reconciliation_worker_lease_allows_only_one_authority() -> None:
         assert first_acquired is True
         with reconciliation_lease() as second_acquired:
             assert second_acquired is False
+
+
+def test_concurrent_approval_and_rejection_have_one_terminal_winner() -> None:
+    user_id = create_postgres_account()
+    with Session(engine, expire_on_commit=False) as session:
+        user = session.get(User, user_id)
+        assert user is not None
+        result = create_payment_request(
+            session,
+            user=user,
+            payload={
+                "type": "payout",
+                "vendor": "Concurrency Contractor",
+                "recipient": "concurrency@example.com",
+                "amount_cents": 12_500,
+                "currency": "USD",
+                "category": "freelance",
+                "reason": "Approval race regression",
+                "rail": "internal_sandbox",
+                "idempotency_key": f"approval-race-{uuid4()}",
+                "source": "test",
+            },
+        )
+        session.commit()
+        transaction_id = result.transaction.id
+        assert result.transaction.status == "pending_approval"
+
+    barrier = Barrier(2)
+
+    def decide(action: str) -> str:
+        with Session(engine, expire_on_commit=False) as session:
+            user = session.get(User, user_id)
+            assert user is not None
+            barrier.wait(timeout=10)
+            try:
+                if action == "approve":
+                    transaction = approve_transaction(
+                        session,
+                        user=user,
+                        transaction_id=transaction_id,
+                        idempotency_key=f"approval-race-approve-{uuid4()}",
+                    )
+                else:
+                    transaction = reject_transaction(
+                        session,
+                        user=user,
+                        transaction_id=transaction_id,
+                        idempotency_key=f"approval-race-reject-{uuid4()}",
+                        reason="Concurrent rejection",
+                    )
+                session.commit()
+                return transaction.status
+            except AlreadyActioned:
+                session.rollback()
+                return "already_actioned"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(decide, ["approve", "reject"]))
+
+    assert outcomes.count("already_actioned") == 1
+    terminal = next(outcome for outcome in outcomes if outcome != "already_actioned")
+    assert terminal in {"completed", "rejected"}
+
+    with Session(engine) as session:
+        transaction = session.get(PaymentTransaction, transaction_id)
+        assert transaction is not None
+        assert transaction.status == terminal
+        assert len(
+            session.exec(
+                select(ApprovalAction).where(
+                    ApprovalAction.transaction_id == transaction_id
+                )
+            ).all()
+        ) == 1
+        captures = session.exec(
+            select(LedgerJournal).where(
+                LedgerJournal.transaction_id == transaction_id,
+                LedgerJournal.journal_type == "payment_capture",
+            )
+        ).all()
+        reservation = session.exec(
+            select(FundReservation).where(
+                FundReservation.transaction_id == transaction_id
+            )
+        ).one()
+        balance = wallet_balance(session, get_wallet_for_user(session, user_id))
+        if terminal == "completed":
+            assert len(captures) == 1
+            assert reservation.status == "captured"
+            assert balance.posted_cents == 87_500
+        else:
+            assert captures == []
+            assert reservation.status == "released"
+            assert balance.posted_cents == 100_000
+        assert balance.reserved_cents == 0
