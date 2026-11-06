@@ -266,7 +266,9 @@ def register(
     db_session: SessionDependency,
 ) -> RegistrationResponse:
     auth_rate_limiter.check(
-        f"register:{client_ip(request)}", limit=10, window=timedelta(hours=1)
+        f"register:{client_ip(request)}",
+        limit=settings.auth_registration_rate_limit_per_hour,
+        window=timedelta(hours=1),
     )
     try:
         bootstrap = create_account(

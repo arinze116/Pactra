@@ -88,6 +88,20 @@ def test_cross_origin_production_requires_none_samesite() -> None:
         )
 
 
+def test_registration_rate_limit_is_configurable_without_weakening_default() -> None:
+    assert Settings(_env_file=None).auth_registration_rate_limit_per_hour == 10
+    assert (
+        Settings(
+            _env_file=None,
+            auth_registration_rate_limit_per_hour=100,
+        ).auth_registration_rate_limit_per_hour
+        == 100
+    )
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, auth_registration_rate_limit_per_hour=0)
+
+
 def test_production_can_load_secret_from_private_file(tmp_path: Path) -> None:
     secret_file = tmp_path / "session-secret"
     secret_file.write_text("s" * 64, encoding="utf-8")

@@ -28,6 +28,8 @@ services:
         value: 168
       - key: SESSION_IDLE_HOURS
         value: 24
+      - key: AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR
+        value: 10
       - key: DATABASE_URL
         fromDatabase:
           name: pactra-sandbox-db
