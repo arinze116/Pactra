@@ -6,7 +6,7 @@ Pactra is a sandbox-only payment operations workspace built for the PayPal AI Ha
 
 No real money moves. Pactra's append-only ledger is the source of truth for the in-app test wallet. PayPal Sandbox Payouts is a separate external test rail and is never reported as successful until the individual payout item succeeds and Pactra's ledger capture commits.
 
-- Live app: pending deployment and smoke verification at the unique Render service names in `render.yaml`
+- Live app: <https://pactra-nine.vercel.app> — verified against the Oracle PostgreSQL runtime on 6 November 2026
 - Demo video: pending owner recording/upload
 - Product contract: [`Pactra-PRD-Judge-Ready.md`](./Pactra-PRD-Judge-Ready.md)
 - Judge demo and release gates: [`DEMO.md`](./DEMO.md) and [`SUBMISSION.md`](./SUBMISSION.md)
@@ -142,6 +142,7 @@ cd frontend
 npm run lint
 npm run build
 npm run test:e2e
+PUBLIC_BASE_URL=https://pactra-nine.vercel.app npm run test:e2e:public
 npm audit --omit=dev --audit-level=high
 ```
 
@@ -170,7 +171,7 @@ Server-only secrets must be stored in the hosting provider, never in Vite variab
 | `SECRET_KEY` / `SECRET_KEY_FILE` | Unique random secret, 32+ characters; Oracle uses an absolute `0600` secret file |
 | `DATABASE_URL` | PostgreSQL connection string; the Oracle service uses a local peer-authenticated socket |
 | `FRONTEND_URL` | Exact HTTPS frontend origin |
-| `BACKEND_URL` | Exact HTTPS API origin |
+| `BACKEND_URL` | Browser-visible HTTPS API origin; use the Vercel origin when `/api` is rewritten same-origin |
 | `CORS_ORIGINS` | Comma-separated exact HTTPS frontend origins; no wildcard |
 | `SESSION_COOKIE_SECURE` | `true` |
 | `SESSION_COOKIE_SAMESITE` | `lax` when Vercel proxies `/api`; `none` only for an intentionally cross-site topology |
@@ -193,12 +194,23 @@ The API returns the CSRF synchronizer token through an explicitly exposed respon
 
 ## Deployment
 
-The target topology is Vercel for the static frontend and the Oracle Ubuntu VPS for FastAPI, PostgreSQL, and one persistent reconciliation worker. Versioned deployment assets live in `deploy/`:
+The production topology is Vercel for the static frontend and the Oracle Ubuntu VPS for FastAPI, PostgreSQL, and one persistent reconciliation worker. Vercel rewrites same-origin `/api/*` requests to a trusted Tailscale Funnel endpoint, which proxies to the loopback API without exposing PostgreSQL or a plaintext public API:
+
+```text
+https://pactra-nine.vercel.app/api/*
+        -> https://node1.taild90918.ts.net/api/*
+        -> http://127.0.0.1:8010/api/*
+```
+
+Oracle's public security list did not admit TCP 80/443, so the direct SSLIP/Certbot route could not complete. Tailscale terminates trusted public HTTPS with a Let's Encrypt certificate while the final hop remains on the VPS loopback interface. `sudo tailscale funnel status` shows the active route; `sudo tailscale funnel --https=443 off` is the rollback command.
+
+Versioned deployment assets live in `deploy/`:
 
 - `systemd/pactra-api.service` runs Alembic before binding Uvicorn to `127.0.0.1:8010`.
 - `systemd/pactra-worker.service` runs reconciliation separately from the API. A PostgreSQL advisory lock prevents a second worker from becoming authoritative.
 - `pactra.env.oracle-baseline` is a secret-free, loopback-only production baseline.
-- `nginx/pactra-api.conf.example` and `vercel.json.example` require a verified API domain before activation.
+- `nginx/pactra-api.conf.example` remains the preferred direct-domain template when Oracle admits HTTPS traffic.
+- `frontend/vercel.json` contains the active same-origin rewrite and production security headers.
 
 `render.yaml` remains available as the previous fallback and must not be destroyed before the Oracle/Vercel replacement is publicly verified. Because reconciliation is intentionally no longer embedded in the web process, PayPal payouts must remain disabled on any Render deployment that does not also supervise `python -m backend.worker`.
 
@@ -226,7 +238,6 @@ The PRD-pinned Vite 5 development toolchain currently reports upstream dev-serve
 
 - Gemini credentials and the configured model catalogue entry are verified, but live balance-tool smokes returned a provider `ServerError` and then timed out. The application now enforces a 12-second per-attempt deadline, retries three times, and reached deterministic fallback in 37.7 seconds. Regression coverage also proves malicious conversation history and retrieved transaction text cannot authorize a payment. Live Gemini tool execution is therefore not claimed.
 - A new `$0.01` PayPal Sandbox Payouts smoke ran on 6 November 2026 with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires a distinct active Sandbox recipient able to receive USD and a Payouts-capable business app.
-- No controlled Pactra API domain/TLS certificate or Vercel project linkage is present on this VPS. The operator must point a controlled API hostname to the VPS and provide/link the Vercel project before the Nginx and rewrite templates can be activated.
 - Devpost submission and the public demo-video upload remain owner actions.
 
 ## License
