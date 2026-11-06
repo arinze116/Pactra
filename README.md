@@ -167,13 +167,13 @@ Server-only secrets must be stored in the hosting provider, never in Vite variab
 | Variable | Production value or purpose |
 |---|---|
 | `APP_ENV` | `production` |
-| `SECRET_KEY` | Unique random secret, 32+ characters; the development default is rejected |
-| `DATABASE_URL` | Managed PostgreSQL connection string |
+| `SECRET_KEY` / `SECRET_KEY_FILE` | Unique random secret, 32+ characters; Oracle uses an absolute `0600` secret file |
+| `DATABASE_URL` | PostgreSQL connection string; the Oracle service uses a local peer-authenticated socket |
 | `FRONTEND_URL` | Exact HTTPS frontend origin |
 | `BACKEND_URL` | Exact HTTPS API origin |
 | `CORS_ORIGINS` | Comma-separated exact HTTPS frontend origins; no wildcard |
 | `SESSION_COOKIE_SECURE` | `true` |
-| `SESSION_COOKIE_SAMESITE` | `none` for the separate Render frontend/API hosts |
+| `SESSION_COOKIE_SAMESITE` | `lax` when Vercel proxies `/api`; `none` only for an intentionally cross-site topology |
 | `SESSION_TTL_HOURS`, `SESSION_IDLE_HOURS` | Defaults: `168` and `24` |
 | `AI_ENABLED` | Set `true` only after `GEMINI_API_KEY` is present |
 | `GEMINI_API_KEY` | Server-side Google AI Studio key |
@@ -185,14 +185,21 @@ Server-only secrets must be stored in the hosting provider, never in Vite variab
 | `PAYPAL_BASE_URL` | Exactly `https://api-m.sandbox.paypal.com` |
 | `PAYPAL_MOCK_MODE` | `false` in production and for real Sandbox tests |
 | `PAYPAL_REQUEST_TIMEOUT_SECONDS` | Default `15` |
-| `VITE_API_URL` | Public API origin; contains no secret |
+| `VITE_API_URL` | Leave blank when Vercel rewrites same-origin `/api`; contains no secret when used locally |
 | `SEED_DEMO_ACCOUNT` | `false` in production |
 
-The API returns the CSRF synchronizer token through an explicitly exposed response header while keeping both auth cookies HttpOnly. Production uses Secure, SameSite=None cookies because Render's two `onrender.com` service hosts are cross-site.
+The API returns the CSRF synchronizer token through an explicitly exposed response header while keeping both auth cookies HttpOnly. The target Vercel rewrite keeps browser traffic same-origin, so production cookies remain Secure and SameSite=Lax.
 
 ## Deployment
 
-`render.yaml` provisions `pactra-sandbox-db`, runs `alembic upgrade head` before the API starts, and defines the unique services `pactra-sandbox-api-arinze116` and `pactra-sandbox-arinze116`. The previous short Render names are occupied by unrelated products and must not be used for this repository.
+The target topology is Vercel for the static frontend and the Oracle Ubuntu VPS for FastAPI, PostgreSQL, and one persistent reconciliation worker. Versioned deployment assets live in `deploy/`:
+
+- `systemd/pactra-api.service` runs Alembic before binding Uvicorn to `127.0.0.1:8010`.
+- `systemd/pactra-worker.service` runs reconciliation separately from the API. A PostgreSQL advisory lock prevents a second worker from becoming authoritative.
+- `pactra.env.oracle-baseline` is a secret-free, loopback-only production baseline.
+- `nginx/pactra-api.conf.example` and `vercel.json.example` require a verified API domain before activation.
+
+`render.yaml` remains available as the previous fallback and must not be destroyed before the Oracle/Vercel replacement is publicly verified. Because reconciliation is intentionally no longer embedded in the web process, PayPal payouts must remain disabled on any Render deployment that does not also supervise `python -m backend.worker`.
 
 Before a public judge release, add server-side `GEMINI_API_KEY`, PayPal Sandbox client credentials, and `PAYPAL_TEST_RECIPIENT_EMAIL`; then set `AI_ENABLED=true` and `PAYPAL_PAYOUTS_ENABLED=true`. Keep `PAYPAL_MOCK_MODE=false`. Never put those values in Vite variables or the repository. If either optional integration is unavailable, leave only its feature flag off; the internal sandbox ledger and deterministic assistant fallback remain usable and the UI reports the provider state honestly.
 
@@ -218,7 +225,7 @@ The PRD-pinned Vite 5 development toolchain currently reports upstream dev-serve
 
 - Gemini credentials and `gemini-3.8-flash` catalogue availability were verified locally. A live generation attempt on 5 November 2026 returned provider `503 UNAVAILABLE` due high demand, so deployed Gemini tool execution is not yet claimed; bounded retry and deterministic fallback were verified.
 - A real PayPal Sandbox Payouts batch was submitted locally with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires confirming that `PAYPAL_TEST_RECIPIENT_EMAIL` is a distinct active Sandbox recipient able to receive USD, then rerunning the payout.
-- No Render API/CLI access is available in this workspace. The operator must create or sync the blueprint, add secrets, enable the two feature flags, and run the documented deployed smoke test.
+- No controlled Pactra API domain/TLS certificate or Vercel project linkage is present on this VPS. The operator must point a controlled API hostname to the VPS and provide/link the Vercel project before the Nginx and rewrite templates can be activated.
 - Devpost submission and the public demo-video upload remain owner actions.
 
 ## License

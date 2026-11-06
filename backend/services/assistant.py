@@ -43,6 +43,12 @@ Ask one short clarification when required payment fields are missing.
 
 logger = logging.getLogger(__name__)
 
+_EXPLICIT_AMOUNT = re.compile(
+    r"(?:\$\s*(?P<dollar>\d+(?:\.\d{1,2})?)|"
+    r"(?P<named>\d+(?:\.\d{1,2})?)\s*(?:usd|dollars?))",
+    flags=re.IGNORECASE,
+)
+
 
 TOOLS = [
     types.Tool(
@@ -480,8 +486,36 @@ def _create_from_args(
     request_id: str,
 ) -> tuple[dict[str, Any], str | None]:
     proposed = dict(args)
+    explicit_amounts = {
+        cents
+        for match in _EXPLICIT_AMOUNT.finditer(message)
+        if (cents := _amount_to_cents(match.group("dollar") or match.group("named")))
+        is not None
+    }
+    if proposed.get("amount_cents") not in explicit_amounts:
+        raise ValueError("The payment amount must be explicit in the current message")
+
+    message_folded = " ".join(message.casefold().split())
+    payment_type = proposed.get("type")
+    if payment_type == "payout":
+        recipient = str(proposed.get("recipient") or "").strip()
+        if not recipient or recipient.casefold() not in message_folded:
+            raise ValueError("The payout recipient must be explicit in the current message")
+    else:
+        vendor = " ".join(str(proposed.get("vendor") or "").casefold().split())
+        if not vendor or vendor not in message_folded:
+            raise ValueError("The payment vendor must be explicit in the current message")
+
     if proposed.get("rail") == "paypal_sandbox_payouts" and "paypal sandbox" not in message.casefold():
         proposed["rail"] = "internal_sandbox"
+    policy = get_current_policy(session, user.id)
+    allowed_categories = list(policy.policy_json["allowed_categories"])
+    proposed_category = str(proposed.get("category") or "").casefold()
+    if proposed_category not in message_folded:
+        proposed["category"] = _category_for(
+            f"{proposed.get('vendor', '')} {proposed.get('reason', '')} {message}",
+            allowed_categories,
+        )
     request_digest = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
     proposed["idempotency_key"] = f"ai-{request_digest}"
     request = PaymentRequest.model_validate(proposed)

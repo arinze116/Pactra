@@ -1,5 +1,7 @@
 """Production configuration must fail closed around money and persistence."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -84,3 +86,16 @@ def test_cross_origin_production_requires_none_samesite() -> None:
             session_cookie_samesite="none",
             session_cookie_secure=False,
         )
+
+
+def test_production_can_load_secret_from_private_file(tmp_path: Path) -> None:
+    secret_file = tmp_path / "session-secret"
+    secret_file.write_text("s" * 64, encoding="utf-8")
+    secret_file.chmod(0o600)
+
+    configured = production_settings(
+        secret_key="",
+        secret_key_file=str(secret_file),
+    )
+
+    assert configured.secret_key == "s" * 64

@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from stat import S_IMODE
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
 
     app_env: Literal["development", "test", "production"] = "development"
     secret_key: str = DEFAULT_SECRET_KEY
+    secret_key_file: str = ""
 
     database_url: str = "sqlite:///./pactra.db"
     frontend_url: str = "http://localhost:5173"
@@ -82,6 +84,19 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def enforce_sandbox_provider_configuration(self) -> "Settings":
         """Reject unsafe production PayPal configuration at startup."""
+        if self.secret_key_file:
+            secret_path = Path(self.secret_key_file)
+            if not secret_path.is_absolute():
+                raise ValueError("SECRET_KEY_FILE must be an absolute path")
+            try:
+                insecure_mode = S_IMODE(secret_path.stat().st_mode) & 0o077
+                if self.app_env == "production" and insecure_mode:
+                    raise ValueError(
+                        "SECRET_KEY_FILE must not be readable by group or other users"
+                    )
+                self.secret_key = secret_path.read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise ValueError("SECRET_KEY_FILE could not be read") from exc
         sandbox_url = "https://api-m.sandbox.paypal.com"
         if self.session_cookie_samesite == "none" and not self.session_cookie_secure:
             raise ValueError(

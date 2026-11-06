@@ -13,6 +13,7 @@ from backend.defaults import default_policy
 from backend.models import User, Wallet
 from backend.services.accounts import create_account
 from backend.services.policies import get_current_policy, save_policy
+from backend.worker import reconciliation_lease
 
 
 pytestmark = pytest.mark.skipif(
@@ -61,3 +62,10 @@ def test_concurrent_policy_saves_allocate_distinct_versions() -> None:
     assert sorted(versions) == [2, 3]
     with Session(engine) as session:
         assert get_current_policy(session, user_id).version == 3
+
+
+def test_reconciliation_worker_lease_allows_only_one_authority() -> None:
+    with reconciliation_lease() as first_acquired:
+        assert first_acquired is True
+        with reconciliation_lease() as second_acquired:
+            assert second_acquired is False
