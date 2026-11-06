@@ -3,6 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 const password = "JudgePassword2026!";
 
+test.use({ reducedMotion: "reduce" });
+
 async function expectWcag21AA(page: Page, label: string) {
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
