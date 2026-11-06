@@ -21,7 +21,7 @@
 - [ ] Add `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and a distinct active `PAYPAL_TEST_RECIPIENT_EMAIL`; keep the official Sandbox base URL and `PAYPAL_MOCK_MODE=false`; then set `PAYPAL_PAYOUTS_ENABLED=true`.
 - [ ] Confirm Oracle PostgreSQL is healthy, localhost-only, backed up, and Alembic reaches head before the API starts.
 - [ ] Run a fresh-account deployed smoke: register/login, top-up, policy save/reload, internal payment, approval/rejection, assistant, receipt/history, reset, persistence after reload.
-- [ ] Create and reconcile a real PayPal Sandbox payout to item-level `SUCCESS`. The latest local real smoke reached item-level `FAILED` and correctly released its hold; it is not success evidence.
+- [ ] Create and reconcile a real PayPal Sandbox payout to item-level `SUCCESS`. The 6 November `$0.01` smoke reached item-level `FAILED` and correctly released its hold; it is not success evidence.
 - [ ] Re-run live Gemini tool execution if Google is no longer returning temporary `503 UNAVAILABLE`.
 - [ ] Record and upload the public demo video under the event limit.
 - [ ] Add the final live URL and video URL to README/Devpost.

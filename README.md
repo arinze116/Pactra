@@ -223,8 +223,8 @@ The PRD-pinned Vite 5 development toolchain currently reports upstream dev-serve
 
 ## Known external blockers
 
-- Gemini credentials and `gemini-3.8-flash` catalogue availability were verified locally. A live generation attempt on 5 November 2026 returned provider `503 UNAVAILABLE` due high demand, so deployed Gemini tool execution is not yet claimed; bounded retry and deterministic fallback were verified.
-- A real PayPal Sandbox Payouts batch was submitted locally with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires confirming that `PAYPAL_TEST_RECIPIENT_EMAIL` is a distinct active Sandbox recipient able to receive USD, then rerunning the payout.
+- Gemini credentials remain configured, but the 6 November 2026 live balance-tool smoke returned a provider `ServerError`; deterministic fallback completed safely. Live Gemini tool execution is therefore not claimed.
+- A new `$0.01` PayPal Sandbox Payouts smoke ran on 6 November 2026 with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires a distinct active Sandbox recipient able to receive USD and a Payouts-capable business app.
 - No controlled Pactra API domain/TLS certificate or Vercel project linkage is present on this VPS. The operator must point a controlled API hostname to the VPS and provide/link the Vercel project before the Nginx and rewrite templates can be activated.
 - Devpost submission and the public demo-video upload remain owner actions.
 
