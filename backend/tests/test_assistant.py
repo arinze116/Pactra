@@ -1,5 +1,6 @@
 """Persisted assistant fallback and owner-isolation tests."""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -23,10 +24,12 @@ class FakeGeminiClient:
     def __init__(self, responses: list[object] | None = None, *, error: Exception | None = None):
         self._responses = list(responses or [])
         self._error = error
+        self.calls = 0
         self.aio = self
         self.models = self
 
     async def generate_content(self, **_kwargs):
+        self.calls += 1
         if self._error is not None:
             raise self._error
         response = self._responses.pop(0)
@@ -36,6 +39,12 @@ class FakeGeminiClient:
 
     async def aclose(self) -> None:
         return None
+
+
+class SlowGeminiClient(FakeGeminiClient):
+    async def generate_content(self, **_kwargs):
+        self.calls += 1
+        await asyncio.sleep(60)
 
 
 def gemini_tool_response(name: str, arguments: dict[str, object]) -> object:
@@ -188,6 +197,31 @@ async def test_gemini_failure_is_audited_and_disclosed_before_fallback(
         "code": "AI_UNAVAILABLE",
         "model": settings.gemini_model,
     }
+
+
+@pytest.mark.asyncio
+async def test_gemini_timeout_retries_then_uses_bounded_fallback(
+    assistant_db,
+    monkeypatch,
+) -> None:
+    session, user, _other = assistant_db
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-gemini-key")
+    monkeypatch.setattr(settings, "gemini_request_timeout_seconds", 0.01)
+    fake = SlowGeminiClient()
+    monkeypatch.setattr(assistant.genai, "Client", lambda **_kwargs: fake)
+
+    result = await run_assistant(
+        session,
+        user=user,
+        message="What is my current sandbox wallet balance?",
+        conversation_id=None,
+        request_id="assistant-gemini-timeout-0001",
+    )
+
+    assert fake.calls == 3
+    assert result.transaction_ids == []
+    assert result.reply.startswith("AI is temporarily unavailable")
 
 
 @pytest.mark.asyncio

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     ai_enabled: bool = False
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
+    gemini_request_timeout_seconds: float = Field(default=12.0, gt=0, le=60)
     max_chat_history: int = Field(default=20, ge=1, le=100)
 
     paypal_payouts_enabled: bool = False

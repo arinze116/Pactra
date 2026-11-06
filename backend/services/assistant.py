@@ -611,28 +611,28 @@ async def _run_gemini(
             response = None
             for attempt in range(3):
                 try:
-                    response = await client.aio.models.generate_content(
-                        model=settings.gemini_model,
-                        contents=contents,
-                        config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
-                            tools=TOOLS,
-                            automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                                disable=True
+                    response = await asyncio.wait_for(
+                        client.aio.models.generate_content(
+                            model=settings.gemini_model,
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                system_instruction=SYSTEM_PROMPT,
+                                tools=TOOLS,
+                                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                                    disable=True
+                                ),
+                                temperature=0.1,
+                                max_output_tokens=2000,
                             ),
-                            temperature=0.1,
-                            max_output_tokens=2000,
                         ),
+                        timeout=settings.gemini_request_timeout_seconds,
                     )
                     break
                 except Exception as exc:
-                    retryable = getattr(exc, "code", None) in {
-                        429,
-                        500,
-                        502,
-                        503,
-                        504,
-                    }
+                    retryable = isinstance(exc, TimeoutError) or (
+                        getattr(exc, "code", None)
+                        in {429, 500, 502, 503, 504}
+                    )
                     if not retryable or attempt == 2:
                         raise
                     await asyncio.sleep(0.5 * (2**attempt))

@@ -178,6 +178,7 @@ Server-only secrets must be stored in the hosting provider, never in Vite variab
 | `AI_ENABLED` | Set `true` only after `GEMINI_API_KEY` is present |
 | `GEMINI_API_KEY` | Server-side Google AI Studio key |
 | `GEMINI_MODEL` | `gemini-3.8-flash`, verified in the provider model catalogue |
+| `GEMINI_REQUEST_TIMEOUT_SECONDS` | Per-attempt application deadline; default `12` |
 | `MAX_CHAT_HISTORY` | Default `20` |
 | `PAYPAL_PAYOUTS_ENABLED` | Set `true` only after all Sandbox values below are present |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal Sandbox business-app credentials |
@@ -223,7 +224,7 @@ The PRD-pinned Vite 5 development toolchain currently reports upstream dev-serve
 
 ## Known external blockers
 
-- Gemini credentials remain configured, but the 6 November 2026 live balance-tool smoke returned a provider `ServerError`; deterministic fallback completed safely. Live Gemini tool execution is therefore not claimed.
+- Gemini credentials and the configured model catalogue entry are verified, but live balance-tool smokes returned a provider `ServerError` and then timed out. The application now enforces a 12-second per-attempt deadline, retries three times, and reached deterministic fallback in 37.7 seconds. Live Gemini tool execution is therefore not claimed.
 - A new `$0.01` PayPal Sandbox Payouts smoke ran on 6 November 2026 with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires a distinct active Sandbox recipient able to receive USD and a Payouts-capable business app.
 - No controlled Pactra API domain/TLS certificate or Vercel project linkage is present on this VPS. The operator must point a controlled API hostname to the VPS and provide/link the Vercel project before the Nginx and rewrite templates can be activated.
 - Devpost submission and the public demo-video upload remain owner actions.
