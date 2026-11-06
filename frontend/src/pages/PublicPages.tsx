@@ -69,5 +69,5 @@ export const SignInPage = () => <AuthPage mode="sign-in" />;
 export const SignUpPage = () => <AuthPage mode="sign-up" />;
 
 export function NotFoundPage({ authenticated = false }: { authenticated?: boolean }) {
-  return <div className={authenticated ? "grid min-h-[60vh] place-items-center text-center" : "grid min-h-screen place-items-center bg-canvas px-5 text-center"}><div><p className="text-sm font-medium text-pactra-600">404</p><h1 className="mt-3 text-3xl font-medium">This page does not exist</h1><p className="mt-2 text-sm text-ink-500">Return to a known part of the Pactra sandbox.</p><Link className="action-primary mt-6" to={authenticated ? "/app" : "/"}>{authenticated ? "Go to overview" : "Go home"}</Link></div></div>;
+  return <div className={authenticated ? "grid min-h-[60vh] place-items-center text-center" : "grid min-h-screen place-items-center bg-canvas px-5 text-center"}><div><p className="text-sm font-medium text-pactra-300">404</p><h1 className="mt-3 text-3xl font-medium">This page does not exist</h1><p className="mt-2 text-sm text-ink-500">Return to a known part of the Pactra sandbox.</p><Link className="action-primary mt-6" to={authenticated ? "/app" : "/"}>{authenticated ? "Go to overview" : "Go home"}</Link></div></div>;
 }

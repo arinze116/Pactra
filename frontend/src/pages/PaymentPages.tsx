@@ -257,7 +257,7 @@ export function NewPaymentPage() {
           <fieldset>
             <legend className="text-sm font-medium">Request type</legend>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button aria-pressed={type === value} className={`h-10 rounded-lg border text-xs font-medium transition-colors ${type === value ? "border-pactra-600 bg-pactra-100 text-pactra-700" : "border-line bg-surface text-ink-600 hover:bg-surface-raised"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
+              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button aria-pressed={type === value} className={`h-10 rounded-lg border text-xs font-medium transition-colors ${type === value ? "border-pactra-600 bg-pactra-100 text-pactra-300" : "border-line bg-surface text-ink-600 hover:bg-surface-raised"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
             </div>
           </fieldset>
           <div className="grid gap-5 sm:grid-cols-2">
