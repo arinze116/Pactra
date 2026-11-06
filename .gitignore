@@ -23,6 +23,7 @@ venv/
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/.vercel/
 frontend/playwright-report/
 frontend/test-results/
 *.tsbuildinfo
