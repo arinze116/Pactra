@@ -18,6 +18,12 @@ async function expectWcag21AA(page: Page, label: string) {
   expect(violations, `${label} accessibility violations`).toEqual([]);
 }
 
+async function expectAuthenticatedPageAccessible(page: Page, label: string) {
+  await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator(".loading-placeholder")).toHaveCount(0);
+  await expectWcag21AA(page, label);
+}
+
 async function register(page: Page) {
   const email = `judge-a11y-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
@@ -41,7 +47,7 @@ test("public and authenticated judge surfaces meet automated WCAG 2.1 AA checks"
   }
 
   await register(page);
-  await expectWcag21AA(page, "Overview page");
+  await expectAuthenticatedPageAccessible(page, "Overview page");
 
   const routes = [
     ["/app/wallet", "Wallet page"],
@@ -57,7 +63,6 @@ test("public and authenticated judge surfaces meet automated WCAG 2.1 AA checks"
 
   for (const [route, label] of routes) {
     await page.goto(route);
-    await expect(page.locator("main")).toBeVisible();
-    await expectWcag21AA(page, label);
+    await expectAuthenticatedPageAccessible(page, label);
   }
 });
