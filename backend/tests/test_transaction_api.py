@@ -178,9 +178,9 @@ def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
         headers=mutation_headers(api),
         json=payment(amount_cents=1_000, key="api-blocked-payment-0001"),
     )
-    assert blocked.status_code == 422
-    assert blocked.json()["error"]["code"] == "POLICY_BLOCKED"
-    transaction = blocked.json()["error"]["details"]["transaction"]
+    assert blocked.status_code == 201
+    assert blocked.json()["policy_result"]["decision"] == "blocked"
+    transaction = blocked.json()["transaction"]
     assert transaction["status"] == "blocked"
     assert transaction["failure_code"] == "VENDOR_BLOCKED"
     replay = api.post(
@@ -188,8 +188,8 @@ def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
         headers=mutation_headers(api),
         json=payment(amount_cents=1_000, key="api-blocked-payment-0001"),
     )
-    assert replay.status_code == 422
-    assert replay.json()["error"]["details"]["transaction"]["id"] == transaction["id"]
+    assert replay.status_code == 201
+    assert replay.json()["transaction"]["id"] == transaction["id"]
 
     history = api.get("/api/transactions").json()["items"]
     assert len(history) == 1

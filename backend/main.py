@@ -851,19 +851,12 @@ async def create_transaction(
         db_session.commit()
     except PolicyBlocked as exc:
         db_session.commit()
-        transaction_body = _transaction_response(exc.transaction).model_dump(mode="json")
-        policy_body = exc.decision.snapshot()
-        code = exc.decision.reason_code or "POLICY_BLOCKED"
-        status_code = 402 if code == "INSUFFICIENT_FUNDS" else 422
-        public_code = "INSUFFICIENT_FUNDS" if status_code == 402 else "POLICY_BLOCKED"
-        raise ApiError(
-            status_code,
-            public_code,
-            "Your available sandbox balance is too low."
-            if status_code == 402
-            else "This request is blocked by your spending policy.",
-            details={"transaction": transaction_body, "policy_result": policy_body},
-        ) from exc
+        wallet = get_wallet_for_user(db_session, context.user.id)
+        return PaymentResponse(
+            transaction=_transaction_response(exc.transaction),
+            policy_result=exc.decision.snapshot(),
+            balance=_balance_response(wallet_balance(db_session, wallet)),
+        )
     except TransactionIdempotencyConflict as exc:
         db_session.rollback()
         raise ApiError(409, exc.code, str(exc)) from exc
