@@ -112,10 +112,14 @@ test("public submission journey remains secure, durable, and tenant isolated", a
   await page.getByLabel("Business reason").fill("Submission verification contract work");
   await submitPayment(page);
   await expect(page.getByText("Needs approval").first()).toBeVisible();
-  const ownerApprovalId = page.url().split("/").pop() ?? "";
+  const ownerApprovalReceipt = page.url();
+  const ownerApprovalId = ownerApprovalReceipt.split("/").pop() ?? "";
+  await expect(page.getByText("ada-public-smoke@example.com", { exact: true })).toBeVisible();
   await page.goto("/app/approvals");
   await page.getByRole("article").filter({ hasText: "Ada Public Smoke" }).getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("No requests need approval")).toBeVisible();
+  await page.goto(ownerApprovalReceipt);
+  await expect(page.getByText("ada-public-smoke@example.com", { exact: true })).toBeVisible();
 
   await page.goto("/app/payments/new?scenario=reject");
   await page.getByLabel("Category").selectOption("ops");
