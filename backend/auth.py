@@ -3,22 +3,23 @@
 import hashlib
 import hmac
 import secrets
-from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from threading import Lock
 from urllib.parse import urlsplit
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from argon2.low_level import Type
 from fastapi import Depends, Request, Response
+from sqlalchemy import case, delete
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from backend.config import settings
 from backend.database import get_session
 from backend.errors import ApiError
-from backend.models import AuthSession, User, utc_now
+from backend.models import AuthSession, RateLimitBucket, User, utc_now
 
 
 SESSION_COOKIE = "pactra_session"
@@ -38,30 +39,68 @@ class AuthContext:
 
 
 class FixedWindowRateLimiter:
-    """Small in-process limiter for public auth endpoints.
+    """Store privacy-preserving rate counters in the shared application DB."""
 
-    Deployment remains single-instance for the hackathon; durable financial
-    limits are enforced in PostgreSQL rather than this process-local helper.
-    """
-
-    def __init__(self) -> None:
-        self._events: dict[str, deque[datetime]] = defaultdict(deque)
-        self._lock = Lock()
-
-    def check(self, key: str, *, limit: int, window: timedelta) -> None:
+    def check(
+        self,
+        session: Session,
+        key: str,
+        *,
+        limit: int,
+        window: timedelta,
+    ) -> None:
         now = utc_now()
-        threshold = now - window
-        with self._lock:
-            events = self._events[key]
-            while events and events[0] <= threshold:
-                events.popleft()
-            if len(events) >= limit:
-                raise ApiError(429, "RATE_LIMITED", "Too many requests. Try again later.")
-            events.append(now)
+        window_seconds = int(window.total_seconds())
+        bucket_epoch = int(now.timestamp()) // window_seconds * window_seconds
+        window_started_at = datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
+        expires_at = window_started_at + window
+        key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        table = RateLimitBucket.__table__
+        values = {
+            "key_hash": key_hash,
+            "window_started_at": window_started_at,
+            "expires_at": expires_at,
+            "event_count": 1,
+        }
+        dialect_name = session.get_bind().dialect.name
+        if dialect_name == "postgresql":
+            statement = postgresql_insert(table).values(**values)
+        elif dialect_name == "sqlite":
+            statement = sqlite_insert(table).values(**values)
+        else:  # pragma: no cover - Pactra supports SQLite and PostgreSQL only.
+            raise RuntimeError(f"Unsupported rate-limit database: {dialect_name}")
+        statement = statement.on_conflict_do_update(
+            index_elements=[table.c.key_hash],
+            set_={
+                "window_started_at": window_started_at,
+                "expires_at": expires_at,
+                "event_count": case(
+                    (
+                        table.c.window_started_at == window_started_at,
+                        table.c.event_count + 1,
+                    ),
+                    else_=1,
+                ),
+            },
+        ).returning(table.c.event_count)
+        count = int(session.exec(statement).one()[0])
+        session.exec(
+            delete(RateLimitBucket).where(
+                RateLimitBucket.expires_at < now - timedelta(days=1)
+            )
+        )
+        session.commit()
+        if count > limit:
+            retry_after = max(1, int((expires_at - now).total_seconds()))
+            raise ApiError(
+                429,
+                "RATE_LIMITED",
+                "Too many requests. Try again later.",
+                details={"retry_after_seconds": retry_after},
+            )
 
     def clear(self) -> None:
-        with self._lock:
-            self._events.clear()
+        """Retain the legacy test hook; isolated test DBs start empty."""
 
 
 auth_rate_limiter = FixedWindowRateLimiter()

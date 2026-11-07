@@ -19,7 +19,7 @@ No real money moves. Pactra's append-only ledger is the source of truth for the 
 - Atomic approval and rejection workflow with current-policy re-evaluation
 - One validated transaction service shared by manual requests and the Gemini assistant
 - Internal sandbox execution for every judge, with honest fallback when external services are unavailable
-- PayPal Sandbox Payouts submission, stable provider idempotency references, item-level reconciliation, and reservation-safe failure handling
+- PayPal Sandbox Payouts submission, stable provider idempotency references, item-level reconciliation, and reservation-safe failure handling in provider-independent tests; live Sandbox success remains credential-gated
 - Transaction receipts, lifecycle audit events, ledger entries, filtering, and AG Grid history
 - Authenticated React/TypeScript workspace with loading, empty, failure, and recovery states
 - Alembic migrations, PostgreSQL production configuration, backend tests, and Playwright judge journeys
@@ -125,11 +125,13 @@ Pactra wallet balances and PayPal sandbox account balances are separate systems.
 | `POST` | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | Account and session lifecycle |
 | `GET/POST` | `/api/wallet`, `/api/wallet/topups`, `/api/wallet/reset` | Ledger-backed sandbox funds |
 | `GET/PUT` | `/api/policy` | Current policy and immutable version save |
+| `POST` | `/api/transactions/preview` | Side-effect-free server-authoritative policy preview |
 | `POST` | `/api/transactions` | Create one governed manual payment request |
 | `GET` | `/api/transactions`, `/api/transactions/{id}` | Filtered history and receipt |
 | `POST` | `/api/approvals/{id}/approve`, `/reject` | Single-use human review |
 | `POST` | `/api/transactions/{id}/retry`, `/reverse`, `/reconcile` | Safe lifecycle recovery actions |
 | `POST` | `/api/chat` | Persisted Gemini/fallback assistant using the same transaction service |
+| `POST` | `/api/judge/guided/start`, `/api/judge/scenarios/insufficient-funds` | Persisted judge walkthrough controls |
 | `GET` | `/api/integrations/paypal/status` | Sandbox provider capability without secrets |
 | `GET` | `/api/health`, `/api/ready` | Liveness and database/config readiness |
 
@@ -137,6 +139,8 @@ Pactra wallet balances and PayPal sandbox account balances are separate systems.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pip_audit -r requirements.txt
 alembic upgrade head
 cd frontend
 npm run lint
@@ -144,6 +148,7 @@ npm run build
 npm run test:e2e
 PUBLIC_BASE_URL=https://pactra-nine.vercel.app npm run test:e2e:public
 npm audit --omit=dev --audit-level=high
+npm audit --audit-level=moderate
 ```
 
 Playwright starts the API and frontend, migrates an isolated local SQLite database automatically, and explicitly disables Gemini and PayPal. CI keeps its isolated PostgreSQL database. The suite never inherits the root `.env` database or provider flags. Judges and CI do not need external credentials for the internal sandbox path.
@@ -155,11 +160,12 @@ Playwright starts the API and frontend, migrates an isolated local SQLite databa
 3. Add `$100.00` test funds from Wallet.
 4. Create a `$49.00` software payment to Linear and open its completed receipt.
 5. Create a `$125.00` freelance payout to Ada Contractor on the internal rail, then approve it.
-6. Create a `$185.00` cloud request to AWS and inspect the transaction-limit block with no ledger debit.
-7. Change the approval threshold or categories under Policies and confirm the version increments.
-8. Use the Assistant prompt `Pay Notion $20 for our software subscription`.
-9. Filter Transactions, inspect lifecycle/ledger details, reject another pending request, and reset the sandbox by typing `RESET`.
-10. If the PayPal integration page reports `Configured`, use the provided test-recipient shortcut, approve the payout, and refresh until the payout item reaches a truthful terminal state.
+6. Create a `$185.00` cloud request to AWS and inspect the persisted 422 policy block with no ledger debit.
+7. Run the guided insufficient-funds scenario and confirm its persisted receipt says no ledger posting occurred.
+8. Change the approval threshold or categories under Policies and confirm the version increments.
+9. Use the Assistant prompt `Pay Notion $20 for our software subscription`.
+10. Filter Transactions, inspect actor-labelled lifecycle and balanced account-labelled ledger details, reject another pending request, reverse an internal payment, and reset the sandbox by typing `RESET`.
+11. If the PayPal integration page reports `Configured`, stop and obtain operator authorization for the specific Sandbox payout before using the provided test recipient. Completion requires payout-item `SUCCESS` plus Pactra reconciliation; configured status alone is not success.
 
 ## Environment configuration
 
@@ -176,8 +182,8 @@ Server-only secrets must be stored in the hosting provider, never in Vite variab
 | `SESSION_COOKIE_SECURE` | `true` |
 | `SESSION_COOKIE_SAMESITE` | `lax` when Vercel proxies `/api`; `none` only for an intentionally cross-site topology |
 | `SESSION_TTL_HOURS`, `SESSION_IDLE_HOURS` | Defaults: `168` and `24` |
-| `AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR`, `AUTH_REGISTRATION_GLOBAL_RATE_LIMIT_PER_HOUR` | Per-client and process-wide sandbox registration ceilings; defaults: `10` and `100` |
-| `AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE` | Process-wide ceiling that bounds distinct-account login enumeration; default: `30` |
+| `AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR`, `AUTH_REGISTRATION_GLOBAL_RATE_LIMIT_PER_HOUR` | Per-client and shared database-backed sandbox registration ceilings; defaults: `10` and `100` |
+| `AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE` | Shared database-backed ceiling that bounds distinct-account login enumeration; default: `30` |
 | `AI_ENABLED` | Set `true` only after `GEMINI_API_KEY` is present |
 | `GEMINI_API_KEY` | Server-side Google AI Studio key |
 | `GEMINI_MODEL` | Configured model name; validate it against the current provider catalogue before enabling AI |
@@ -231,10 +237,11 @@ The release is not submission-ready until a real PayPal Sandbox Payouts batch ha
 - CORS is restricted to configured origins.
 - Production startup refuses SQLite, insecure cookies, weak secrets, mock-enabled payouts, missing enabled-provider credentials, and any non-sandbox PayPal host.
 - Posted ledger journals and their two-entry posting sets are immutable in PostgreSQL; corrections use balanced compensating journals.
+- Authentication, payment, policy and assistant fixed-window counters are stored atomically in PostgreSQL, shared across API processes and retained through restarts.
 
 SQLite is supported only for local development and lightweight tests. Public deployment requires PostgreSQL for durable data, locking, and ledger triggers.
 
-The PRD-pinned Vite 5 development toolchain currently reports upstream dev-server advisories in a full npm audit. Production dependencies audit cleanly, the deployed artifact is static, and the development server must remain bound to localhost. Upgrading the PRD-pinned major version requires a deliberate compatibility pass.
+The release-candidate toolchain uses Vite 8 with a reviewed `minimatch` override. Production and full development dependency audits are clean in the recorded release-candidate evidence. Keep the development server bound to localhost and rerun both audits whenever the lockfile changes.
 
 ## Known external blockers
 

@@ -41,8 +41,8 @@ export function EmptyState({ title, description, icon: Icon = Inbox }: { title: 
   return <div className="grid min-h-56 place-items-center px-6 py-10 text-center"><div><Icon className="mx-auto h-5 w-5 text-ink-400" strokeWidth={1.5} /><p className="mt-3 text-sm font-medium text-ink-800">{title}</p><p className="mt-1 text-sm text-ink-500">{description}</p></div></div>;
 }
 
-export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }) {
-  return <div aria-live="assertive" className="flex items-start gap-3 rounded-xl border border-negative/20 bg-negative-soft px-4 py-3 text-sm text-negative" role="alert"><AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /><span className="flex-1">{message}</span>{onRetry ? <button className="shrink-0 font-medium underline decoration-negative/30 underline-offset-4" onClick={onRetry} type="button">Try again</button> : null}</div>;
+export function ErrorNotice({ message, onRetry, retryLabel = "Try again" }: { message: string; onRetry?: () => void; retryLabel?: string }) {
+  return <div aria-live="assertive" className="flex items-start gap-3 rounded-xl border border-negative/20 bg-negative-soft px-4 py-3 text-sm text-negative" role="alert"><AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /><span className="flex-1">{message}</span>{onRetry ? <button className="shrink-0 font-medium underline decoration-negative/30 underline-offset-4" onClick={onRetry} type="button">{retryLabel}</button> : null}</div>;
 }
 
 export function LoadingBlock({ className = "h-24" }: { className?: string }) {

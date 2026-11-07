@@ -71,3 +71,27 @@ rewrite. Leave `VITE_API_URL` absent so browser requests remain same-origin.
 
 After deployment, verify registration, CSRF-protected mutations, cookies,
 receipts, persistence, and cross-user isolation through the public Vercel URL.
+
+## Release-candidate migration and rollback
+
+The current release candidate adds migration `20261107_0005`. It creates only
+the `rate_limit_buckets` table and its expiry index. It does not rewrite user,
+wallet, transaction, audit, or ledger rows. Test the migration on a restored
+database before production approval.
+
+For an approved release:
+
+1. Create and verify `/opt/pactra/backups/pactra-pre-<release-sha>-<UTC>.dump`.
+2. Install the immutable release directory without changing `/opt/pactra/current`.
+3. Stop only `pactra-api` and `pactra-worker`, switch the symlink, and start the
+   API. Its pre-start migration advances PostgreSQL to `20261107_0005`.
+4. Verify `/api/ready`, registration/login rate limits, wallet, preview,
+   payment, approval, receipt, reset, worker lease, Funnel and Vercel rewrite.
+5. Start the worker only after API and database readiness pass.
+
+Expected interruption is one API restart, normally under a minute. If the new
+release fails before accepting traffic, point `/opt/pactra/current` back to the
+previous release and restart the two Pactra services. The previous application
+can safely ignore the additive `rate_limit_buckets` table. Do not downgrade the
+migration during the immediate rollback; restore the verified backup only for
+a separately diagnosed database failure.

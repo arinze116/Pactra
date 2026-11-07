@@ -3,12 +3,12 @@ import { ArrowLeft, Check, ClipboardCopy, RefreshCw, X } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, createIdempotencyKey, isAmbiguousMutationError } from "../api";
 import { EmptyState, ErrorNotice, formatCents, LoadingBlock, PageHeader, Panel, Status } from "../components/UI";
-import type { Transaction, TransactionDetail, TransactionStatus, TransactionType } from "../types";
+import type { ApprovalItem, Transaction, TransactionDetail, TransactionStatus, TransactionType } from "../types";
 
 const TransactionGrid = lazy(() => import("../components/TransactionGrid"));
 
 export function ApprovalsPage() {
-  const [items, setItems] = useState<Transaction[]>([]);
+  const [items, setItems] = useState<ApprovalItem[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -28,21 +28,22 @@ export function ApprovalsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function act(item: Transaction, action: "approve" | "reject") {
+  async function act(item: ApprovalItem, action: "approve" | "reject") {
+    const transaction = item.transaction;
     const keys = action === "approve" ? approvalKeysRef.current : rejectionKeysRef.current;
-    const requestKey = keys.get(item.id) ?? createIdempotencyKey(action);
-    keys.set(item.id, requestKey);
-    setBusy(item.id);
+    const requestKey = keys.get(transaction.id) ?? createIdempotencyKey(action);
+    keys.set(transaction.id, requestKey);
+    setBusy(transaction.id);
     setError("");
     try {
-      if (action === "approve") await api.approve(item.id, requestKey);
-      else await api.reject(item.id, reason.trim(), requestKey);
-      keys.delete(item.id);
+      if (action === "approve") await api.approve(transaction.id, requestKey);
+      else await api.reject(transaction.id, reason.trim(), requestKey);
+      keys.delete(transaction.id);
       setRejecting(null);
       setReason("");
       await load();
     } catch (caught) {
-      if (!isAmbiguousMutationError(caught)) keys.delete(item.id);
+      if (!isAmbiguousMutationError(caught)) keys.delete(transaction.id);
       setError(caught instanceof Error ? caught.message : "Approval action failed");
     } finally {
       setBusy(null);
@@ -53,9 +54,22 @@ export function ApprovalsPage() {
     <PageHeader title="Approvals" description="Oldest requests appear first. Every approval rechecks the current policy and wallet." />
     {error ? <div className="mb-5"><ErrorNotice message={error} onRetry={() => void load()} /></div> : null}
     <Panel>
-      {loading ? <div className="space-y-3 p-5"><LoadingBlock className="h-28" /><LoadingBlock className="h-28" /></div> : items.length ? <div className="divide-y divide-line">{items.map((item) => <article className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center" key={item.id}><div><div className="flex flex-wrap items-center gap-3"><h2 className="text-base font-medium">{item.vendor}</h2><Status value={item.status} /></div><p className="mt-2 text-sm text-ink-600">{item.reason}</p><dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-xs"><div><dt className="text-ink-400">Amount</dt><dd className="mt-1 font-medium tabular-nums text-ink-800">{formatCents(item.amount_cents)}</dd></div><div><dt className="text-ink-400">Category</dt><dd className="mt-1 capitalize text-ink-800">{item.category}</dd></div><div><dt className="text-ink-400">Rail</dt><dd className="mt-1 text-ink-800">{item.rail === "internal_sandbox" ? "Internal sandbox" : "PayPal Sandbox"}</dd></div></dl>{rejecting === item.id ? <label className="mt-5 block max-w-xl text-xs font-medium text-ink-600">Rejection reason for {item.vendor}<textarea className="input mt-2 min-h-20 resize-y py-2" maxLength={300} onChange={(event) => { rejectionKeysRef.current.delete(item.id); setReason(event.target.value); }} placeholder="Optional context for the audit trail" value={reason} /></label> : null}</div><div className="flex flex-wrap gap-2">{rejecting === item.id ? <><button className="action-secondary" disabled={busy === item.id} onClick={() => { rejectionKeysRef.current.delete(item.id); setRejecting(null); setReason(""); }} type="button">Cancel</button><button className="inline-flex h-10 items-center gap-2 rounded-lg border border-negative/30 px-4 text-sm font-medium text-negative disabled:opacity-50" disabled={busy === item.id} onClick={() => void act(item, "reject")} type="button"><X className="h-4 w-4" />Confirm rejection</button></> : <><button className="action-secondary" disabled={busy === item.id} onClick={() => { if (rejecting) rejectionKeysRef.current.delete(rejecting); rejectionKeysRef.current.delete(item.id); setRejecting(item.id); setReason(""); }} type="button"><X className="h-4 w-4" />Reject</button><button className="action-primary" disabled={busy === item.id} onClick={() => void act(item, "approve")} type="button"><Check className="h-4 w-4" />Approve</button></>}</div></article>)}</div> : <EmptyState title="No requests need approval" description="Requests above your approval threshold will appear here" />}
+      {loading ? <div className="space-y-3 p-5"><LoadingBlock className="h-28" /><LoadingBlock className="h-28" /></div> : items.length ? <div className="divide-y divide-line">{items.map((item) => { const transaction = item.transaction; return <article className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center" key={transaction.id}><div><div className="flex flex-wrap items-center gap-3"><h2 className="text-base font-medium">{transaction.vendor}</h2><Status value={transaction.status} /></div><p className="mt-2 text-sm text-ink-600">{transaction.reason}</p><dl className="mt-4 grid gap-x-8 gap-y-3 text-xs sm:grid-cols-2 xl:grid-cols-4"><ApprovalFact label="Requester" value={item.requester.email} /><ApprovalFact label="Amount" value={formatCents(transaction.amount_cents)} /><ApprovalFact label="Category" value={transaction.category} /><ApprovalFact label="Available balance" value={formatCents(item.available_balance.available_cents)} /><ApprovalFact label="Created" value={new Date(transaction.created_at).toLocaleString()} /><ApprovalFact label="Age" value={formatAge(transaction.created_at)} /><ApprovalFact label="Rail" value={transaction.rail === "internal_sandbox" ? "Internal sandbox" : "PayPal Sandbox"} /><ApprovalFact label="Current policy" value={`v${item.current_policy_version} · ${item.current_policy_decision.replace(/_/g, " ")}`} /></dl><div className="mt-4 rounded-xl bg-canvas p-4"><p className="text-xs font-medium text-ink-700">Policy checks</p><ul className="mt-2 grid gap-1 text-xs text-ink-500 sm:grid-cols-2">{item.policy_checks.map((check, index) => <li key={`${String(check.code)}-${index}`}>{check.passed ? "Pass" : "Stop"}: {String(check.code ?? "policy check").replace(/_/g, " ")}</li>)}</ul>{item.current_policy_reason_code ? <p className="mt-2 text-xs font-medium text-negative">{item.current_policy_reason_code.replace(/_/g, " ")}</p> : null}</div>{rejecting === transaction.id ? <label className="mt-5 block max-w-xl text-xs font-medium text-ink-600">Rejection reason for {transaction.vendor}<textarea className="input mt-2 min-h-20 resize-y py-2" maxLength={300} onChange={(event) => { rejectionKeysRef.current.delete(transaction.id); setReason(event.target.value); }} placeholder="Optional context for the audit trail" value={reason} /></label> : null}</div><div className="flex flex-wrap gap-2">{rejecting === transaction.id ? <><button className="action-secondary" disabled={busy === transaction.id} onClick={() => { rejectionKeysRef.current.delete(transaction.id); setRejecting(null); setReason(""); }} type="button">Cancel</button><button className="inline-flex h-10 items-center gap-2 rounded-lg border border-negative/30 px-4 text-sm font-medium text-negative disabled:opacity-50" disabled={busy === transaction.id} onClick={() => void act(item, "reject")} type="button"><X className="h-4 w-4" />Confirm rejection</button></> : <><button className="action-secondary" disabled={busy === transaction.id} onClick={() => { if (rejecting) rejectionKeysRef.current.delete(rejecting); rejectionKeysRef.current.delete(transaction.id); setRejecting(transaction.id); setReason(""); }} type="button"><X className="h-4 w-4" />Reject</button><button className="action-primary" disabled={busy === transaction.id} onClick={() => void act(item, "approve")} type="button"><Check className="h-4 w-4" />Approve</button></>}</div></article>; })}</div> : <EmptyState title="No requests need approval" description="Requests above your approval threshold will appear here" />}
     </Panel>
   </>;
+}
+
+function ApprovalFact({ label, value }: { label: string; value: string }) {
+  return <div><dt className="text-ink-400">{label}</dt><dd className="mt-1 break-all font-medium capitalize text-ink-800">{value}</dd></div>;
+}
+
+function formatAge(createdAt: string) {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
 const statuses: Array<"all" | TransactionStatus> = ["all", "draft", "pending_approval", "executing", "completed", "blocked", "rejected", "failed", "cancelled", "reversed"];
@@ -227,6 +241,8 @@ export function ReceiptPage() {
 
   if (!detail) return <><PageHeader title="Transaction receipt" />{error ? <ErrorNotice message={error} onRetry={() => void load()} /> : <LoadingBlock className="h-72" />}</>;
   const transaction = detail.transaction;
+  const debitTotal = detail.ledger_entries.reduce((total, entry) => entry.direction === "debit" ? total + Number(entry.amount_cents) : total, 0);
+  const creditTotal = detail.ledger_entries.reduce((total, entry) => entry.direction === "credit" ? total + Number(entry.amount_cents) : total, 0);
 
   async function copyId() {
     await navigator.clipboard.writeText(transaction.id);
@@ -245,8 +261,8 @@ export function ReceiptPage() {
         {detail.attempts.length ? <Panel><div className="border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Execution attempts</h2></div><div className="divide-y divide-line">{detail.attempts.map((attempt, index) => { const evidence = executionEvidence(attempt); return <div className="grid gap-2 p-5 text-sm sm:grid-cols-3" key={String(attempt.id ?? index)}><div><p className="text-xs text-ink-400">Attempt</p><p className="mt-1 font-medium">#{String(attempt.attempt_number ?? index + 1)}</p></div><div><p className="text-xs text-ink-400">Status</p><p className="mt-1 font-medium capitalize">{String(attempt.status ?? "unknown").replace(/_/g, " ")}</p></div><div><p className="text-xs text-ink-400">{evidence.label}</p><p className="mt-1 break-all font-mono text-xs">{evidence.value}</p></div></div>; })}</div></Panel> : null}
       </div>
       <div className="space-y-6">
-        <Panel><div className="border-b border-line px-5 py-4"><h2 className="text-sm font-medium">Lifecycle</h2></div><div className="divide-y divide-line">{detail.events.map((event, index) => <div className="p-4" key={String(event.id ?? index)}><p className="text-sm font-medium">{String(event.event_type ?? "Event").replace(/_/g, " ")}</p><p className="mt-1 text-xs text-ink-500">{event.created_at ? new Date(String(event.created_at)).toLocaleString() : ""}</p></div>)}</div></Panel>
-        <Panel><div className="border-b border-line px-5 py-4"><h2 className="text-sm font-medium">Ledger impact</h2></div>{detail.ledger_entries.length ? <div className="divide-y divide-line">{detail.ledger_entries.map((entry, index) => <div className="flex justify-between gap-4 p-4 text-sm" key={String(entry.entry_id ?? index)}><div><p className="font-medium capitalize">{String(entry.direction)}</p><p className="mt-1 text-xs text-ink-500">{String(entry.journal_type).replace(/_/g, " ")}</p></div><p className="font-mono tabular-nums">{formatCents(Number(entry.amount_cents))}</p></div>)}</div> : <EmptyState title="No posted ledger entries" description="Pending and blocked requests do not move posted funds" />}</Panel>
+        <Panel><div className="border-b border-line px-5 py-4"><h2 className="text-sm font-medium">Lifecycle</h2></div><div className="divide-y divide-line">{detail.events.map((event, index) => <div className="p-4" key={String(event.id ?? index)}><div className="flex items-start justify-between gap-3"><p className="text-sm font-medium">{String(event.event_type ?? "Event").replace(/_/g, " ")}</p><span className="text-xs font-medium text-ink-400">{String(event.actor_label ?? "Pactra system")}</span></div><p className="mt-2 text-xs leading-5 text-ink-600">{String(event.summary ?? "Lifecycle event recorded")}</p><p className="mt-1 text-xs text-ink-400">{event.created_at ? new Date(String(event.created_at)).toLocaleString() : ""}</p></div>)}</div></Panel>
+        <Panel><div className="border-b border-line px-5 py-4"><h2 className="text-sm font-medium">Ledger impact</h2>{detail.ledger_entries.length ? <p className={`mt-1 text-xs ${debitTotal === creditTotal ? "text-positive-dark" : "text-negative"}`}>{formatCents(debitTotal)} debits = {formatCents(creditTotal)} credits</p> : null}</div>{detail.ledger_entries.length ? <div className="divide-y divide-line">{detail.ledger_entries.map((entry, index) => <div className="flex justify-between gap-4 p-4 text-sm" key={String(entry.entry_id ?? index)}><div><p className="font-medium capitalize">{String(entry.direction)} · {String(entry.account_label ?? "Ledger account")}</p><p className="mt-1 text-xs text-ink-500">Counter-account: {String(entry.counter_account_label ?? "Balanced counter-account")}</p><p className="mt-1 text-xs text-ink-400">{String(entry.journal_type).replace(/_/g, " ")} · {entry.created_at ? new Date(String(entry.created_at)).toLocaleString() : ""}</p></div><p className="font-mono tabular-nums">{formatCents(Number(entry.amount_cents))} {String(entry.currency ?? "USD")}</p></div>)}</div> : <EmptyState title="No posted ledger entries" description="No ledger posting has occurred. Pending and blocked requests do not move posted funds." />}</Panel>
       </div>
     </div>
   </>;

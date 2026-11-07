@@ -37,6 +37,7 @@ from .errors import ApiError
 from .models import AuthSession, PaymentTransaction, TransactionAttempt, User
 from .paypal_client import PayPalClient
 from .schemas import (
+    ApprovalItemResponse,
     ApprovalListResponse,
     ApprovalRequest,
     AssistantRequest,
@@ -49,10 +50,14 @@ from .schemas import (
     ConversationMessagesResponse,
     ConversationSummaryResponse,
     ConversationUpdateRequest,
+    GuidedScenarioRequest,
+    GuidedStartResponse,
     LedgerItemResponse,
     LedgerPageResponse,
     LoginRequest,
     PaymentRequest,
+    PaymentPreviewRequest,
+    PaymentPreviewResponse,
     PaymentResponse,
     PolicyInput,
     PolicyResponse,
@@ -95,11 +100,13 @@ from .services.ledger import (
     top_up_wallet,
     wallet_balance,
 )
+from .services.judge import run_insufficient_funds_scenario, start_guided_test
 from .services.policies import (
     PolicyError,
     PolicyUnchanged,
     get_current_policy,
     list_policy_versions,
+    preview_policy_decision,
     reset_policy,
     save_policy,
     spend_summary as build_spend_summary,
@@ -191,10 +198,15 @@ async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
     }
     if exc.details:
         error["details"] = exc.details
-    return JSONResponse(
+    response = JSONResponse(
         status_code=exc.status_code,
         content={"error": error},
     )
+    if exc.status_code == 429 and exc.details:
+        retry_after = exc.details.get("retry_after_seconds")
+        if isinstance(retry_after, int) and retry_after > 0:
+            response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 @app.exception_handler(RequestValidationError)
@@ -269,11 +281,13 @@ def register(
     db_session: SessionDependency,
 ) -> RegistrationResponse:
     auth_rate_limiter.check(
+        db_session,
         "register:global",
         limit=settings.auth_registration_global_rate_limit_per_hour,
         window=timedelta(hours=1),
     )
     auth_rate_limiter.check(
+        db_session,
         f"register:{client_ip(request)}",
         limit=settings.auth_registration_rate_limit_per_hour,
         window=timedelta(hours=1),
@@ -310,11 +324,13 @@ def login(
     db_session: SessionDependency,
 ) -> AuthResponse:
     auth_rate_limiter.check(
+        db_session,
         "login:global",
         limit=settings.auth_login_global_rate_limit_per_minute,
         window=timedelta(minutes=1),
     )
     auth_rate_limiter.check(
+        db_session,
         login_rate_key(str(payload.email)),
         limit=5,
         window=timedelta(minutes=15),
@@ -566,6 +582,7 @@ async def chat(
     db_session: SessionDependency,
 ) -> AssistantResponse:
     auth_rate_limiter.check(
+        db_session,
         f"assistant:{context.user.id}:{client_ip(request)}",
         limit=20,
         window=timedelta(minutes=1),
@@ -784,6 +801,7 @@ def update_policy(
     db_session: SessionDependency,
 ) -> PolicyResponse:
     auth_rate_limiter.check(
+        db_session,
         f"policy:{context.user.id}:{client_ip(request)}",
         limit=20,
         window=timedelta(hours=1),
@@ -820,6 +838,67 @@ def reset_account_policy(
 
 
 @app.post(
+    "/api/transactions/preview",
+    response_model=PaymentPreviewResponse,
+)
+def preview_transaction_policy(
+    payload: PaymentPreviewRequest,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> PaymentPreviewResponse:
+    decision = preview_policy_decision(
+        db_session,
+        user=context.user,
+        vendor=payload.vendor,
+        amount_cents=payload.amount_cents,
+        currency=payload.currency,
+        category=payload.category,
+    )
+    return PaymentPreviewResponse(
+        decision=decision.decision,
+        reason_code=decision.reason_code,
+        policy_version=decision.policy_version,
+        checks=decision.checks,
+    )
+
+
+@app.post("/api/judge/guided/start", response_model=GuidedStartResponse)
+def begin_guided_test(
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> GuidedStartResponse:
+    generation = start_guided_test(db_session, user=context.user)
+    db_session.commit()
+    return GuidedStartResponse(started=True, sandbox_generation=generation)
+
+
+@app.post(
+    "/api/judge/scenarios/insufficient-funds",
+    response_model=PaymentResponse,
+)
+def create_guided_insufficient_funds_outcome(
+    payload: GuidedScenarioRequest,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> PaymentResponse:
+    try:
+        transaction, decision, balance = run_insufficient_funds_scenario(
+            db_session,
+            user=context.user,
+            idempotency_key=payload.idempotency_key,
+        )
+        db_session.commit()
+    except RuntimeError as exc:
+        db_session.rollback()
+        raise ApiError(409, "GUIDED_SCENARIO_UNAVAILABLE", str(exc)) from exc
+    return PaymentResponse(
+        transaction=_transaction_response(transaction),
+        policy_result=decision.snapshot(),
+        balance=_balance_response(balance),
+    )
+
+
+@app.post(
     "/api/transactions",
     response_model=PaymentResponse,
     status_code=status.HTTP_201_CREATED,
@@ -831,6 +910,7 @@ async def create_transaction(
     db_session: SessionDependency,
 ) -> PaymentResponse:
     auth_rate_limiter.check(
+        db_session,
         f"payment:{context.user.id}:{client_ip(request)}",
         limit=30,
         window=timedelta(minutes=1),
@@ -852,11 +932,22 @@ async def create_transaction(
     except PolicyBlocked as exc:
         db_session.commit()
         wallet = get_wallet_for_user(db_session, context.user.id)
-        return PaymentResponse(
+        outcome = PaymentResponse(
             transaction=_transaction_response(exc.transaction),
             policy_result=exc.decision.snapshot(),
             balance=_balance_response(wallet_balance(db_session, wallet)),
         )
+        is_insufficient = exc.decision.reason_code == "INSUFFICIENT_FUNDS"
+        raise ApiError(
+            402 if is_insufficient else 422,
+            "INSUFFICIENT_FUNDS" if is_insufficient else exc.code,
+            (
+                "Your available sandbox balance is too low."
+                if is_insufficient
+                else "This request is blocked by your spending policy."
+            ),
+            details=outcome.model_dump(mode="json"),
+        ) from exc
     except TransactionIdempotencyConflict as exc:
         db_session.rollback()
         raise ApiError(409, exc.code, str(exc)) from exc
@@ -1080,8 +1171,21 @@ async def retry_failed_transaction(
 def get_approvals(
     context: AuthDependency, db_session: SessionDependency
 ) -> ApprovalListResponse:
-    items = list_pending_approvals(db_session, user_id=context.user.id)
-    return ApprovalListResponse(items=[_transaction_response(item) for item in items])
+    items = list_pending_approvals(db_session, user=context.user)
+    return ApprovalListResponse(
+        items=[
+            ApprovalItemResponse(
+                transaction=_transaction_response(item.transaction),
+                requester=_user_response(item.requester),
+                current_policy_decision=item.policy_decision.decision,
+                current_policy_reason_code=item.policy_decision.reason_code,
+                current_policy_version=item.policy_decision.policy_version,
+                policy_checks=item.policy_decision.checks,
+                available_balance=_balance_response(item.balance),
+            )
+            for item in items
+        ]
+    )
 
 
 @app.post("/api/approvals/{transaction_id}/approve", response_model=TransactionResponse)

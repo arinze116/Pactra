@@ -1,6 +1,7 @@
 """Runtime checks that only execute against CI's migrated PostgreSQL database."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from threading import Barrier
 from uuid import uuid4
 
@@ -10,8 +11,10 @@ from sqlalchemy.exc import DBAPIError
 from sqlmodel import Session, select
 
 from backend.config import settings
+from backend.auth import FixedWindowRateLimiter
 from backend.database import engine
 from backend.defaults import default_policy
+from backend.errors import ApiError
 from backend.models import (
     ApprovalAction,
     AuditEvent,
@@ -88,6 +91,45 @@ def test_reconciliation_worker_lease_allows_only_one_authority() -> None:
         assert first_acquired is True
         with reconciliation_lease() as second_acquired:
             assert second_acquired is False
+
+
+def test_shared_rate_limit_is_atomic_across_independent_process_state() -> None:
+    key = f"postgres-shared-rate-limit-{uuid4()}"
+    barrier = Barrier(10)
+
+    def attempt(index: int) -> int:
+        limiter = FixedWindowRateLimiter()
+        with Session(engine) as session:
+            barrier.wait(timeout=10)
+            try:
+                limiter.check(
+                    session,
+                    key,
+                    limit=5,
+                    window=timedelta(minutes=5),
+                )
+            except ApiError as exc:
+                assert exc.status_code == 429
+                assert exc.details is not None
+                assert int(exc.details["retry_after_seconds"]) > 0
+                return exc.status_code
+        return 200
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        statuses = list(executor.map(attempt, range(10)))
+
+    assert statuses.count(200) == 5
+    assert statuses.count(429) == 5
+
+    with Session(engine) as session:
+        with pytest.raises(ApiError) as blocked:
+            FixedWindowRateLimiter().check(
+                session,
+                key,
+                limit=5,
+                window=timedelta(minutes=5),
+            )
+    assert blocked.value.status_code == 429
 
 
 def test_posted_ledger_journal_and_entry_set_are_immutable() -> None:

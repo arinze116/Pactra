@@ -103,6 +103,51 @@ def test_registration_bootstraps_isolated_sandbox_account(api) -> None:
         assert session.exec(select(LedgerJournal)).one().journal_type == "initial_issuance"
 
 
+def test_guided_analytics_events_are_unique_per_generation(api) -> None:
+    client, engine = api
+    assert register(client).status_code == 201
+    headers = csrf_headers(client)
+
+    first = client.post("/api/judge/guided/start", headers=headers)
+    replay = client.post("/api/judge/guided/start", headers=headers)
+    assert first.status_code == replay.status_code == 200
+    assert first.json()["sandbox_generation"] == 1
+
+    reset = client.post(
+        "/api/wallet/reset",
+        headers=headers,
+        json={
+            "confirmation": "RESET",
+            "idempotency_key": "guided-reset-analytics-0001",
+        },
+    )
+    assert reset.status_code == 200
+    assert reset.json()["sandbox_generation"] == 2
+    assert client.post("/api/judge/guided/start", headers=headers).status_code == 200
+
+    with Session(engine) as session:
+        events = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.event_type.in_(
+                    ["judge.guided_test_started", "judge.reset_confirmed"]
+                )
+            )
+        ).all()
+    guided_events = [
+        event for event in events if event.event_type == "judge.guided_test_started"
+    ]
+    reset_events = [
+        event for event in events if event.event_type == "judge.reset_confirmed"
+    ]
+    assert [event.payload for event in guided_events] == [
+        {"sandbox_generation": 1},
+        {"sandbox_generation": 2},
+    ]
+    assert [event.payload for event in reset_events] == [
+        {"sandbox_generation": 2}
+    ]
+
+
 def test_session_discovery_is_non_erroring_and_clears_expired_cookies(api) -> None:
     client, engine = api
     signed_out = client.get("/api/auth/session")

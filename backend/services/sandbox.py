@@ -165,6 +165,16 @@ def reset_sandbox(
             "history_preserved": True,
         },
     )
+    record_audit_event(
+        session,
+        user_id=user.id,
+        actor_type="user",
+        actor_id=user.id,
+        entity_type="wallet",
+        entity_id=wallet.id,
+        event_type="judge.reset_confirmed",
+        payload={"sandbox_generation": wallet.sandbox_generation},
+    )
     session.flush()
     return ResetResult(
         balance_cents=INITIAL_SANDBOX_CENTS,

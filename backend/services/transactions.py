@@ -15,6 +15,7 @@ from backend.models import (
     ApprovalAction,
     AuditEvent,
     FundReservation,
+    LedgerAccount,
     LedgerEntry,
     LedgerJournal,
     PaymentTransaction,
@@ -99,6 +100,14 @@ class TransactionResult:
     policy_result: dict[str, Any]
     balance: WalletBalance
     replayed: bool = False
+
+
+@dataclass(frozen=True)
+class ApprovalContext:
+    transaction: PaymentTransaction
+    requester: User
+    policy_decision: PolicyDecision
+    balance: WalletBalance
 
 
 def _canonical_matches(transaction: PaymentTransaction, payload: dict[str, Any]) -> bool:
@@ -984,17 +993,41 @@ def apply_paypal_reconciliation(
     session.flush()
 
 
-def list_pending_approvals(session: Session, *, user_id: str) -> list[PaymentTransaction]:
-    return list(
+def list_pending_approvals(session: Session, *, user: User) -> list[ApprovalContext]:
+    transactions = list(
         session.exec(
             select(PaymentTransaction)
             .where(
-                PaymentTransaction.user_id == user_id,
+                PaymentTransaction.user_id == user.id,
                 PaymentTransaction.status == "pending_approval",
             )
             .order_by(PaymentTransaction.created_at.asc())
         ).all()
     )
+    if not transactions:
+        return []
+    wallet = get_wallet_for_user(session, user.id)
+    policy = get_current_policy(session, user.id)
+    balance = wallet_balance(session, wallet)
+    return [
+        ApprovalContext(
+            transaction=transaction,
+            requester=user,
+            policy_decision=evaluate_policy(
+                session,
+                user=user,
+                wallet=wallet,
+                policy=policy,
+                vendor=transaction.vendor,
+                amount_cents=transaction.amount_cents,
+                currency=transaction.currency,
+                category=transaction.category,
+                exclude_transaction_id=transaction.id,
+            ),
+            balance=balance,
+        )
+        for transaction in transactions
+    ]
 
 
 def _encode_cursor(transaction: PaymentTransaction) -> str:
@@ -1074,8 +1107,9 @@ def transaction_detail(
         session, user_id=user_id, transaction_id=transaction_id
     )
     ledger_entries = session.exec(
-        select(LedgerEntry, LedgerJournal)
+        select(LedgerEntry, LedgerJournal, LedgerAccount)
         .join(LedgerJournal, LedgerJournal.id == LedgerEntry.journal_id)
+        .join(LedgerAccount, LedgerAccount.id == LedgerEntry.account_id)
         .where(
             LedgerJournal.user_id == user_id,
             LedgerJournal.transaction_id == transaction.id,
@@ -1096,6 +1130,61 @@ def transaction_detail(
         .where(TransactionAttempt.transaction_id == transaction.id)
         .order_by(TransactionAttempt.attempt_number.asc())
     ).all()
+    entries_by_journal: dict[str, list[tuple[LedgerEntry, LedgerAccount]]] = {}
+    for entry, journal, account in ledger_entries:
+        entries_by_journal.setdefault(journal.id, []).append((entry, account))
+
+    def account_label(account: LedgerAccount) -> str:
+        if account.account_type == "user_wallet":
+            return "Your sandbox wallet"
+        if account.account_type == "sandbox_issuance":
+            return "Sandbox issuance"
+        if account.account_type == "sandbox_clearing":
+            return "Sandbox clearing"
+        return "Protected ledger account"
+
+    def event_summary(event: AuditEvent) -> str:
+        payload = event.payload
+        if event.event_type == "payment.requested":
+            source = payload.get("source")
+            return "Payment request created" + (
+                f" from {source}" if source in {"manual", "assistant"} else ""
+            )
+        if event.event_type == "transaction.state_changed":
+            previous = str(payload.get("from", "unknown")).replace("_", " ")
+            current = str(payload.get("to", "unknown")).replace("_", " ")
+            return f"State changed from {previous} to {current}"
+        if event.event_type == "payment.blocked":
+            code = str(payload.get("reason_code", "policy rule")).replace("_", " ")
+            return f"Stopped by {code}"
+        if event.event_type == "payment.pending_approval":
+            return "Funds reserved pending owner review"
+        if event.event_type == "approval.approved":
+            version = payload.get("policy_version")
+            return f"Approved using policy v{version}" if isinstance(version, int) else "Approved by the owner"
+        if event.event_type == "approval.rejected":
+            return "Rejected by the owner; the reservation was released"
+        if event.event_type == "transaction.retry_requested":
+            attempt = payload.get("attempt_number")
+            return f"Retry attempt {attempt} requested" if isinstance(attempt, int) else "Retry requested"
+        if event.event_type == "transaction.reversed":
+            return "Compensating sandbox reversal posted"
+        if event.event_type == "transaction.cancelled":
+            return "Cancelled during sandbox reset"
+        if event.event_type == "funds.reserved":
+            amount = payload.get("amount_cents")
+            return f"Reserved {amount} cents" if isinstance(amount, int) else "Funds reserved"
+        if event.event_type == "funds.released":
+            return "Reservation released"
+        if event.event_type.startswith("paypal."):
+            provider_status = payload.get("provider_status") or payload.get("batch_status")
+            return (
+                f"PayPal Sandbox status: {provider_status}"
+                if isinstance(provider_status, str)
+                else "PayPal Sandbox lifecycle updated"
+            )
+        return "Durable lifecycle event recorded"
+
     return {
         "transaction": transaction,
         "policy_checks": transaction.policy_result.get("checks", []),
@@ -1107,16 +1196,27 @@ def transaction_detail(
                 "direction": entry.direction,
                 "amount_cents": entry.amount_cents,
                 "currency": entry.currency,
+                "account_label": account_label(account),
+                "counter_account_label": next(
+                    (
+                        account_label(other_account)
+                        for other_entry, other_account in entries_by_journal[journal.id]
+                        if other_entry.id != entry.id
+                    ),
+                    "Balanced counter-account",
+                ),
                 "created_at": entry.created_at,
             }
-            for entry, journal in ledger_entries
+            for entry, journal, account in ledger_entries
         ],
         "events": [
             {
                 "id": event.id,
                 "event_type": event.event_type,
-                "actor_type": event.actor_type,
-                "payload": event.payload,
+                "actor_label": (
+                    "You" if event.actor_type == "user" else "Pactra system"
+                ),
+                "summary": event_summary(event),
                 "created_at": event.created_at,
             }
             for event in events

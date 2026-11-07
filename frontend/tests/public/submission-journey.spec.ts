@@ -6,7 +6,7 @@ async function register(page: Page, label: string) {
   const email = `pactra-public-smoke-${label}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Create sandbox account" }).click();
   await expect(page).toHaveURL(/\/app$/);
   return email;
@@ -15,7 +15,7 @@ async function register(page: Page, label: string) {
 async function login(page: Page, email: string) {
   await page.goto("/sign-in");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/app$/);
 }

@@ -28,12 +28,13 @@ async function register(page: Page) {
   const email = `judge-a11y-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Create sandbox account" }).click();
   await expect(page).toHaveURL(/\/app$/);
 }
 
 test("public and authenticated judge surfaces meet automated WCAG 2.1 AA checks", async ({ page }) => {
+  test.setTimeout(60_000);
   const publicRoutes = [
     ["/", "Landing page"],
     ["/sign-in", "Sign-in page"],

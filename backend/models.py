@@ -224,6 +224,22 @@ class AuthSession(SQLModel, table=True):
     )
 
 
+class RateLimitBucket(SQLModel, table=True):
+    """Shared fixed-window counters for API processes using one database."""
+
+    __tablename__ = "rate_limit_buckets"
+    __table_args__ = (Index("ix_rate_limit_buckets_expires", "expires_at"),)
+
+    key_hash: str = Field(primary_key=True, max_length=64)
+    window_started_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    event_count: int = Field(default=1)
+
+
 class LedgerAccount(SQLModel, table=True):
     __tablename__ = "ledger_accounts"
     __table_args__ = (

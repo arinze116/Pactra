@@ -215,6 +215,50 @@ class PaymentRequest(StrictModel):
         return value.strip().casefold()
 
 
+class PaymentPreviewRequest(StrictModel):
+    vendor: str = Field(min_length=1, max_length=100)
+    amount_cents: int = Field(ge=1, le=10_000_000)
+    currency: Literal["USD"] = "USD"
+    category: str = Field(
+        min_length=2,
+        max_length=32,
+        pattern=r"^[a-z][a-z0-9_-]{1,31}$",
+    )
+
+    @field_validator("vendor")
+    @classmethod
+    def trim_vendor(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Vendor cannot be blank")
+        return value
+
+    @field_validator("category")
+    @classmethod
+    def normalise_preview_category(cls, value: str) -> str:
+        return value.strip().casefold()
+
+
+class PaymentPreviewResponse(StrictModel):
+    decision: Literal["approved", "approval_required", "blocked"]
+    reason_code: str | None
+    policy_version: int
+    checks: list[dict[str, object]]
+
+
+class GuidedScenarioRequest(StrictModel):
+    idempotency_key: str = Field(
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._~-]+$",
+    )
+
+
+class GuidedStartResponse(StrictModel):
+    started: bool
+    sandbox_generation: int
+
+
 class TransactionResponse(StrictModel):
     id: str
     type: str
@@ -263,8 +307,18 @@ class ReversalRequest(ApprovalRequest):
     reason: str = Field(min_length=1, max_length=300)
 
 
+class ApprovalItemResponse(StrictModel):
+    transaction: TransactionResponse
+    requester: UserResponse
+    current_policy_decision: str
+    current_policy_reason_code: str | None
+    current_policy_version: int
+    policy_checks: list[dict[str, object]]
+    available_balance: WalletBalanceResponse
+
+
 class ApprovalListResponse(StrictModel):
-    items: list[TransactionResponse]
+    items: list[ApprovalItemResponse]
 
 
 class SpendCategoryResponse(StrictModel):

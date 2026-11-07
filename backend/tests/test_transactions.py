@@ -22,11 +22,13 @@ from backend.models import (
 from backend.services.accounts import create_account
 from backend.services.ledger import get_wallet_for_user, list_wallet_ledger, wallet_balance
 from backend.services.policies import save_policy
+from backend.services.sandbox import reset_sandbox
 from backend.services.transactions import (
     AlreadyActioned,
     PolicyBlocked,
     PolicyChanged,
     TransactionIdempotencyConflict,
+    TransactionInProgress,
     approve_transaction,
     create_payment_request,
     reject_transaction,
@@ -424,6 +426,49 @@ def test_failed_internal_transaction_can_retry_once(transaction_db) -> None:
     )
     assert replayed.status == "completed"
     assert replayed_attempt.id == attempt.id
+
+
+def test_reset_waits_for_unresolved_provider_outcome(transaction_db) -> None:
+    session, user = transaction_db
+    transaction = PaymentTransaction(
+        user_id=user.id,
+        idempotency_key="unresolved-provider-reset-test",
+        type="payout",
+        vendor="Sandbox recipient",
+        recipient="recipient@example.com",
+        amount_cents=2_500,
+        currency="USD",
+        category="freelance",
+        reason="Provider outcome is unresolved",
+        status="executing",
+        sandbox_generation=1,
+        policy_version=1,
+        policy_result={"decision": "approved"},
+        rail="paypal_sandbox_payouts",
+        provider_status="PROCESSING",
+    )
+    session.add(transaction)
+    session.commit()
+
+    with pytest.raises(TransactionInProgress):
+        reset_sandbox(
+            session,
+            user=user,
+            idempotency_key="reset-blocked-provider-0001",
+        )
+    session.rollback()
+
+    transaction.status = "failed"
+    transaction.provider_status = "FAILED"
+    session.add(transaction)
+    session.commit()
+    result = reset_sandbox(
+        session,
+        user=user,
+        idempotency_key="reset-after-provider-terminal-0001",
+    )
+    session.commit()
+    assert result.sandbox_generation == 2
 
 
 def test_concurrent_policy_reservations_do_not_exceed_category_budget(

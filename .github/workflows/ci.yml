@@ -37,6 +37,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements-dev.txt
       - run: python -m pip check
+      - run: python -m pip_audit -r requirements.txt
       - run: alembic upgrade head
       - run: pytest -q
 
@@ -56,6 +57,8 @@ jobs:
       - run: npm run build
         working-directory: frontend
       - run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+      - run: npm audit --audit-level=moderate
         working-directory: frontend
 
   e2e:
@@ -104,3 +107,20 @@ jobs:
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend
+      - name: Lighthouse budgets
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm run build
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/pactra-preview.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          export CHROME_PATH
+          CHROME_PATH="$(find "$HOME/.cache/ms-playwright" -type f -path '*/chrome-linux*/chrome' | head -n 1)"
+          test -n "$CHROME_PATH"
+          npx lighthouse http://127.0.0.1:4173/ --chrome-flags="--headless --no-sandbox" --only-categories=performance,accessibility,best-practices --output=json --output-path=/tmp/pactra-lighthouse.json --quiet
+          npm run test:lighthouse:assert -- /tmp/pactra-lighthouse.json

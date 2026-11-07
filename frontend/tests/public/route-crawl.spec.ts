@@ -62,7 +62,7 @@ test("all production routes reload without layout or runtime failures", async ({
     const email = `pactra-route-audit-${viewport.name}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
     await page.goto("/sign-up");
     await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Create sandbox account" }).click();
     await expect(page).toHaveURL(/\/app$/);
 

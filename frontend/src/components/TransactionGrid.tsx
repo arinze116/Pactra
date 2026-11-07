@@ -32,5 +32,5 @@ export default function TransactionGrid({ items }: TransactionGridProps) {
     }
   }
 
-  return <div className="ag-theme-quartz hidden h-[590px] md:block"><AgGridReact<Transaction> columnDefs={columns} rowData={items} onCellKeyDown={openWithKeyboard} onRowClicked={open} pagination paginationPageSize={25} rowSelection="single" /></div>;
+  return <div className="ag-theme-quartz hidden h-[590px] md:block"><AgGridReact<Transaction> columnDefs={columns} rowData={items} onCellKeyDown={openWithKeyboard} onRowClicked={open} pagination paginationPageSize={25} paginationPageSizeSelector={false} rowSelection="single" /></div>;
 }

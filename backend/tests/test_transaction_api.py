@@ -91,6 +91,26 @@ def test_auto_payment_receipt_and_reversal(api: TestClient) -> None:
     receipt = api.get(f"/api/transactions/{transaction['id']}")
     assert receipt.status_code == 200
     assert len(receipt.json()["ledger_entries"]) == 2
+    assert {
+        entry["account_label"] for entry in receipt.json()["ledger_entries"]
+    } == {"Your sandbox wallet", "Sandbox clearing"}
+    assert {
+        entry["counter_account_label"]
+        for entry in receipt.json()["ledger_entries"]
+    } == {"Your sandbox wallet", "Sandbox clearing"}
+    assert sum(
+        entry["amount_cents"]
+        for entry in receipt.json()["ledger_entries"]
+        if entry["direction"] == "debit"
+    ) == sum(
+        entry["amount_cents"]
+        for entry in receipt.json()["ledger_entries"]
+        if entry["direction"] == "credit"
+    )
+    assert all(event["actor_label"] for event in receipt.json()["events"])
+    assert all(event["summary"] for event in receipt.json()["events"])
+    assert "password" not in json.dumps(receipt.json()["events"]).casefold()
+    assert "token" not in json.dumps(receipt.json()["events"]).casefold()
     assert receipt.json()["attempts"][0]["status"] == "completed"
     assert receipt.json()["attempts"][0]["rail"] == "internal_sandbox"
     assert receipt.json()["attempts"][0]["provider_status"] is None
@@ -126,7 +146,19 @@ def test_pending_approval_and_rejection_flows(api: TestClient) -> None:
     pending_id = pending.json()["transaction"]["id"]
     assert pending.json()["transaction"]["status"] == "pending_approval"
     assert pending.json()["balance"]["reserved_cents"] == 12_500
-    assert len(api.get("/api/approvals").json()["items"]) == 1
+    approval_items = api.get("/api/approvals").json()["items"]
+    assert len(approval_items) == 1
+    approval = approval_items[0]
+    assert approval["transaction"]["id"] == pending_id
+    assert approval["requester"]["email"] == "api@example.com"
+    assert approval["current_policy_decision"] == "approval_required"
+    assert approval["current_policy_reason_code"] == "APPROVAL_REQUIRED"
+    assert approval["current_policy_version"] == 1
+    assert approval["available_balance"]["reserved_cents"] == 12_500
+    assert {check["code"] for check in approval["policy_checks"]} >= {
+        "AVAILABLE_FUNDS",
+        "APPROVAL_THRESHOLD",
+    }
 
     approved = api.post(
         f"/api/approvals/{pending_id}/approve",
@@ -178,9 +210,12 @@ def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
         headers=mutation_headers(api),
         json=payment(amount_cents=1_000, key="api-blocked-payment-0001"),
     )
-    assert blocked.status_code == 201
-    assert blocked.json()["policy_result"]["decision"] == "blocked"
-    transaction = blocked.json()["transaction"]
+    assert blocked.status_code == 422
+    blocked_error = blocked.json()["error"]
+    assert blocked_error["code"] == "POLICY_BLOCKED"
+    assert blocked_error["message"] == "This request is blocked by your spending policy."
+    assert blocked_error["details"]["policy_result"]["decision"] == "blocked"
+    transaction = blocked_error["details"]["transaction"]
     assert transaction["status"] == "blocked"
     assert transaction["failure_code"] == "VENDOR_BLOCKED"
     replay = api.post(
@@ -188,12 +223,110 @@ def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
         headers=mutation_headers(api),
         json=payment(amount_cents=1_000, key="api-blocked-payment-0001"),
     )
-    assert replay.status_code == 201
-    assert replay.json()["transaction"]["id"] == transaction["id"]
+    assert replay.status_code == 422
+    assert replay.json()["error"]["details"]["transaction"]["id"] == transaction["id"]
 
     history = api.get("/api/transactions").json()["items"]
     assert len(history) == 1
     assert history[0]["id"] == transaction["id"]
+    receipt = api.get(f"/api/transactions/{transaction['id']}")
+    assert receipt.status_code == 200
+    assert receipt.json()["ledger_entries"] == []
+    assert any(
+        event["event_type"] == "payment.blocked"
+        for event in receipt.json()["events"]
+    )
+
+
+def test_insufficient_funds_returns_persisted_402_without_ledger_movement(
+    api: TestClient,
+) -> None:
+    policy = api.get("/api/policy").json()["policy"]
+    policy.update(
+        {
+            "daily_limit_cents": 100_000_000,
+            "per_transaction_limit_cents": 100_000_000,
+            "approval_threshold_cents": 100_000_000,
+        }
+    )
+    policy["category_budgets_cents"]["software"] = 100_000_000
+    assert api.put(
+        "/api/policy", headers=mutation_headers(api), json=policy
+    ).status_code == 200
+
+    payload = payment(amount_cents=100_001, key="api-insufficient-payment-0001")
+    response = api.post(
+        "/api/transactions", headers=mutation_headers(api), json=payload
+    )
+    assert response.status_code == 402
+    error = response.json()["error"]
+    assert error["code"] == "INSUFFICIENT_FUNDS"
+    assert error["message"] == "Your available sandbox balance is too low."
+    transaction = error["details"]["transaction"]
+    assert transaction["status"] == "blocked"
+    assert transaction["failure_code"] == "INSUFFICIENT_FUNDS"
+    assert error["details"]["balance"]["posted_cents"] == 100_000
+    assert error["details"]["balance"]["reserved_cents"] == 0
+
+    replay = api.post(
+        "/api/transactions", headers=mutation_headers(api), json=payload
+    )
+    assert replay.status_code == 402
+    assert replay.json()["error"]["details"]["transaction"]["id"] == transaction["id"]
+    receipt = api.get(f"/api/transactions/{transaction['id']}").json()
+    assert receipt["ledger_entries"] == []
+    assert len(api.get("/api/transactions").json()["items"]) == 1
+
+
+def test_policy_preview_is_authoritative_and_side_effect_free(api: TestClient) -> None:
+    before = api.get("/api/transactions").json()["items"]
+    approved = api.post(
+        "/api/transactions/preview",
+        headers=mutation_headers(api),
+        json={
+            "vendor": "Linear",
+            "amount_cents": 4_900,
+            "currency": "USD",
+            "category": "software",
+        },
+    )
+    assert approved.status_code == 200
+    assert approved.json()["decision"] == "approved"
+    assert approved.json()["reason_code"] is None
+
+    approval = api.post(
+        "/api/transactions/preview",
+        headers=mutation_headers(api),
+        json={
+            "vendor": "Ada Contractor",
+            "amount_cents": 12_500,
+            "currency": "USD",
+            "category": "freelance",
+        },
+    )
+    assert approval.json()["decision"] == "approval_required"
+    assert approval.json()["reason_code"] == "APPROVAL_REQUIRED"
+
+    blocked = api.post(
+        "/api/transactions/preview",
+        headers=mutation_headers(api),
+        json={
+            "vendor": "AWS",
+            "amount_cents": 18_500,
+            "currency": "USD",
+            "category": "cloud",
+        },
+    )
+    assert blocked.json()["decision"] == "blocked"
+    assert blocked.json()["reason_code"] == "TRANSACTION_LIMIT_EXCEEDED"
+    assert api.get("/api/transactions").json()["items"] == before
+    assert api.get("/api/wallet").json() == {
+        "posted_cents": 100_000,
+        "reserved_cents": 0,
+        "available_cents": 100_000,
+        "currency": "USD",
+        "sandbox_generation": 1,
+    }
 
 
 def test_policy_validation_unchanged_save_and_version_history(api: TestClient) -> None:
