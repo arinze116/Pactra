@@ -73,11 +73,15 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await page.getByLabel("Business reason").fill("Contract work");
   await submitPayment(page);
   await expect(page.getByText("Needs approval").first()).toBeVisible();
+  const payoutReceipt = page.url();
+  await expect(page.getByText("ada@example.com", { exact: true })).toBeVisible();
 
   await page.goto("/app/approvals");
   await expect(page.getByText("Ada Contractor")).toBeVisible();
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("No requests need approval")).toBeVisible();
+  await page.goto(payoutReceipt);
+  await expect(page.getByText("ada@example.com", { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: "Assistant" }).first().click();
   await page.getByLabel("Message Pactra").fill("Pay Notion $20 for our software subscription");

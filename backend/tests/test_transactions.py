@@ -11,7 +11,14 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.defaults import default_policy
-from backend.models import FundReservation, LedgerJournal, PaymentTransaction, User, utc_now
+from backend.models import (
+    AuditEvent,
+    FundReservation,
+    LedgerJournal,
+    PaymentTransaction,
+    User,
+    utc_now,
+)
 from backend.services.accounts import create_account
 from backend.services.ledger import get_wallet_for_user, list_wallet_ledger, wallet_balance
 from backend.services.policies import save_policy
@@ -312,6 +319,66 @@ def test_policy_version_change_requires_review_before_approval(transaction_db) -
     )
     session.commit()
     assert approved.status == "completed"
+
+
+def test_approval_revalidation_block_is_audited_and_releases_hold(
+    transaction_db,
+) -> None:
+    session, user = transaction_db
+    result = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=12_000,
+            key="policy-block-after-review",
+            category="freelance",
+            vendor="Ada Contractor",
+        ),
+    )
+    session.commit()
+
+    policy = default_policy()
+    policy["blocked_vendors"] = ["Ada Contractor"]
+    save_policy(session, user_id=user.id, policy_json=policy)
+    session.commit()
+
+    with pytest.raises(PolicyChanged) as caught:
+        approve_transaction(
+            session,
+            user=user,
+            transaction_id=result.transaction.id,
+            idempotency_key="policy-block-after-review-approval",
+        )
+    session.commit()
+
+    assert caught.value.transaction.status == "blocked"
+    reservation = session.exec(
+        select(FundReservation).where(
+            FundReservation.transaction_id == result.transaction.id
+        )
+    ).one()
+    assert reservation.status == "released"
+    event = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == result.transaction.id,
+            AuditEvent.event_type == "payment.blocked",
+        )
+    ).one()
+    assert event.actor_id == user.id
+    assert event.payload == {
+        "source": "approval_revalidation",
+        "reason_code": "VENDOR_BLOCKED",
+        "previous_policy_version": 1,
+        "policy_version": 2,
+    }
+    transitions = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == result.transaction.id,
+            AuditEvent.event_type == "transaction.state_changed",
+        )
+    ).all()
+    transition = next(event for event in transitions if event.payload["to"] == "blocked")
+    assert transition.payload == {"from": "pending_approval", "to": "blocked"}
 
 
 def test_failed_internal_transaction_can_retry_once(transaction_db) -> None:

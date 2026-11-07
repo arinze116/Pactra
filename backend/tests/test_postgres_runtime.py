@@ -14,6 +14,7 @@ from backend.database import engine
 from backend.defaults import default_policy
 from backend.models import (
     ApprovalAction,
+    AuditEvent,
     FundReservation,
     LedgerEntry,
     LedgerJournal,
@@ -138,6 +139,38 @@ def test_posted_ledger_journal_and_entry_set_are_immutable() -> None:
             session.commit()
         session.rollback()
 
+
+def test_audit_events_are_immutable() -> None:
+    user_id = create_postgres_account()
+    with Session(engine) as session:
+        event = session.exec(
+            select(AuditEvent).where(AuditEvent.user_id == user_id)
+        ).first()
+        assert event is not None
+        event_id = event.id
+
+    with Session(engine) as session:
+        with pytest.raises(DBAPIError, match="audit events are immutable"):
+            session.exec(
+                text(
+                    "UPDATE audit_events SET event_type = 'tampered' "
+                    "WHERE id = CAST(:event_id AS uuid)"
+                ),
+                params={"event_id": event_id},
+            )
+            session.commit()
+        session.rollback()
+
+    with Session(engine) as session:
+        with pytest.raises(DBAPIError, match="audit events are immutable"):
+            session.exec(
+                text(
+                    "DELETE FROM audit_events WHERE id = CAST(:event_id AS uuid)"
+                ),
+                params={"event_id": event_id},
+            )
+            session.commit()
+        session.rollback()
 
 def test_concurrent_requests_cannot_overreserve_one_wallet() -> None:
     user_id = create_postgres_account()

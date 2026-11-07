@@ -154,6 +154,30 @@ def _record_state(
     )
 
 
+def _record_approval_revalidation_block(
+    session: Session,
+    *,
+    transaction: PaymentTransaction,
+    previous_policy_version: int,
+) -> None:
+    _record_state(session, transaction=transaction, previous="pending_approval")
+    record_audit_event(
+        session,
+        user_id=transaction.user_id,
+        actor_type="user",
+        actor_id=transaction.user_id,
+        entity_type="transaction",
+        entity_id=transaction.id,
+        event_type="payment.blocked",
+        payload={
+            "source": "approval_revalidation",
+            "reason_code": transaction.failure_code,
+            "previous_policy_version": previous_policy_version,
+            "policy_version": transaction.policy_version,
+        },
+    )
+
+
 def _execute_internal(
     session: Session,
     *,
@@ -529,6 +553,7 @@ def approve_transaction(
         exclude_transaction_id=transaction.id,
     )
     if policy.version != transaction.policy_version:
+        previous_policy_version = transaction.policy_version
         transaction.policy_version = policy.version
         transaction.policy_result = decision.snapshot()
         transaction.updated_at = utc_now()
@@ -540,6 +565,11 @@ def approve_transaction(
                 user_id=user.id,
                 transaction_id=transaction.id,
                 reason="policy_changed",
+            )
+            _record_approval_revalidation_block(
+                session,
+                transaction=transaction,
+                previous_policy_version=previous_policy_version,
             )
         session.add(transaction)
         session.flush()
@@ -554,6 +584,11 @@ def approve_transaction(
             user_id=user.id,
             transaction_id=transaction.id,
             reason=decision.reason_code or "approval_revalidation_failed",
+        )
+        _record_approval_revalidation_block(
+            session,
+            transaction=transaction,
+            previous_policy_version=transaction.policy_version,
         )
         session.add(transaction)
         session.flush()
