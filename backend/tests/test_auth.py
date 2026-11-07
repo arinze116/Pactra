@@ -9,7 +9,8 @@ from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from backend.auth import CSRF_COOKIE, CSRF_HEADER, auth_rate_limiter
+from backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, auth_rate_limiter
+from backend.config import settings
 from backend.database import get_session
 from backend.main import app
 from backend.models import AuditEvent, AuthSession, LedgerJournal, PolicyVersion, User, Wallet, utc_now
@@ -87,6 +88,7 @@ def test_registration_bootstraps_isolated_sandbox_account(api) -> None:
     current = client.get("/api/auth/me", headers=ORIGIN_HEADERS)
     assert current.status_code == 200
     assert current.headers[CSRF_HEADER] == client.cookies.get(CSRF_COOKIE)
+    assert current.headers["Cache-Control"] == "no-store"
     assert CSRF_HEADER.lower() in current.headers["access-control-expose-headers"].lower()
 
     with Session(engine) as session:
@@ -99,6 +101,32 @@ def test_registration_bootstraps_isolated_sandbox_account(api) -> None:
         ).one()
         assert policy.version == 1
         assert session.exec(select(LedgerJournal)).one().journal_type == "initial_issuance"
+
+
+def test_session_discovery_is_non_erroring_and_clears_expired_cookies(api) -> None:
+    client, engine = api
+    signed_out = client.get("/api/auth/session")
+    assert signed_out.status_code == 200
+    assert signed_out.json() == {"user": None}
+
+    registered = register(client)
+    assert registered.status_code == 201
+    active = client.get("/api/auth/session")
+    assert active.status_code == 200
+    assert active.json()["user"]["email"] == "judge@example.com"
+    assert active.headers[CSRF_HEADER] == client.cookies.get(CSRF_COOKIE)
+
+    with Session(engine) as session:
+        auth_session = session.exec(select(AuthSession)).one()
+        auth_session.last_seen_at = utc_now() - timedelta(hours=25)
+        session.add(auth_session)
+        session.commit()
+
+    expired = client.get("/api/auth/session")
+    assert expired.status_code == 200
+    assert expired.json() == {"user": None}
+    assert client.cookies.get(SESSION_COOKIE) is None
+    assert client.cookies.get(CSRF_COOKIE) is None
 
 
 def test_duplicate_registration_and_login_use_safe_errors(api) -> None:
@@ -121,6 +149,42 @@ def test_duplicate_registration_and_login_use_safe_errors(api) -> None:
     )
     assert wrong.status_code == missing.status_code == 401
     assert wrong.json()["error"]["message"] == missing.json()["error"]["message"]
+
+
+def test_login_rate_limit_is_stable_across_forwarded_client_addresses(api) -> None:
+    client, _engine = api
+    statuses = []
+    for attempt in range(6):
+        response = client.post(
+            "/api/auth/login",
+            headers={
+                **ORIGIN_HEADERS,
+                "X-Forwarded-For": f"203.0.113.{attempt + 1}",
+            },
+            json={
+                "email": "rate-limited@example.com",
+                "password": "WrongPassword2026!",
+            },
+        )
+        statuses.append(response.status_code)
+    assert statuses == [401, 401, 401, 401, 401, 429]
+
+
+def test_login_global_limit_blocks_distinct_email_enumeration(api, monkeypatch) -> None:
+    client, _engine = api
+    monkeypatch.setattr(settings, "auth_login_global_rate_limit_per_minute", 3)
+    statuses = [
+        client.post(
+            "/api/auth/login",
+            headers=ORIGIN_HEADERS,
+            json={
+                "email": f"enumeration-{attempt}@example.com",
+                "password": "WrongPassword2026!",
+            },
+        ).status_code
+        for attempt in range(4)
+    ]
+    assert statuses == [401, 401, 401, 429]
 
 
 def test_csrf_logout_and_expired_sessions_are_enforced(api) -> None:
@@ -152,6 +216,66 @@ def test_csrf_logout_and_expired_sessions_are_enforced(api) -> None:
     expired = client.get("/api/auth/me")
     assert expired.status_code == 401
     assert expired.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+def test_csrf_rejects_invalid_missing_and_cross_origin_tokens(api) -> None:
+    client, _engine = api
+    registered = register(client)
+    assert registered.status_code == 201
+    token = registered.headers[CSRF_HEADER]
+    body = {"amount_cents": 10_000, "idempotency_key": "csrf-origin-topup-0001"}
+
+    missing_origin = client.post(
+        "/api/wallet/topups",
+        headers={CSRF_HEADER: token},
+        json=body,
+    )
+    assert missing_origin.status_code == 403
+    assert missing_origin.json()["error"]["code"] == "ORIGIN_REQUIRED"
+
+    cross_origin = client.post(
+        "/api/wallet/topups",
+        headers={"Origin": "https://attacker.example", CSRF_HEADER: token},
+        json=body,
+    )
+    assert cross_origin.status_code == 403
+    assert cross_origin.json()["error"]["code"] == "ORIGIN_MISMATCH"
+
+    invalid_token = client.post(
+        "/api/wallet/topups",
+        headers={**ORIGIN_HEADERS, CSRF_HEADER: "invalid-token"},
+        json=body,
+    )
+    assert invalid_token.status_code == 403
+    assert invalid_token.json()["error"]["code"] == "CSRF_INVALID"
+
+
+def test_strict_request_models_reject_mass_assignment(api) -> None:
+    client, _engine = api
+    registration = client.post(
+        "/api/auth/register",
+        headers=ORIGIN_HEADERS,
+        json={
+            "email": "mass-assignment@example.com",
+            "password": "StrongPassword2026!",
+            "status": "active",
+        },
+    )
+    assert registration.status_code == 400
+    assert registration.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    assert register(client).status_code == 201
+    topup = client.post(
+        "/api/wallet/topups",
+        headers=csrf_headers(client),
+        json={
+            "amount_cents": 10_000,
+            "idempotency_key": "mass-assignment-topup-0001",
+            "user_id": "00000000-0000-4000-8000-000000000000",
+        },
+    )
+    assert topup.status_code == 400
+    assert topup.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
 def test_topup_is_idempotent_and_owner_scoped(api) -> None:

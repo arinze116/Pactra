@@ -241,6 +241,7 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def login_rate_key(request: Request, email: str) -> str:
+def login_rate_key(email: str) -> str:
+    """Use an account-stable key so rotating reverse-proxy IPs cannot bypass limits."""
     email_digest = hashlib.sha256(email.encode("utf-8")).hexdigest()
-    return f"login:{client_ip(request)}:{email_digest}"
+    return f"login:{email_digest}"

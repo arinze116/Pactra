@@ -60,6 +60,9 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await submitPayment(page);
   await expect(page).toHaveURL(/\/app\/transactions\//);
   await expect(page.getByText("Completed").first()).toBeVisible();
+  await expect(page.getByText("Internal ledger capture")).toBeVisible();
+  await expect(page.getByText("Not applicable — internal ledger only")).toBeVisible();
+  await expect(page.getByText("SUCCESS", { exact: true })).toHaveCount(0);
 
   await page.getByRole("link", { name: "New payment" }).first().click();
   await page.getByRole("button", { name: "Payout" }).click();

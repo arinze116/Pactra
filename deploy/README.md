@@ -33,6 +33,35 @@ Disable only Pactra's Funnel route with
 `sudo tailscale funnel --https=443 off`. Do not reset or reconfigure the base
 Tailscale connection.
 
+## PostgreSQL backup and restore drill
+
+Create a private custom-format archive before each release or migration:
+
+```bash
+sudo install -d -o pactra -g pactra -m 0700 /opt/pactra/backups
+sudo -u pactra pg_dump --format=custom --compress=9 \
+  --file=/opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump pactra
+sudo chmod 0600 /opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump
+sudo -u pactra pg_restore --list \
+  /opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump
+```
+
+Never test a restore over the live `pactra` database. Create a new drill
+database, restore into it, and verify the migration revision and table counts:
+
+```bash
+sudo -u postgres createdb --owner=pactra pactra_restore_check_YYYYMMDD
+sudo -u pactra pg_restore --exit-on-error \
+  --dbname=pactra_restore_check_YYYYMMDD \
+  /opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump
+sudo -u pactra psql --dbname=pactra_restore_check_YYYYMMDD \
+  --command="SELECT version_num FROM alembic_version;"
+```
+
+Keep the live service pointed at `pactra` until the drill database has been
+validated. Removing a drill database or rotating archives is a separate,
+explicitly approved operation.
+
 ## Vercel frontend
 
 The linked Vercel project is `pactra`. Use `frontend` as the upload root,

@@ -48,6 +48,10 @@ class SlowGeminiClient(FakeGeminiClient):
         await asyncio.sleep(60)
 
 
+class Provider503Error(RuntimeError):
+    code = 503
+
+
 def gemini_tool_response(name: str, arguments: dict[str, object]) -> object:
     call = SimpleNamespace(name=name, args=arguments)
     content = SimpleNamespace(parts=[SimpleNamespace(function_call=call)])
@@ -223,6 +227,76 @@ async def test_gemini_timeout_retries_then_uses_bounded_fallback(
     assert fake.calls == 3
     assert result.transaction_ids == []
     assert result.reply.startswith("AI is temporarily unavailable")
+
+
+@pytest.mark.asyncio
+async def test_gemini_503_retries_without_leaking_provider_details(
+    assistant_db,
+    monkeypatch,
+) -> None:
+    session, user, _other = assistant_db
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-gemini-key")
+    fake = FakeGeminiClient(
+        error=Provider503Error("provider stack secret-sentinel-503")
+    )
+    monkeypatch.setattr(assistant.genai, "Client", lambda **_kwargs: fake)
+
+    result = await run_assistant(
+        session,
+        user=user,
+        message="What is my current sandbox wallet balance?",
+        conversation_id=None,
+        request_id="assistant-gemini-503-0001",
+    )
+
+    assert fake.calls == 3
+    assert result.transaction_ids == []
+    assert result.reply.startswith("AI is temporarily unavailable")
+    assert "secret-sentinel-503" not in result.reply
+
+
+@pytest.mark.asyncio
+async def test_malformed_gemini_tool_arguments_fail_closed(
+    assistant_db,
+    monkeypatch,
+) -> None:
+    session, user, _other = assistant_db
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-gemini-key")
+    fake = FakeGeminiClient(
+        [
+            gemini_tool_response(
+                "create_payment_request",
+                {
+                    "type": "vendor_payment",
+                    "vendor": "Linear",
+                    "recipient": None,
+                    "amount_cents": 4_900,
+                    "currency": "USD",
+                    "category": "software",
+                    "reason": "Monthly subscription",
+                    "rail": "internal_sandbox",
+                    "user_id": "00000000-0000-4000-8000-000000000000",
+                },
+            ),
+            gemini_text_response("Payment completed"),
+        ]
+    )
+    monkeypatch.setattr(assistant.genai, "Client", lambda **_kwargs: fake)
+
+    result = await run_assistant(
+        session,
+        user=user,
+        message="Pay Linear $49 for our monthly software subscription",
+        conversation_id=None,
+        request_id="assistant-malformed-tool-0001",
+    )
+
+    assert result.transaction_ids == []
+    assert session.exec(select(PaymentTransaction)).all() == []
+    assert result.reply.startswith("The payment action could not be completed")
+    assert result.tool_calls[0]["result"].get("error")
 
 
 @pytest.mark.asyncio

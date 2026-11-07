@@ -1,6 +1,8 @@
 """Authenticated policy, payment, approval and receipt API integration tests."""
 
+import base64
 from collections.abc import Generator
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -90,6 +92,12 @@ def test_auto_payment_receipt_and_reversal(api: TestClient) -> None:
     assert receipt.status_code == 200
     assert len(receipt.json()["ledger_entries"]) == 2
     assert receipt.json()["attempts"][0]["status"] == "completed"
+    assert receipt.json()["attempts"][0]["rail"] == "internal_sandbox"
+    assert receipt.json()["attempts"][0]["provider_status"] is None
+    assert (
+        receipt.json()["attempts"][0]["response_code"]
+        == "INTERNAL_LEDGER_CAPTURED"
+    )
 
     reversed_response = api.post(
         f"/api/transactions/{transaction['id']}/reverse",
@@ -241,6 +249,13 @@ def test_transaction_history_date_filters_and_range_validation(api: TestClient) 
 
 
 def test_another_user_cannot_read_or_action_transaction(api: TestClient) -> None:
+    completed = api.post(
+        "/api/transactions",
+        headers=mutation_headers(api),
+        json=payment(amount_cents=4_900, key="api-private-completed-0001"),
+    )
+    assert completed.status_code == 201
+    completed_id = completed.json()["transaction"]["id"]
     pending = api.post(
         "/api/transactions",
         headers=mutation_headers(api),
@@ -251,6 +266,14 @@ def test_another_user_cannot_read_or_action_transaction(api: TestClient) -> None
         ),
     )
     transaction_id = pending.json()["transaction"]["id"]
+    owner_policy_id = api.get("/api/policy").json()["id"]
+    owner_conversation = api.post(
+        "/api/conversations",
+        headers=mutation_headers(api),
+        json={"title": "Private owner conversation"},
+    )
+    assert owner_conversation.status_code == 201
+    owner_conversation_id = owner_conversation.json()["id"]
 
     other = TestClient(app, base_url=ORIGIN)
     try:
@@ -260,6 +283,11 @@ def test_another_user_cannot_read_or_action_transaction(api: TestClient) -> None
             json={"email": "other-api@example.com", "password": "StrongPassword2026!"},
         )
         assert registered.status_code == 201
+        assert other.get("/api/transactions").json()["items"] == []
+        assert other.get("/api/approvals").json()["items"] == []
+        assert owner_policy_id not in {
+            item["id"] for item in other.get("/api/policies").json()["items"]
+        }
         assert other.get(f"/api/transactions/{transaction_id}").status_code == 404
         approval = other.post(
             f"/api/approvals/{transaction_id}/approve",
@@ -267,8 +295,149 @@ def test_another_user_cannot_read_or_action_transaction(api: TestClient) -> None
             json={"idempotency_key": "api-cross-user-approve-01"},
         )
         assert approval.status_code == 404
+        rejection = other.post(
+            f"/api/approvals/{transaction_id}/reject",
+            headers=mutation_headers(other),
+            json={
+                "idempotency_key": "api-cross-user-reject-0001",
+                "reason": "Unauthorized",
+            },
+        )
+        assert rejection.status_code == 404
+        reversal = other.post(
+            f"/api/transactions/{completed_id}/reverse",
+            headers=mutation_headers(other),
+            json={
+                "idempotency_key": "api-cross-user-reverse-0001",
+                "reason": "Unauthorized",
+            },
+        )
+        assert reversal.status_code == 404
+        retry = other.post(
+            f"/api/transactions/{completed_id}/retry",
+            headers=mutation_headers(other),
+            json={"idempotency_key": "api-cross-user-retry-0001"},
+        )
+        assert retry.status_code == 404
+        reconcile = other.post(
+            f"/api/transactions/{transaction_id}/reconcile",
+            headers=mutation_headers(other),
+        )
+        assert reconcile.status_code == 404
+        assert other.get(
+            f"/api/conversations/{owner_conversation_id}/messages"
+        ).status_code == 404
+        conversation_update = other.patch(
+            f"/api/conversations/{owner_conversation_id}",
+            headers=mutation_headers(other),
+            json={"title": "Stolen conversation"},
+        )
+        assert conversation_update.status_code == 404
     finally:
         other.close()
+
+
+def test_payment_and_policy_payloads_reject_owner_mass_assignment(
+    api: TestClient,
+) -> None:
+    payment_payload = payment(
+        amount_cents=4_900,
+        key="api-mass-assignment-payment-0001",
+    )
+    payment_payload["user_id"] = "00000000-0000-4000-8000-000000000000"
+    created = api.post(
+        "/api/transactions",
+        headers=mutation_headers(api),
+        json=payment_payload,
+    )
+    assert created.status_code == 400
+    assert created.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    policy = api.get("/api/policy").json()["policy"]
+    policy["user_id"] = "00000000-0000-4000-8000-000000000000"
+    updated = api.put(
+        "/api/policy",
+        headers=mutation_headers(api),
+        json=policy,
+    )
+    assert updated.status_code == 400
+    assert updated.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_malformed_resource_ids_and_cursors_never_reach_postgresql(
+    api: TestClient,
+) -> None:
+    invalid_id = "not-a-uuid"
+    mutation_cases = [
+        (f"/api/transactions/{invalid_id}/reverse", {
+            "idempotency_key": "invalid-id-reverse-0001",
+            "reason": "Invalid resource identifier",
+        }),
+        (f"/api/transactions/{invalid_id}/retry", {
+            "idempotency_key": "invalid-id-retry-0001",
+        }),
+        (f"/api/transactions/{invalid_id}/reconcile", None),
+        (f"/api/approvals/{invalid_id}/approve", {
+            "idempotency_key": "invalid-id-approve-0001",
+        }),
+        (f"/api/approvals/{invalid_id}/reject", {
+            "idempotency_key": "invalid-id-reject-0001",
+            "reason": "Invalid resource identifier",
+        }),
+    ]
+    assert api.get(f"/api/transactions/{invalid_id}").status_code == 400
+    assert api.get(f"/api/conversations/{invalid_id}/messages").status_code == 400
+    assert api.patch(
+        f"/api/conversations/{invalid_id}",
+        headers=mutation_headers(api),
+        json={"title": "Invalid resource identifier"},
+    ).status_code == 400
+    for path, body in mutation_cases:
+        response = api.post(
+            path,
+            headers=mutation_headers(api),
+            json=body,
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    invalid_conversation = api.post(
+        "/api/chat",
+        headers=mutation_headers(api),
+        json={
+            "conversation_id": invalid_id,
+            "message": "Show my balance",
+            "request_id": "invalid-conversation-id-0001",
+        },
+    )
+    assert invalid_conversation.status_code == 400
+
+    transaction_cursor = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "created_at": "2026-11-07T00:00:00+00:00",
+                "id": invalid_id,
+            }
+        ).encode()
+    ).decode().rstrip("=")
+    ledger_cursor = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "created_at": "2026-11-07T00:00:00+00:00",
+                "journal_id": invalid_id,
+            }
+        ).encode()
+    ).decode().rstrip("=")
+    transaction_response = api.get(
+        "/api/transactions", params={"cursor": transaction_cursor}
+    )
+    ledger_response = api.get(
+        "/api/wallet/ledger", params={"cursor": ledger_cursor}
+    )
+    assert transaction_response.status_code == 400
+    assert transaction_response.json()["error"]["code"] == "INVALID_CURSOR"
+    assert ledger_response.status_code == 400
+    assert ledger_response.json()["error"]["code"] == "INVALID_CURSOR"
 
 
 def test_reset_restores_balance_cancels_holds_and_preserves_history(

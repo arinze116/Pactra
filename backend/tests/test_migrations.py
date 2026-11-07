@@ -91,7 +91,7 @@ def test_initial_migration_builds_clean_sqlite_database(tmp_path: Path) -> None:
         "request_id",
         "role",
     ]
-    assert revision == "20261103_0002"
+    assert revision == "20261107_0003"
 
 
 def test_runtime_models_use_postgresql_uuid_for_migrated_identifiers() -> None:

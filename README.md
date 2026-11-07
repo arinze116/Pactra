@@ -6,7 +6,7 @@ Pactra is a sandbox-only payment operations workspace built for the PayPal AI Ha
 
 No real money moves. Pactra's append-only ledger is the source of truth for the in-app test wallet. PayPal Sandbox Payouts is a separate external test rail and is never reported as successful until the individual payout item succeeds and Pactra's ledger capture commits.
 
-- Live app: <https://pactra-nine.vercel.app> — verified against the Oracle PostgreSQL runtime on 6 November 2026
+- Live app: <https://pactra-nine.vercel.app> — independently re-audited against the Oracle PostgreSQL runtime on 7 November 2026
 - Demo video: pending owner recording/upload
 - Product contract: [`Pactra-PRD-Judge-Ready.md`](./Pactra-PRD-Judge-Ready.md)
 - Judge demo and release gates: [`DEMO.md`](./DEMO.md) and [`SUBMISSION.md`](./SUBMISSION.md)
@@ -176,9 +176,11 @@ Server-only secrets must be stored in the hosting provider, never in Vite variab
 | `SESSION_COOKIE_SECURE` | `true` |
 | `SESSION_COOKIE_SAMESITE` | `lax` when Vercel proxies `/api`; `none` only for an intentionally cross-site topology |
 | `SESSION_TTL_HOURS`, `SESSION_IDLE_HOURS` | Defaults: `168` and `24` |
+| `AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR`, `AUTH_REGISTRATION_GLOBAL_RATE_LIMIT_PER_HOUR` | Per-client and process-wide sandbox registration ceilings; defaults: `10` and `100` |
+| `AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE` | Process-wide ceiling that bounds distinct-account login enumeration; default: `30` |
 | `AI_ENABLED` | Set `true` only after `GEMINI_API_KEY` is present |
 | `GEMINI_API_KEY` | Server-side Google AI Studio key |
-| `GEMINI_MODEL` | `gemini-3.8-flash`, verified in the provider model catalogue |
+| `GEMINI_MODEL` | Configured model name; validate it against the current provider catalogue before enabling AI |
 | `GEMINI_REQUEST_TIMEOUT_SECONDS` | Per-attempt application deadline; default `12` |
 | `MAX_CHAT_HISTORY` | Default `20` |
 | `PAYPAL_PAYOUTS_ENABLED` | Set `true` only after all Sandbox values below are present |
@@ -228,7 +230,7 @@ The release is not submission-ready until a real PayPal Sandbox Payouts batch ha
 - Pending payments are re-evaluated against hard limits immediately before approval.
 - CORS is restricted to configured origins.
 - Production startup refuses SQLite, insecure cookies, weak secrets, mock-enabled payouts, missing enabled-provider credentials, and any non-sandbox PayPal host.
-- Posted ledger entries are immutable in PostgreSQL; corrections use balanced compensating journals.
+- Posted ledger journals and their two-entry posting sets are immutable in PostgreSQL; corrections use balanced compensating journals.
 
 SQLite is supported only for local development and lightweight tests. Public deployment requires PostgreSQL for durable data, locking, and ledger triggers.
 
@@ -236,8 +238,8 @@ The PRD-pinned Vite 5 development toolchain currently reports upstream dev-serve
 
 ## Known external blockers
 
-- Gemini credentials and the configured model catalogue entry are verified, but live balance-tool smokes returned a provider `ServerError` and then timed out. The application now enforces a 12-second per-attempt deadline, retries three times, and reached deterministic fallback in 37.7 seconds. Regression coverage also proves malicious conversation history and retrieved transaction text cannot authorize a payment. Live Gemini tool execution is therefore not claimed.
-- A new `$0.01` PayPal Sandbox Payouts smoke ran on 6 November 2026 with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires a distinct active Sandbox recipient able to receive USD and a Payouts-capable business app.
+- The deployed runtime currently has Gemini disabled and no API key. Automated tests verify strict tool validation, prompt-injection resistance, bounded retries, safe fallback, and error redaction, but live Gemini tool execution is unverified.
+- The deployed runtime currently has PayPal Payouts disabled, no Sandbox credentials, and mock mode off. Automated tests verify stable provider IDs, item-level reconciliation, unknown outcomes, failure, return, reversal, and restart safety. No live PayPal Sandbox success is claimed, and historical database records are not treated as provider proof by this audit.
 - Devpost submission and the public demo-video upload remain owner actions.
 
 ## License

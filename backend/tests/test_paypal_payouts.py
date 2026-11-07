@@ -175,6 +175,60 @@ async def test_terminal_item_failure_releases_hold(payout_db) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("provider_status", ["RETURNED", "REVERSED", "REFUNDED"])
+async def test_pre_capture_provider_return_releases_hold_without_posting(
+    payout_db,
+    provider_status: str,
+) -> None:
+    session, user = payout_db
+    result = create_payment_request(
+        session,
+        user=user,
+        payload=payout_payload(f"paypal-pre-capture-{provider_status.casefold()}-0001"),
+    )
+    session.commit()
+    provider_result = PayoutStatus(
+        "BATCH-123",
+        "SUCCESS",
+        "ITEM-1",
+        provider_status,
+    )
+    client = FakePayPalClient([provider_result, provider_result])
+
+    await submit_or_reconcile_payout(
+        session,
+        client=client,
+        transaction=result.transaction,
+    )
+    session.commit()
+    assert result.transaction.status == "reversed"
+    assert result.transaction.provider_status == provider_status
+    assert result.transaction.failure_code == f"PAYPAL_ITEM_{provider_status}"
+    balance = wallet_balance(session, get_wallet_for_user(session, user.id))
+    assert balance.posted_cents == balance.available_cents == 100_000
+    assert balance.reserved_cents == 0
+    reservation = session.exec(select(FundReservation)).one()
+    assert reservation.status == "released"
+    assert session.exec(
+        select(LedgerJournal).where(
+            LedgerJournal.journal_type.in_(["payment_capture", "payment_reversal"])
+        )
+    ).all() == []
+
+    await submit_or_reconcile_payout(
+        session,
+        client=client,
+        transaction=result.transaction,
+    )
+    session.commit()
+    assert session.exec(
+        select(LedgerJournal).where(
+            LedgerJournal.journal_type.in_(["payment_capture", "payment_reversal"])
+        )
+    ).all() == []
+
+
+@pytest.mark.asyncio
 async def test_unknown_submission_reuses_same_attempt(payout_db) -> None:
     session, user = payout_db
     result = create_payment_request(

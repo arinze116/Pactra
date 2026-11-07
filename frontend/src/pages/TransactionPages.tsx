@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgGridReact } from "ag-grid-react";
-import type { CellKeyDownEvent, ColDef, RowClickedEvent } from "ag-grid-community";
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-quartz.css";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, ClipboardCopy, RefreshCw, X } from "lucide-react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, createIdempotencyKey, isAmbiguousMutationError } from "../api";
 import { EmptyState, ErrorNotice, formatCents, LoadingBlock, PageHeader, Panel, Status } from "../components/UI";
 import type { Transaction, TransactionDetail, TransactionStatus, TransactionType } from "../types";
+
+const TransactionGrid = lazy(() => import("../components/TransactionGrid"));
 
 export function ApprovalsPage() {
   const [items, setItems] = useState<Transaction[]>([]);
@@ -64,7 +62,6 @@ const statuses: Array<"all" | TransactionStatus> = ["all", "draft", "pending_app
 const transactionTypes: Array<"all" | TransactionType> = ["all", "vendor_payment", "payout", "sandbox_transfer"];
 
 export function TransactionsPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -153,23 +150,6 @@ export function TransactionsPage() {
     return () => { active = false; };
   }, []);
 
-  const columns = useMemo<ColDef<Transaction>[]>(() => [
-    { field: "vendor", headerName: "Vendor", flex: 1.4, minWidth: 180 },
-    { field: "amount_cents", headerName: "Amount", width: 130, valueFormatter: ({ value }) => formatCents(Number(value)), cellClass: "tabular-nums" },
-    { field: "category", headerName: "Category", width: 125 },
-    { field: "status", headerName: "Status", width: 150, cellRenderer: ({ value }: { value: TransactionStatus }) => <Status value={value} /> },
-    { field: "rail", headerName: "Rail", minWidth: 160, valueFormatter: ({ value }) => value === "internal_sandbox" ? "Internal sandbox" : "PayPal Sandbox" },
-    { field: "created_at", headerName: "Created", width: 170, valueFormatter: ({ value }) => new Intl.DateTimeFormat("en-NG", { dateStyle: "medium", timeStyle: "short" }).format(new Date(String(value))) },
-  ], []);
-
-  function open(event: RowClickedEvent<Transaction>) {
-    if (event.data) navigate(`/app/transactions/${event.data.id}`);
-  }
-
-  function openWithKeyboard(event: CellKeyDownEvent<Transaction>) {
-    if ((event.event as KeyboardEvent | undefined)?.key === "Enter" && event.data) navigate(`/app/transactions/${event.data.id}`);
-  }
-
   function retryLoad() {
     const sequence = ++requestSequenceRef.current;
     void runLoad(null, false, sequence);
@@ -202,7 +182,7 @@ export function TransactionsPage() {
         <label className="text-xs text-ink-500">History<select className="mt-1 h-10 w-full rounded-lg border border-line bg-surface-raised px-3 text-sm text-ink-800" onChange={(event) => updateFilter("generation", event.target.value, "current")} value={generation}><option value="current">Current sandbox</option><option value="all">All history</option></select></label>
         <div className="flex items-center justify-between gap-3 border-t border-line pt-3 sm:col-span-2 lg:col-span-4 xl:col-span-8"><span className="text-xs tabular-nums text-ink-400">{items.length} loaded records</span>{hasFilters ? <button className="text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" onClick={() => setSearchParams({}, { replace: true })} type="button">Clear filters</button> : null}</div>
       </div>
-      {loading ? <div className="p-5"><LoadingBlock className="h-[520px]" /></div> : items.length ? <><div className="ag-theme-quartz hidden h-[590px] md:block"><AgGridReact<Transaction> columnDefs={columns} rowData={items} onCellKeyDown={openWithKeyboard} onRowClicked={open} pagination paginationPageSize={25} rowSelection="single" /></div><div className="divide-y divide-line md:hidden">{items.map((item) => <Link className="block p-5" key={item.id} to={`/app/transactions/${item.id}`}><div className="flex justify-between gap-4"><div><p className="text-sm font-medium">{item.vendor}</p><p className="mt-1 text-xs text-ink-500">{item.category} · {item.rail === "internal_sandbox" ? "Internal" : "PayPal"}</p></div><p className="text-sm font-medium tabular-nums">{formatCents(item.amount_cents)}</p></div><div className="mt-4"><Status value={item.status} /></div></Link>)}</div>{nextCursor ? <div className="border-t border-line p-4 text-center"><button className="action-secondary" disabled={loadingMore} onClick={loadMore} type="button">{loadingMore ? "Loading more" : "Load more transactions"}</button></div> : null}</> : <EmptyState title="No matching transactions" description="Adjust the filters or create a payment request" />}
+      {loading ? <div className="p-5"><LoadingBlock className="h-[520px]" /></div> : items.length ? <><Suspense fallback={<div className="hidden p-5 md:block"><LoadingBlock className="h-[520px]" /></div>}><TransactionGrid items={items} /></Suspense><div className="divide-y divide-line md:hidden">{items.map((item) => <Link className="block p-5" key={item.id} to={`/app/transactions/${item.id}`}><div className="flex justify-between gap-4"><div><p className="text-sm font-medium">{item.vendor}</p><p className="mt-1 text-xs text-ink-500">{item.category} · {item.rail === "internal_sandbox" ? "Internal" : "PayPal"}</p></div><p className="text-sm font-medium tabular-nums">{formatCents(item.amount_cents)}</p></div><div className="mt-4"><Status value={item.status} /></div></Link>)}</div>{nextCursor ? <div className="border-t border-line p-4 text-center"><button className="action-secondary" disabled={loadingMore} onClick={loadMore} type="button">{loadingMore ? "Loading more" : "Load more transactions"}</button></div> : null}</> : <EmptyState title="No matching transactions" description="Adjust the filters or create a payment request" />}
     </Panel>
   </>;
 }
@@ -260,9 +240,9 @@ export function ReceiptPage() {
     {error ? <div className="mb-5"><ErrorNotice message={error} onRetry={() => void load()} /></div> : null}
     <div className="grid gap-6 xl:grid-cols-[1fr_0.72fr]">
       <div className="space-y-6">
-        <Panel className="p-5 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><Status value={transaction.status} />{transaction.rail === "paypal_sandbox_payouts" && transaction.status === "executing" ? <p className="mt-2 text-xs font-medium text-sky-800">Provider pending. Reserved funds remain held until the payout item reaches a terminal state.</p> : null}<h2 className="mt-4 text-2xl font-medium">{transaction.vendor}</h2><p className="mt-2 text-sm text-ink-500">{transaction.reason}</p></div><p className="text-3xl font-medium tabular-nums">{formatCents(transaction.amount_cents)}</p></div><dl className="mt-7 grid gap-5 border-t border-line pt-6 text-sm sm:grid-cols-2"><Info label="Category" value={transaction.category} /><Info label="Rail" value={transaction.rail === "internal_sandbox" ? "Internal sandbox" : "PayPal Sandbox Payouts"} /><Info label="Policy version" value={`v${transaction.policy_version}`} /><Info label="Sandbox generation" value={String(transaction.sandbox_generation)} /><Info label="Provider status" value={transaction.provider_status ?? "Not applicable"} /><Info label="Provider reference" value={transaction.provider_item_id ?? transaction.provider_batch_id ?? transaction.rail_reference ?? "Not available"} />{transaction.failure_code ? <Info label="Failure code" value={transaction.failure_code} /> : null}</dl></Panel>
+        <Panel className="p-5 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><Status value={transaction.status} />{transaction.rail === "paypal_sandbox_payouts" && transaction.status === "executing" ? <p className="mt-2 text-xs font-medium text-sky-800">Provider pending. Reserved funds remain held until the payout item reaches a terminal state.</p> : null}<h2 className="mt-4 text-2xl font-medium">{transaction.vendor}</h2><p className="mt-2 text-sm text-ink-500">{transaction.reason}</p></div><p className="text-3xl font-medium tabular-nums">{formatCents(transaction.amount_cents)}</p></div><dl className="mt-7 grid gap-5 border-t border-line pt-6 text-sm sm:grid-cols-2"><Info label="Category" value={transaction.category} /><Info label="Rail" value={transaction.rail === "internal_sandbox" ? "Internal sandbox" : "PayPal Sandbox Payouts"} /><Info label="Policy version" value={`v${transaction.policy_version}`} /><Info label="Sandbox generation" value={String(transaction.sandbox_generation)} /><Info label={transaction.rail === "internal_sandbox" ? "Provider evidence" : "Provider status"} value={transaction.rail === "internal_sandbox" ? "Not applicable — internal ledger only" : transaction.provider_status ?? "Awaiting provider status"} /><Info label={transaction.rail === "internal_sandbox" ? "Internal execution reference" : "Provider reference"} value={transaction.provider_item_id ?? transaction.provider_batch_id ?? transaction.rail_reference ?? "Not available"} />{transaction.failure_code ? <Info label="Failure code" value={transaction.failure_code} /> : null}</dl></Panel>
         <Panel><div className="border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Policy trace</h2></div><ol className="policy-trace space-y-5 p-5 text-sm sm:p-6">{detail.policy_checks.map((check, index) => <li className="flex gap-3" key={index}><span>{index + 1}</span><div><p className="font-medium text-ink-800">{String(check.code ?? "Policy check").replace(/_/g, " ")}</p><p className={`mt-1 text-xs ${check.passed ? "text-positive-dark" : "text-negative"}`}>{check.passed ? "Passed" : String(check.message ?? "Stopped here")}</p></div></li>)}</ol></Panel>
-        {detail.attempts.length ? <Panel><div className="border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Execution attempts</h2></div><div className="divide-y divide-line">{detail.attempts.map((attempt, index) => <div className="grid gap-2 p-5 text-sm sm:grid-cols-3" key={String(attempt.id ?? index)}><div><p className="text-xs text-ink-400">Attempt</p><p className="mt-1 font-medium">#{String(attempt.attempt_number ?? index + 1)}</p></div><div><p className="text-xs text-ink-400">Status</p><p className="mt-1 font-medium capitalize">{String(attempt.status ?? "unknown").replace(/_/g, " ")}</p></div><div><p className="text-xs text-ink-400">Provider</p><p className="mt-1 break-all font-mono text-xs">{String(attempt.provider_status ?? attempt.response_code ?? "Internal sandbox")}</p></div></div>)}</div></Panel> : null}
+        {detail.attempts.length ? <Panel><div className="border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Execution attempts</h2></div><div className="divide-y divide-line">{detail.attempts.map((attempt, index) => { const evidence = executionEvidence(attempt); return <div className="grid gap-2 p-5 text-sm sm:grid-cols-3" key={String(attempt.id ?? index)}><div><p className="text-xs text-ink-400">Attempt</p><p className="mt-1 font-medium">#{String(attempt.attempt_number ?? index + 1)}</p></div><div><p className="text-xs text-ink-400">Status</p><p className="mt-1 font-medium capitalize">{String(attempt.status ?? "unknown").replace(/_/g, " ")}</p></div><div><p className="text-xs text-ink-400">{evidence.label}</p><p className="mt-1 break-all font-mono text-xs">{evidence.value}</p></div></div>; })}</div></Panel> : null}
       </div>
       <div className="space-y-6">
         <Panel><div className="border-b border-line px-5 py-4"><h2 className="text-sm font-medium">Lifecycle</h2></div><div className="divide-y divide-line">{detail.events.map((event, index) => <div className="p-4" key={String(event.id ?? index)}><p className="text-sm font-medium">{String(event.event_type ?? "Event").replace(/_/g, " ")}</p><p className="mt-1 text-xs text-ink-500">{event.created_at ? new Date(String(event.created_at)).toLocaleString() : ""}</p></div>)}</div></Panel>
@@ -274,4 +254,14 @@ export function ReceiptPage() {
 
 function Info({ label, value }: { label: string; value: string }) {
   return <div><dt className="text-xs text-ink-400">{label}</dt><dd className="mt-1 break-all font-medium capitalize text-ink-800">{value}</dd></div>;
+}
+
+function executionEvidence(attempt: Record<string, unknown>) {
+  if (attempt.rail === "internal_sandbox") {
+    return { label: "Evidence", value: "Internal ledger capture" };
+  }
+  return {
+    label: "Provider item",
+    value: String(attempt.provider_status ?? attempt.response_code ?? "Awaiting provider status"),
+  };
 }

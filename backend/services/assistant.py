@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from uuid import UUID
 
 from google import genai
 from google.genai import types
@@ -106,7 +107,9 @@ TOOLS = [
                 description="Get an owned Pactra transaction receipt.",
                 parameters_json_schema={
                     "type": "object",
-                    "properties": {"transaction_id": {"type": "string"}},
+                    "properties": {
+                        "transaction_id": {"type": "string", "format": "uuid"}
+                    },
                     "required": ["transaction_id"],
                     "additionalProperties": False,
                 },
@@ -567,10 +570,11 @@ def _execute_tool(
         )
         return {"items": [_safe_transaction(item) for item in items]}, None
     if name == "get_transaction_details":
+        transaction_id = str(UUID(str(args.get("transaction_id", ""))))
         detail = transaction_detail(
             session,
             user_id=user.id,
-            transaction_id=str(args.get("transaction_id", "")),
+            transaction_id=transaction_id,
         )
         return {
             "transaction": _safe_transaction(detail["transaction"]),

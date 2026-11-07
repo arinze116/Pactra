@@ -56,6 +56,16 @@ class Settings(BaseSettings):
     session_ttl_hours: int = Field(default=168, gt=0, le=720)
     session_idle_hours: int = Field(default=24, gt=0, le=168)
     auth_registration_rate_limit_per_hour: int = Field(default=10, ge=1, le=1000)
+    auth_registration_global_rate_limit_per_hour: int = Field(
+        default=100,
+        ge=1,
+        le=10_000,
+    )
+    auth_login_global_rate_limit_per_minute: int = Field(
+        default=30,
+        ge=1,
+        le=10_000,
+    )
     policy_config_path: str = "./backend/policy.json"
     seed_demo_account: bool = False
 

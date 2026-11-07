@@ -3,6 +3,7 @@
 import re
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
@@ -84,6 +85,10 @@ class RegistrationResponse(StrictModel):
 class AuthResponse(StrictModel):
     user: UserResponse
     message: str | None = None
+
+
+class SessionStateResponse(StrictModel):
+    user: UserResponse | None
 
 
 class TopUpRequest(StrictModel):
@@ -302,7 +307,7 @@ class ResetResponse(StrictModel):
 
 
 class AssistantRequest(StrictModel):
-    conversation_id: str | None = Field(default=None, max_length=36)
+    conversation_id: UUID | None = None
     message: str = Field(min_length=1, max_length=8000)
     request_id: str = Field(
         min_length=16, max_length=128, pattern=r"^[A-Za-z0-9._~-]+$"

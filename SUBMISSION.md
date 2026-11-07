@@ -21,8 +21,8 @@
 - [ ] Add `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and a distinct active `PAYPAL_TEST_RECIPIENT_EMAIL`; keep the official Sandbox base URL and `PAYPAL_MOCK_MODE=false`; then set `PAYPAL_PAYOUTS_ENABLED=true`.
 - [x] Confirm Oracle PostgreSQL is healthy, localhost-only, backed up, and Alembic reaches head before the API starts.
 - [x] Run a fresh-account deployed smoke through <https://pactra-nine.vercel.app>: register/login, top-up, policy save/reload, internal payment, approval/rejection, assistant fallback, receipt/history, reset, persistence, CSRF, logout, and tenant isolation.
-- [ ] Create and reconcile a real PayPal Sandbox payout to item-level `SUCCESS`. The 6 November `$0.01` smoke reached item-level `FAILED` and correctly released its hold; it is not success evidence.
-- [ ] Re-run live Gemini tool execution if Google is no longer returning temporary `503 UNAVAILABLE`.
+- [ ] Create and reconcile a real PayPal Sandbox payout to item-level `SUCCESS`. The 7 November independent audit found the deployed integration disabled and unconfigured; no historical record is accepted as provider proof.
+- [ ] Configure Gemini with a currently supported model, then verify one live typed-tool read and one governed payment request. The deployed integration is disabled and unconfigured.
 - [ ] Record and upload the public demo video under the event limit.
 - [ ] Add the final video URL to README/Devpost; the verified live URL is already recorded.
 - [ ] Complete the Devpost submission and disclose the sandbox-only behavior and hackathon-period changes.

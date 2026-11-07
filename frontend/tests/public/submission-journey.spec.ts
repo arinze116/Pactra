@@ -38,6 +38,10 @@ async function submitPayment(page: Page) {
 }
 
 test("public submission journey remains secure, durable, and tenant isolated", async ({ page, request }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text().slice(0, 500));
+  });
   await page.goto("/");
   await expect(page).toHaveTitle(/Pactra/);
   await expect(page.getByRole("heading", { name: /Control the spend/ })).toBeVisible();
@@ -75,6 +79,10 @@ test("public submission journey remains secure, durable, and tenant isolated", a
   await page.getByLabel("Approval above").fill("50.00");
   await page.getByRole("button", { name: "Save policy" }).click();
   await expect(page.getByText("Policy version 2 saved")).toBeVisible();
+  const ownerPolicyId = await page.evaluate(async () => {
+    const response = await fetch("/api/policy", { credentials: "include" });
+    return (await response.json()).id as string;
+  });
 
   await page.getByRole("link", { name: "New payment" }).first().click();
   await page.getByLabel("Vendor or recipient name").fill("Linear Public Smoke");
@@ -86,7 +94,11 @@ test("public submission journey remains secure, durable, and tenant isolated", a
   await expect(page.getByText("Completed").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Lifecycle" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ledger impact" })).toBeVisible();
+  await expect(page.getByText("Internal ledger capture")).toBeVisible();
+  await expect(page.getByText("Not applicable — internal ledger only")).toBeVisible();
+  await expect(page.getByText("SUCCESS", { exact: true })).toHaveCount(0);
   const primaryReceipt = page.url();
+  const ownerCompletedId = primaryReceipt.split("/").pop() ?? "";
 
   await page.reload();
   await expect(page.getByText("Linear Public Smoke")).toBeVisible();
@@ -101,6 +113,7 @@ test("public submission journey remains secure, durable, and tenant isolated", a
   await page.getByLabel("Business reason").fill("Submission verification contract work");
   await submitPayment(page);
   await expect(page.getByText("Needs approval").first()).toBeVisible();
+  const ownerApprovalId = page.url().split("/").pop() ?? "";
   await page.goto("/app/approvals");
   await page.getByRole("article").filter({ hasText: "Ada Public Smoke" }).getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("No requests need approval")).toBeVisible();
@@ -138,6 +151,11 @@ test("public submission journey remains secure, durable, and tenant isolated", a
   await page.getByLabel("Message Pactra").fill("Pay Notion $20 for our software subscription");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.locator(".assistant-message-assistant").getByText(/Payment to Notion completed after backend policy and ledger confirmation/)).toBeVisible();
+  const ownerConversationId = await page.evaluate(async () => {
+    const response = await fetch("/api/conversations", { credentials: "include" });
+    const payload = await response.json();
+    return payload.items[0].id as string;
+  });
 
   await page.getByRole("link", { name: "Wallet" }).first().click();
   await page.getByLabel("Type RESET").fill("RESET");
@@ -154,6 +172,62 @@ test("public submission journey remains secure, durable, and tenant isolated", a
 
   await logout(page);
   await register(page, "other");
+  const isolation = await page.evaluate(async ({ completedId, approvalId, policyId, conversationId }) => {
+    const sessionResponse = await fetch("/api/auth/session", { credentials: "include" });
+    const csrf = sessionResponse.headers.get("X-CSRF-Token") ?? "";
+    const mutate = async (path: string, body?: Record<string, unknown>) => (await fetch(path, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })).status;
+    const [transactions, approvals, policies, conversations] = await Promise.all([
+      fetch("/api/transactions?generation=all", { credentials: "include" }).then((response) => response.json()),
+      fetch("/api/approvals", { credentials: "include" }).then((response) => response.json()),
+      fetch("/api/policies", { credentials: "include" }).then((response) => response.json()),
+      fetch("/api/conversations?include_archived=true", { credentials: "include" }).then((response) => response.json()),
+    ]);
+    const conversationPatch = await fetch(`/api/conversations/${conversationId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+      body: JSON.stringify({ title: "Cross-tenant mutation" }),
+    });
+    return {
+      ownerIdsVisible: transactions.items.some((item: { id: string }) => [completedId, approvalId].includes(item.id)),
+      ownerApprovalVisible: approvals.items.some((item: { id: string }) => item.id === approvalId),
+      ownerPolicyVisible: policies.items.some((item: { id: string }) => item.id === policyId),
+      ownerConversationVisible: conversations.items.some((item: { id: string }) => item.id === conversationId),
+      receipt: (await fetch(`/api/transactions/${completedId}`, { credentials: "include" })).status,
+      conversation: (await fetch(`/api/conversations/${conversationId}/messages`, { credentials: "include" })).status,
+      conversationPatch: conversationPatch.status,
+      approve: await mutate(`/api/approvals/${approvalId}/approve`, { idempotency_key: "public-cross-approve-0001" }),
+      reject: await mutate(`/api/approvals/${approvalId}/reject`, { idempotency_key: "public-cross-reject-0001", reason: "Unauthorized" }),
+      reverse: await mutate(`/api/transactions/${completedId}/reverse`, { idempotency_key: "public-cross-reverse-0001", reason: "Unauthorized" }),
+      retry: await mutate(`/api/transactions/${completedId}/retry`, { idempotency_key: "public-cross-retry-0001" }),
+      reconcile: await mutate(`/api/transactions/${completedId}/reconcile`),
+    };
+  }, {
+    completedId: ownerCompletedId,
+    approvalId: ownerApprovalId,
+    policyId: ownerPolicyId,
+    conversationId: ownerConversationId,
+  });
+  expect(isolation).toEqual({
+    ownerIdsVisible: false,
+    ownerApprovalVisible: false,
+    ownerPolicyVisible: false,
+    ownerConversationVisible: false,
+    receipt: 404,
+    conversation: 404,
+    conversationPatch: 404,
+    approve: 404,
+    reject: 404,
+    reverse: 404,
+    retry: 404,
+    reconcile: 404,
+  });
+  expect(consoleErrors).toEqual([]);
   await page.goto(primaryReceipt);
   await expect(page.getByText("Transaction not found")).toBeVisible();
 });

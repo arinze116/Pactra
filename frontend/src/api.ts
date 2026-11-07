@@ -83,6 +83,7 @@ export function isAmbiguousMutationError(error: unknown) {
 export const api = {
   register: (email: string, password: string) => request<{ user: User; wallet: WalletBalance }>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
   login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  session: () => request<{ user: User | null }>("/api/auth/session"),
   me: () => request<{ user: User }>("/api/auth/me"),
   logout: async () => {
     await request<void>("/api/auth/logout", { method: "POST" });

@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import func, update
 from sqlmodel import Session, select
@@ -170,9 +171,8 @@ def _execute_internal(
         attempt_number=attempt_number,
         rail="internal_sandbox",
         rail_request_id=rail_request_id or f"internal:{transaction.id}:{attempt_number}",
-        provider_status="SUCCESS",
         status="completed",
-        response_code="INTERNAL_CAPTURED",
+        response_code="INTERNAL_LEDGER_CAPTURED",
         finished_at=utc_now(),
     )
     session.add(attempt)
@@ -900,12 +900,33 @@ def apply_paypal_reconciliation(
                 transaction=transaction,
                 idempotency_key=f"provider-reversal:{transaction.id}",
             )
-            previous = transaction.status
-            transaction.status = "reversed"
-            transaction.updated_at = utc_now()
-            _record_state(session, transaction=transaction, previous=previous)
+        elif transaction.status == "executing":
+            release_reservation(
+                session,
+                user_id=transaction.user_id,
+                transaction_id=transaction.id,
+                reason=f"paypal_{item_status.casefold()}",
+            )
+        previous = transaction.status
+        transaction.status = "reversed"
+        transaction.failure_code = f"PAYPAL_ITEM_{item_status}"
+        transaction.updated_at = utc_now()
         attempt.status = "reversed"
+        attempt.response_code = f"PAYPAL_ITEM_{item_status}"
         attempt.finished_at = utc_now()
+        session.add_all([attempt, transaction])
+        if previous != transaction.status:
+            _record_state(session, transaction=transaction, previous=previous)
+            record_audit_event(
+                session,
+                user_id=transaction.user_id,
+                actor_type="system",
+                actor_id=None,
+                entity_type="transaction",
+                entity_id=transaction.id,
+                event_type="paypal.payout_reversed",
+                payload={"provider_status": item_status},
+            )
         session.flush()
         return
 
@@ -953,7 +974,10 @@ def _decode_cursor(cursor: str) -> tuple[datetime, str]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
-        return datetime.fromisoformat(data["created_at"]), str(data["id"])
+        created_at = datetime.fromisoformat(data["created_at"])
+        if created_at.tzinfo is None:
+            raise ValueError("Cursor timestamp must include a timezone")
+        return created_at, str(UUID(str(data["id"])))
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise TransactionServiceError("Transaction cursor is invalid") from exc
 

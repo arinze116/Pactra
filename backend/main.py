@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from .auth import (
     AuthContext,
+    SESSION_COOKIE,
     auth_rate_limiter,
     clear_session_cookies,
     client_ip,
@@ -63,6 +64,7 @@ from .schemas import (
     ResetRequest,
     ResetResponse,
     ReversalRequest,
+    SessionStateResponse,
     SpendSummaryResponse,
     TopUpRequest,
     TopUpResponse,
@@ -171,6 +173,7 @@ async def request_context_and_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
         "default-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     )
@@ -266,6 +269,11 @@ def register(
     db_session: SessionDependency,
 ) -> RegistrationResponse:
     auth_rate_limiter.check(
+        "register:global",
+        limit=settings.auth_registration_global_rate_limit_per_hour,
+        window=timedelta(hours=1),
+    )
+    auth_rate_limiter.check(
         f"register:{client_ip(request)}",
         limit=settings.auth_registration_rate_limit_per_hour,
         window=timedelta(hours=1),
@@ -302,7 +310,12 @@ def login(
     db_session: SessionDependency,
 ) -> AuthResponse:
     auth_rate_limiter.check(
-        login_rate_key(request, str(payload.email)),
+        "login:global",
+        limit=settings.auth_login_global_rate_limit_per_minute,
+        window=timedelta(minutes=1),
+    )
+    auth_rate_limiter.check(
+        login_rate_key(str(payload.email)),
         limit=5,
         window=timedelta(minutes=15),
     )
@@ -324,7 +337,7 @@ def login(
             db_session.commit()
         raise ApiError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.")
 
-    old_raw_token = request.cookies.get("pactra_session")
+    old_raw_token = request.cookies.get(SESSION_COOKIE)
     if old_raw_token:
         old_session = db_session.exec(
             select(AuthSession).where(
@@ -356,6 +369,26 @@ def login(
 def current_user(response: Response, context: AuthDependency) -> AuthResponse:
     set_csrf_response_header(response, context.raw_token)
     return AuthResponse(user=_user_response(context.user))
+
+
+@app.get("/api/auth/session", response_model=SessionStateResponse)
+def current_session_state(
+    request: Request,
+    response: Response,
+    db_session: SessionDependency,
+) -> SessionStateResponse:
+    """Discover browser session state without treating signed-out users as errors."""
+    if not request.cookies.get(SESSION_COOKIE):
+        return SessionStateResponse(user=None)
+    try:
+        context = require_auth_context(request, db_session)
+    except ApiError as exc:
+        if exc.status_code != status.HTTP_401_UNAUTHORIZED:
+            raise
+        clear_session_cookies(response)
+        return SessionStateResponse(user=None)
+    set_csrf_response_header(response, context.raw_token)
+    return SessionStateResponse(user=_user_response(context.user))
 
 
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -542,7 +575,9 @@ async def chat(
             db_session,
             user=context.user,
             message=payload.message,
-            conversation_id=payload.conversation_id,
+            conversation_id=(
+                str(payload.conversation_id) if payload.conversation_id else None
+            ),
             request_id=payload.request_id,
         )
     except ConversationNotFound as exc:
@@ -642,7 +677,7 @@ def start_conversation(
     response_model=ConversationSummaryResponse,
 )
 def change_conversation(
-    conversation_id: str,
+    conversation_id: UUID,
     payload: ConversationUpdateRequest,
     context: MutationAuthDependency,
     db_session: SessionDependency,
@@ -651,7 +686,7 @@ def change_conversation(
         conversation = update_conversation(
             db_session,
             user_id=context.user.id,
-            conversation_id=conversation_id,
+            conversation_id=str(conversation_id),
             title=payload.title,
             archived=payload.archived,
         )
@@ -686,7 +721,7 @@ def change_conversation(
     response_model=ConversationMessagesResponse,
 )
 def get_conversation_messages(
-    conversation_id: str,
+    conversation_id: UUID,
     context: AuthDependency,
     db_session: SessionDependency,
 ) -> ConversationMessagesResponse:
@@ -694,7 +729,7 @@ def get_conversation_messages(
         messages = list_messages(
             db_session,
             user_id=context.user.id,
-            conversation_id=conversation_id,
+            conversation_id=str(conversation_id),
         )
     except ConversationNotFound as exc:
         raise ApiError(404, "NOT_FOUND", "Conversation not found") from exc
@@ -942,13 +977,15 @@ def list_account_transactions(
 
 @app.get("/api/transactions/{transaction_id}", response_model=TransactionDetailResponse)
 def get_transaction_detail(
-    transaction_id: str,
+    transaction_id: UUID,
     db_session: SessionDependency,
     context: AuthDependency,
 ) -> TransactionDetailResponse:
     try:
         detail = transaction_detail(
-            db_session, user_id=context.user.id, transaction_id=transaction_id
+            db_session,
+            user_id=context.user.id,
+            transaction_id=str(transaction_id),
         )
     except TransactionNotFound as exc:
         raise ApiError(404, "NOT_FOUND", "Transaction not found") from exc
@@ -963,7 +1000,7 @@ def get_transaction_detail(
 
 @app.post("/api/transactions/{transaction_id}/reverse")
 def reverse_completed_transaction(
-    transaction_id: str,
+    transaction_id: UUID,
     payload: ReversalRequest,
     context: MutationAuthDependency,
     db_session: SessionDependency,
@@ -972,7 +1009,7 @@ def reverse_completed_transaction(
         transaction, journal = reverse_transaction(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
             reason=payload.reason,
         )
@@ -998,7 +1035,7 @@ def reverse_completed_transaction(
 
 @app.post("/api/transactions/{transaction_id}/retry", status_code=status.HTTP_202_ACCEPTED)
 async def retry_failed_transaction(
-    transaction_id: str,
+    transaction_id: UUID,
     payload: ApprovalRequest,
     request: Request,
     context: MutationAuthDependency,
@@ -1008,7 +1045,7 @@ async def retry_failed_transaction(
         transaction, attempt = retry_transaction(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
         )
         db_session.commit()
@@ -1056,7 +1093,7 @@ def get_approvals(
 
 @app.post("/api/approvals/{transaction_id}/approve", response_model=TransactionResponse)
 async def approve_pending_transaction(
-    transaction_id: str,
+    transaction_id: UUID,
     payload: ApprovalRequest,
     request: Request,
     context: MutationAuthDependency,
@@ -1066,7 +1103,7 @@ async def approve_pending_transaction(
         transaction = approve_payment(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
         )
         db_session.commit()
@@ -1156,7 +1193,7 @@ def paypal_integration_status(
 
 @app.post("/api/transactions/{transaction_id}/reconcile", response_model=TransactionResponse)
 async def reconcile_paypal_transaction(
-    transaction_id: str,
+    transaction_id: UUID,
     request: Request,
     context: MutationAuthDependency,
     db_session: SessionDependency,
@@ -1165,7 +1202,7 @@ async def reconcile_paypal_transaction(
         transaction = get_owned_transaction(
             db_session,
             user_id=context.user.id,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             for_update=True,
         )
     except TransactionNotFound as exc:
@@ -1191,7 +1228,7 @@ async def reconcile_paypal_transaction(
 
 @app.post("/api/approvals/{transaction_id}/reject", response_model=TransactionResponse)
 def reject_pending_transaction(
-    transaction_id: str,
+    transaction_id: UUID,
     payload: RejectionRequest,
     context: MutationAuthDependency,
     db_session: SessionDependency,
@@ -1200,7 +1237,7 @@ def reject_pending_transaction(
         transaction = reject_payment(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
             reason=payload.reason.strip() if payload.reason else None,
         )
