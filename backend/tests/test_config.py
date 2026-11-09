@@ -41,6 +41,14 @@ def test_enabled_paypal_requires_complete_sandbox_configuration() -> None:
     )
     assert configured.paypal_base_url == "https://api-m.sandbox.paypal.com"
 
+    with pytest.raises(ValidationError):
+        production_settings(
+            paypal_payouts_enabled=True,
+            paypal_client_id="sandbox-client",
+            paypal_client_secret="sandbox-secret",
+            paypal_test_recipient_email="not-an-email-address",
+        )
+
 
 def test_local_mock_mode_keeps_api_available_without_provider_credentials() -> None:
     configured = Settings(

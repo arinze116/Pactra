@@ -6,7 +6,7 @@ from stat import S_IMODE
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import EmailStr, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     paypal_client_id: str = ""
     paypal_client_secret: str = ""
     paypal_base_url: str = "https://api-m.sandbox.paypal.com"
-    paypal_test_recipient_email: str = ""
+    paypal_test_recipient_email: EmailStr | Literal[""] = ""
     paypal_request_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     # Retained only for local compatibility while the provider adapter is
     # migrated. Production readiness never treats mock IDs as PayPal results.
