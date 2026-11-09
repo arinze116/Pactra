@@ -174,6 +174,32 @@ Freeze baseline: 42% disk used with 84 GiB available, 9.7 GiB memory
 available, two vCPUs, and 8 of 100 PostgreSQL connections used by `pactra` at
 the sample time.
 
+Pre-demo read-only recheck on the same date found 42% disk use, 84 GiB free,
+8.9 GiB memory available, 8 of 100 PostgreSQL connections, one worker lease,
+zero payout backlog and zero unknown attempts. Point-in-time resource values
+are not capacity guarantees.
+
+## Repository diagnostics not present in the accepted runtime
+
+The `release/final-pre-demo-readiness` branch adds read-only diagnostics. They
+are not installed in active release `63f2583` and must not be invoked by
+changing the production symlink. Run them only from a reviewed checkout or a
+temporary readable copy while loading the existing environment without
+printing it.
+
+```bash
+python -m scripts.check_public_health \
+  --base-url https://pactra-nine.vercel.app --json
+python -m scripts.check_financial_invariants --json
+python -m scripts.verify_backup /opt/pactra/backups/<archive>.dump \
+  --sha256 <expected-sha256> --require-checksum --json
+```
+
+The financial command explicitly enables a read-only transaction and rolls
+back. A failure is an incident signal, never permission to edit financial
+rows. See `QA/OBSERVABILITY-IMPLEMENTATION.md` and
+`QA/BACKUP-VERIFICATION-RUNBOOK.md`.
+
 ## Log investigation
 
 Keep investigation local. Before copying logs into a ticket or chat, remove
@@ -235,6 +261,10 @@ Durable audit event types are `assistant.provider_completed`,
 Inspect only safe fields such as model, classification, HTTP status, provider
 status, call count, latency and finish reason. Do not export prompts or keys.
 
+After a separately approved deployment of the pre-demo branch, structured
+event names are `gemini_fallback` and `gemini_client_cleanup_failed`. Until
+then, use the accepted runtime's text patterns above.
+
 ### PayPal submission and reconciliation
 
 ```bash
@@ -247,6 +277,12 @@ Authoritative durable event types are `paypal.payout_submitted` and
 `paypal.payout_reconciled`. Inspect the existing transaction and attempt by
 stable local/provider identifier. Never use log absence alone to decide a
 provider request was not accepted.
+
+After a separately approved deployment of the pre-demo branch, structured
+worker events include `worker_lease_acquired`, `worker_lease_unavailable`,
+`worker_batch_processed`, `worker_scan_failed`, and
+`paypal_reconciliation_failed`. These names are not claimed for the frozen
+runtime.
 
 ### Database errors
 

@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from backend.config import settings
 from backend.database import engine, session_scope
 from backend.models import PaymentTransaction, TransactionAttempt
+from backend.observability import log_event
 from backend.paypal_client import PayPalClient
 from backend.services.paypal import ProviderUnavailable, submit_or_reconcile_payout
 
@@ -152,10 +153,16 @@ async def reconcile_pending_payouts(
                     # Unknown/transient provider state is local truth and must commit.
                     pass
                 processed += 1
-        except Exception:
-            logger.exception(
-                "PayPal reconciliation failed for transaction %s",
-                transaction_id,
+        except Exception as exc:
+            log_event(
+                logger,
+                "paypal_reconciliation_failed",
+                service="worker",
+                level=logging.ERROR,
+                operation="paypal.reconcile",
+                outcome="error",
+                error_class=type(exc).__name__,
+                transaction_id=transaction_id,
             )
     return processed
 
@@ -172,29 +179,61 @@ async def run_reconciliation_worker(stop_event: asyncio.Event) -> None:
     client = PayPalClient()
     try:
         if not settings.paypal_payouts_enabled or settings.paypal_mock_mode:
-            logger.info("PayPal reconciliation is disabled; worker is standing by")
+            log_event(
+                logger,
+                "worker_standby",
+                service="worker",
+                operation="paypal.reconcile",
+                outcome="disabled",
+            )
             await stop_event.wait()
             return
 
         while not stop_event.is_set():
             with reconciliation_lease() as acquired:
                 if not acquired:
-                    logger.warning(
-                        "Another Pactra reconciliation worker holds the database lease"
+                    log_event(
+                        logger,
+                        "worker_lease_unavailable",
+                        service="worker",
+                        level=logging.WARNING,
+                        operation="worker.lease",
+                        outcome="standby",
                     )
                     await _wait_for_stop(
                         stop_event, RECONCILIATION_INTERVAL_SECONDS
                     )
                     continue
 
-                logger.info("Pactra reconciliation worker acquired the database lease")
+                log_event(
+                    logger,
+                    "worker_lease_acquired",
+                    service="worker",
+                    operation="worker.lease",
+                    outcome="ready",
+                )
                 while not stop_event.is_set():
                     try:
                         count = await reconcile_pending_payouts(client=client)
                         if count:
-                            logger.info("Processed %s PayPal payout(s)", count)
-                    except Exception:
-                        logger.exception("PayPal reconciliation scan failed")
+                            log_event(
+                                logger,
+                                "worker_batch_processed",
+                                service="worker",
+                                operation="paypal.reconcile",
+                                outcome="processed",
+                                processed_count=count,
+                            )
+                    except Exception as exc:
+                        log_event(
+                            logger,
+                            "worker_scan_failed",
+                            service="worker",
+                            level=logging.ERROR,
+                            operation="paypal.scan",
+                            outcome="error",
+                            error_class=type(exc).__name__,
+                        )
                     await _wait_for_stop(
                         stop_event, RECONCILIATION_INTERVAL_SECONDS
                     )

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_env: Literal["development", "test", "production"] = "development"
+    app_env: Literal["development", "test", "demo", "production"] = "development"
     secret_key: str = DEFAULT_SECRET_KEY
     secret_key_file: str = ""
 
