@@ -901,14 +901,21 @@ async def create_transaction(
         limit=30,
         window=timedelta(minutes=1),
     )
-    if payload.type == "payout" and payload.recipient is None:
-        raise ApiError(400, "VALIDATION_ERROR", "A recipient email is required for payouts")
     if payload.rail == "paypal_sandbox_payouts" and payload.type != "payout":
         raise ApiError(400, "VALIDATION_ERROR", "PayPal Sandbox is available only for payouts")
+    if (
+        payload.type == "payout"
+        and payload.recipient is None
+        and payload.rail != "paypal_sandbox_payouts"
+    ):
+        raise ApiError(400, "VALIDATION_ERROR", "A recipient email is required for payouts")
     request_payload = payload.model_dump(mode="python")
-    request_payload["recipient"] = (
-        str(request_payload["recipient"]) if request_payload["recipient"] else None
-    )
+    if payload.rail == "paypal_sandbox_payouts" and payload.recipient is None:
+        request_payload["recipient"] = settings.paypal_test_recipient_email or None
+    else:
+        request_payload["recipient"] = (
+            str(request_payload["recipient"]) if request_payload["recipient"] else None
+        )
     request_payload["source"] = "manual"
     try:
         result = create_payment_request(
@@ -1173,6 +1180,7 @@ def paypal_integration_status(
         settings.paypal_payouts_enabled
         and settings.paypal_client_id
         and settings.paypal_client_secret
+        and settings.paypal_test_recipient_email
         and not settings.paypal_mock_mode
         and settings.paypal_base_url.rstrip("/")
         == "https://api-m.sandbox.paypal.com"
