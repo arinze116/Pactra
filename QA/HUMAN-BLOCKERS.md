@@ -2,9 +2,10 @@
 
 Updated: 2026-11-09, Africa/Lagos
 
-The release is deployed and publicly verified. The remaining blockers do not
-prevent the application from operating, but they prevent full provider and
-product acceptance.
+The release is deployed and publicly verified. PayPal Sandbox acceptance is
+complete. The remaining blocker is the external Gemini provider result; it
+does not prevent the application from operating, but it prevents full product
+acceptance.
 
 ## 1. Gemini function-call acceptance — BLOCKED
 
@@ -24,7 +25,7 @@ Required external change: Gemini must provide enough capacity for one bounded
 Pactra request to return a genuine function-call response. Do not rotate keys,
 change models silently, or keep retrying the unavailable provider.
 
-## 2. Exact PayPal Sandbox payout approval — BLOCKED
+## 2. Exact PayPal Sandbox payout approval — RESOLVED / PASS
 
 The prepared transaction is:
 
@@ -34,22 +35,28 @@ The prepared transaction is:
 - isolated account: `pactra-paypal-approval-20261109160306@example.com`;
 - rail: `paypal_sandbox_payouts`;
 - policy version: `2`, approval threshold `$1.00`;
-- state: `pending_approval`, active reservation `$25.00`;
-- posted / reserved / available: `$1,000.00` / `$25.00` / `$975.00`;
-- attempts, provider IDs and ledger journals: zero / none / zero.
+- authorised preflight state: `pending_approval`, active reservation `$25.00`;
+- authorised preflight posted / reserved / available:
+  `$1,000.00` / `$25.00` / `$975.00`;
+- authorised preflight attempts, provider IDs and ledger journals:
+  zero / none / zero.
 
-Separate explicit user authorisation is required for this exact transaction,
-amount, currency and recipient. Until then, do not call the approval endpoint,
-click **Approve**, invoke the worker submission path or create a replacement
-payout.
+The user separately authorised this exact transaction. Pactra called the
+approval endpoint once at `2026-11-09 18:23:44 WAT`, recorded one approval
+action and created one attempt. This approval is consumed. Do not approve,
+retry or create a replacement payout for this transaction.
 
-## 3. PayPal item success and reconciliation — NOT TESTED
+## 3. PayPal item success and reconciliation — PASS
 
-OAuth authentication succeeded and the token includes Payouts scope, but no
-payout was submitted. The sender email cannot be independently read through
-the client-credentials API and remains unverified metadata. Full acceptance
-requires the separately authorised transaction to reach item-level `SUCCESS`,
-then exactly one internal capture, receipt and audit trail.
+The worker made one payout POST, persisted batch `ZMQQ…3Q8U`, then reconciled
+that same identifier. PayPal returned exactly one item, `E5KZ…KTYA`, with
+item-level `SUCCESS`. A bounded independent lookup confirmed the persisted
+batch/item IDs, stable sender IDs, `$25.00 USD` amount and authorised recipient.
 
-Anything other than item-level `SUCCESS` remains **BLOCKED** or **FAIL**. HTTP
-200, OAuth success or batch acceptance is not payout success.
+Pactra completed one attempt, captured the reservation once, posted one
+balanced `payment_capture` journal, produced a persistent receipt and nine
+audit/lifecycle events, and left final posted/reserved/available balances at
+`$975.00 / $0.00 / $975.00`. There is no duplicate payout, provider identifier,
+journal entry, reversal or unresolved reservation. The sender email remains
+unavailable through the client-credentials API, but this metadata limitation
+does not negate the verified recipient item success.

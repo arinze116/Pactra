@@ -1,6 +1,6 @@
 # Pactra PayPal Sandbox Execution Runbook
 
-Last preparation verification: 2026-11-09, Africa/Lagos
+Last execution verification: 2026-11-09, Africa/Lagos
 
 This runbook governs one separately authorised PayPal Sandbox payout through
 Pactra's application workflow. It does not authorise a payout. Never use it
@@ -15,13 +15,13 @@ These milestones are independent:
 |---|---|---|
 | Automated state-machine tests | PASS on integrated `main` | SQLite, PostgreSQL concurrency, mocked provider, browser, and accessibility results |
 | Sandbox OAuth and scope | PASS for the configured production credentials | OAuth completed in 737 ms and included Payouts scope; this is not payout success |
-| Payout prepared | PASS | Exact transaction below is `pending_approval`, reserved and has zero attempts |
-| Payout submitted | BLOCKED pending separate authorisation | One explicit authorisation followed by one worker-owned submission |
-| Individual item `SUCCESS` | NOT TESTED | PayPal item response containing the item ID and `transaction_status=SUCCESS` |
-| Pactra ledger reconciliation | NOT TESTED against PayPal for this transaction | One captured reservation, one `payment_capture` journal, balanced entries, receipt, and audit events |
+| Payout prepared | PASS | Exact transaction below was revalidated `pending_approval`, reserved and with zero attempts immediately before approval |
+| Payout submitted | PASS | One explicit authorisation, one API approval and one worker-owned payout POST |
+| Individual item `SUCCESS` | PASS | Persisted batch lookup returned one item with `transaction_status=SUCCESS` |
+| Pactra ledger reconciliation | PASS | One captured reservation, one `payment_capture` journal, balanced entries, persistent receipt and audit events |
 
-The runtime release is `4534d136766a094aeeac4489a9e694111b9257ae` at
-`/opt/pactra/releases/4534d13`, with production at migration
+The runtime release is `73fdfb692f6daea69ba5f44bc37d9afa1814419a` at
+`/opt/pactra/releases/73fdfb6`, with production at migration
 `20261107_0005`. The masked-recipient correction is deployed: UI masks are
 display-only and the API resolves the configured recipient server-side.
 
@@ -130,9 +130,10 @@ account.
 This is the safe stopping point. A `pending_approval` transaction cannot be
 claimed by the worker. Do not click **Approve** during preparation.
 
-## Prepared transaction — current approval checkpoint
+## Authorised transaction — pre-submission snapshot
 
-The isolated scenario has already reached the safe stopping point:
+Immediately before the consumed approval, the isolated scenario was at the
+safe stopping point:
 
 | Field | Exact value |
 |---|---|
@@ -150,13 +151,14 @@ The isolated scenario has already reached the safe stopping point:
 | Ledger journals | `0` |
 
 The state remained unchanged through worker scans, deployment and public
-acceptance. The recipient is the persisted unmasked Sandbox address; the UI
+acceptance until the user supplied the separate transaction-specific
+authorisation. The recipient is the persisted unmasked Sandbox address; the UI
 continues to show only a mask. The sender is the Business Sandbox account tied
 to the configured credentials, but its email is not independently exposed by
 the client-credentials API.
 
-Do not approve a different transaction, amount, currency or recipient. Do not
-create a second payout while this reservation exists.
+That authorisation has now been consumed. Do not approve this transaction
+again, create another attempt, or create a replacement payout.
 
 ## Manual authorisation checkpoint
 
@@ -197,6 +199,32 @@ POST https://api-m.sandbox.paypal.com/v1/payments/payouts
 ```
 
 Do not execute either action without the separate authorisation.
+
+## Completed execution record — 2026-11-09
+
+The user explicitly authorised only transaction
+`bfe1e158-863b-4ddf-93a0-e31146e7cbcb`, exactly `$25.00 USD`, to the recipient
+shown above. The live preflight revalidated every checkpoint and found no
+prior approval, attempt, provider identifier or journal.
+
+| Evidence | Result | Status |
+|---|---|---|
+| Approval | One live API approval at `18:23:44 WAT`; one action and attempt 1; short-lived operator session revoked | PASS |
+| Worker authority | API response had no provider ID; the existing worker made the payout POST | PASS |
+| Submission count | One `POST /v1/payments/payouts`, HTTP `201`, at `18:23:47 WAT` | PASS |
+| Stable identifiers | Rail request `pactra-bfe1e158-863b-4ddf-93a0-e31146e7cbcb-a1`; provider batch `ZMQQ…3Q8U` | PASS |
+| Reconciliation | Worker reused the persisted batch; no manual reconcile or replacement submission | PASS |
+| Provider item | One item `E5KZ…KTYA`; batch `SUCCESS`; item `SUCCESS` | PASS |
+| Provider recheck | Read-only persisted-batch lookup returned HTTP 200 in 746 ms and matched amount, currency, recipient and sender IDs | PASS |
+| Pactra state | Transaction and attempt `completed`; response code `PAYPAL_ITEM_SUCCESS` | PASS |
+| Funds | One captured 2500-cent reservation; one balanced `payment_capture`; zero reversal | PASS |
+| Final balance | Posted `$975.00`; reserved `$0.00`; available `$975.00` | PASS |
+| Duplicate checks | One attempt, batch, item, rail request and capture journal; no unresolved payout | PASS |
+| Receipt/audit | Receipt identical after reload; two ledger entries and nine lifecycle events | PASS |
+
+The transaction-specific authorisation is exhausted. Never send another
+approval or payout-creation/recovery request for this item. Any later status
+refresh must be read-only and use the persisted batch identifier.
 
 ## Expected provider request
 

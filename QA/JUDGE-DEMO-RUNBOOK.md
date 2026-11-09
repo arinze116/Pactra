@@ -20,8 +20,8 @@ Record without exposing credentials:
 
 Current provider limitation: Gemini is configured but is using the tested
 fallback because genuine function-call acceptance is blocked by provider
-`503`/timeout. The prepared PayPal payout must not be approved without the
-separate transaction-specific authorisation.
+`503`/timeout. The separately authorised PayPal Sandbox payout completed with
+item-level `SUCCESS`; its one-time approval must not be replayed.
 
 ## Verified internal Sandbox demonstration
 
@@ -45,22 +45,26 @@ separate transaction-specific authorisation.
 10. Show the desktop, tablet and mobile layouts, keyboard focus, semantic
     landmarks and Axe/Lighthouse evidence.
 
-## PayPal Sandbox checkpoint
+## PayPal Sandbox acceptance
 
 The prepared scenario is transaction
 `bfe1e158-863b-4ddf-93a0-e31146e7cbcb`, exactly `$25.00 USD`, to the configured
-Personal Sandbox recipient. Show:
+Personal Sandbox recipient completed after separate explicit authorisation.
+Show:
 
 - the masked recipient in the UI;
 - the unmasked persisted recipient only in restricted operator evidence;
-- `pending_approval`;
-- one active $25 reservation;
-- zero attempts, provider IDs and ledger captures.
+- `completed` and provider item status `SUCCESS`;
+- one completed attempt with unchanged masked batch/item identifiers;
+- one captured $25 reservation and one balanced capture journal;
+- final posted/reserved/available balances of `$975 / $0 / $975`;
+- receipt persistence and the approval, submission, reconciliation, ledger and
+  completion events;
+- one provider payout POST and no duplicate attempt, payout or journal.
 
-Stop there unless the user separately authorises that exact payout. If
-authorised, approve once and let only the worker submit. Continue the demo only
-after reconciliation confirms item-level `SUCCESS`; then show exactly one
-capture and unchanged identifiers after reload.
+Do not approve, retry or create another payout for this transaction. A future
+read-only provider refresh must use the persisted batch ID and must never
+create a replacement payout for an ambiguous result.
 
 ## Failure demonstrations
 
@@ -86,5 +90,6 @@ capture and unchanged identifiers after reload.
 ## Honest closing statement
 
 The deployed application, deterministic financial controls and public flows
-are verified. Genuine Gemini function calling and PayPal item-level success
-remain blocked until their stated external/approval conditions are satisfied.
+are verified. PayPal item-level success and exactly-once capture are verified.
+Genuine Gemini function calling remains blocked by the documented provider
+`503`/timeout condition.
