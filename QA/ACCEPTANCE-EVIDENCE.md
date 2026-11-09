@@ -6,26 +6,35 @@ Branch: `codex/paypal-worker-single-authority`
 
 Implementation baseline: `82e1b75a2ab59a105fee2b59c2aa481f63c738a5`
 
+Final feature SHA: `9138cbd7c91170a52c9cc1f0b469964c2cebe637`
+
+Merged to `main`: PR [#5](https://github.com/arinze116/Pactra/pull/5),
+merge commit `3d6125bd62b4d202c83b28fcc5a03c752cba525a`
+
 Production: release `0e3e905`, migration `20261107_0004`
 
 This report separates deterministic implementation evidence from external
-provider acceptance. The final branch SHA and exact-SHA CI run are recorded in
-the pull request and final release report after the documentation commit.
+provider acceptance.
 
 ## GitHub CI association
 
-The latest completed remote run before the final documentation commit is:
+The final feature SHA passed all mandatory CI jobs before merge:
 
-- Run ID: `42569969262`
-- URL: https://github.com/arinze116/Pactra/actions/runs/42569969262
+- Run ID: `42576205916`
+- URL: https://github.com/arinze116/Pactra/actions/runs/42576205916
 - Branch: `codex/paypal-worker-single-authority`
-- Exact SHA: `82e1b75a2ab59a105fee2b59c2aa481f63c738a5`
+- Exact SHA: `9138cbd7c91170a52c9cc1f0b469964c2cebe637`
 - Result: `success`
 
 All four mandatory jobs passed: Backend SQLite, Backend PostgreSQL, Frontend
-lint/build/audits, and E2E journeys/WCAG/homepage Lighthouse. This run does not
-cover the subsequent documentation, recovery, recipient-masking, and keyboard
-regressions; those changes require a new exact-final-SHA run before merge.
+lint/build/audits, and E2E journeys/WCAG/homepage Lighthouse.
+
+The resulting merge commit also passed all four jobs on `main`:
+
+- Run ID: `42576672051`
+- URL: https://github.com/arinze116/Pactra/actions/runs/42576672051
+- Exact SHA: `3d6125bd62b4d202c83b28fcc5a03c752cba525a`
+- Result: `success`
 
 ## Current local verification
 
@@ -167,7 +176,7 @@ symlink switch to `0e3e905`. Production was not migrated.
 | 10 | REC-003 lifecycle context | Owned audit actors and allow-listed event summaries | PASS |
 | 11 | REC-004 ledger labels | Safe account labels and balanced debit/credit receipt totals | PASS |
 | 12 | AUTH-008 password reveal | Accessible controls plus desktop/mobile and keyboard browser coverage | PASS |
-| 13 | INF-005 dependencies/CI | Required audits and quality jobs exist; final exact-SHA run remains the merge gate | PASS locally / CI pending final SHA |
+| 13 | INF-005 dependencies/CI | Required audits and all four quality jobs passed on feature SHA `9138cbd7...` and merge SHA `3d6125bd...` | PASS |
 | 14 | SEC-005 distributed limiter | PostgreSQL atomic bucket tests and migration drill | PASS candidate; not deployed |
 
 The separately tracked PayPal guided scenario remains row 3 and is not hidden

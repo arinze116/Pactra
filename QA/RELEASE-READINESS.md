@@ -23,8 +23,8 @@ Production: `0e3e905` / `20261107_0004`
 | Dependencies | PASS locally | Python and npm audits clean |
 | Migration | PASS for preparation | Isolated upgrade/failure/recovery/downgrade drill |
 | Documentation truth audit | PASS with stated limitations | README matrix and current QA evidence |
-| Final exact-SHA CI | PENDING | Required before merge |
-| Pull request/merge | PENDING | Required checks may not be bypassed |
+| Final exact-SHA CI | PASS | Run [42576205916](https://github.com/arinze116/Pactra/actions/runs/42576205916) passed all four jobs on `9138cbd7c91170a52c9cc1f0b469964c2cebe637` |
+| Pull request/merge | PASS | PR [#5](https://github.com/arinze116/Pactra/pull/5) merged normally as `3d6125bd62b4d202c83b28fcc5a03c752cba525a`; `main` run [42576672051](https://github.com/arinze116/Pactra/actions/runs/42576672051) passed |
 
 ## Production release gate
 
@@ -55,10 +55,12 @@ both Pactra services stopped and the candidate code used to downgrade to
 
 ## Recommendation
 
-The branch is eligible for engineering merge only after the final exact-SHA CI
-run passes. Production release remains **NO-GO** because genuine Gemini
-function calling, PayPal item-level success, the guided PayPal scenario,
-deployment, and public post-deployment smoke remain incomplete.
+The engineering change is merged and verified by exact-SHA and post-merge CI.
+Production release remains **NO-GO** because genuine Gemini function calling,
+PayPal item-level success, the guided PayPal scenario, deployment, and public
+post-deployment smoke remain incomplete.
+
+Final mandate verdict: **MERGED — RELEASE BLOCKED**.
 
 Production services, configuration, database, and release were unchanged. No
 payout was submitted.
