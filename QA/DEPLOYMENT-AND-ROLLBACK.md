@@ -2,6 +2,17 @@
 
 Last verified: 2026-11-09, Africa/Lagos
 
+Canonical frozen baseline:
+[`QA/ACCEPTED-PRODUCTION-BASELINE.md`](./ACCEPTED-PRODUCTION-BASELINE.md).
+
+Freeze revalidation confirmed that `73fdfb6` remains the immediate
+schema-compatible rollback target at `20261107_0005`, the active and rollback
+migration trees are identical, and the private pre-Gemini configuration
+differs from production only at `GEMINI_MODEL`. The current worker process
+intentionally retains cwd `73fdfb6`; its payment/worker modules are
+byte-identical to `63f2583`. No rollback or service restart was executed
+during the freeze.
+
 This runbook records the verified Pactra deployment procedure for the existing
 Oracle VPS, PostgreSQL, systemd, Tailscale Funnel and Vercel architecture. The
 2026-11-09 release instruction explicitly authorised the backup, release
