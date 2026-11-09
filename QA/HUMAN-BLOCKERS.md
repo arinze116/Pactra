@@ -5,10 +5,15 @@ source control, logs, screenshots or QA reports.
 
 ## Gemini live acceptance
 
-1. Provide an approved Gemini API key with access to the exact PRD model
-   `gemini-3.8-flash` through the existing server-side secret mechanism.
-2. Authorize enabling `AI_ENABLED=true` on the deployed backend.
-3. After an approved deployment, run the redacted live function-calling and
+A secure local project key reached `gemini-3.8-flash`, but generation returned
+`429 RESOURCE_EXHAUSTED`. Production remains disabled and unconfigured.
+
+1. Restore sufficient quota/entitlement for the exact PRD model
+   `gemini-3.8-flash`, or securely install another approved project key with
+   that entitlement. Do not send the key in chat.
+2. Authorize enabling `AI_ENABLED=true` on the deployed backend only after the
+   isolated five-tool acceptance succeeds.
+3. After an approved deployment, repeat the redacted live function-calling and
    failure/fallback acceptance sequence from `FINAL-PRD-GAP-REVIEW.md`.
 
 This unlocks AI-006 / INT-005. A deterministic fallback or mocked provider
@@ -20,8 +25,9 @@ response cannot close the blocker.
 2. Install the Sandbox app client ID and secret using the existing server-side
    secret mechanism.
 3. Confirm a distinct valid Sandbox recipient account/email.
-4. Explicitly authorize one specific no-real-money Sandbox payout test after
-   the values and `api-m.sandbox.paypal.com` endpoint are verified.
+4. Explicitly authorize one USD 25.00 no-real-money Sandbox payout through the
+   guided Pactra workflow after the values and
+   `api-m.sandbox.paypal.com` endpoint are verified.
 5. After an approved deployment, reconcile the same stable attempt until the
    payout item reaches a real terminal state.
 
@@ -34,4 +40,5 @@ resolve it with PayPal; live mode and workaround rails are prohibited.
 
 The release candidate is not deployed. Separate explicit approval is needed
 before backing up production, applying migration `20261107_0005`, restarting
-Pactra services or updating Vercel.
+Pactra services or updating Vercel. Do not approve deployment until Gemini and
+PayPal acceptance plus the PayPal guided scenario pass.
