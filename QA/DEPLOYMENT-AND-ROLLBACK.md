@@ -9,8 +9,8 @@ switch, migration verification and Pactra service restarts described here.
 
 ## Verified production baseline
 
-- Backend release: `/opt/pactra/releases/4534d13`, exact SHA
-  `4534d136766a094aeeac4489a9e694111b9257ae`.
+- Backend release: `/opt/pactra/releases/73fdfb6`, exact SHA
+  `73fdfb692f6daea69ba5f44bc37d9afa1814419a`.
 - Active symlink: `/opt/pactra/current`.
 - Database: PostgreSQL 16.15, database `pactra`.
 - Production migration: `20261107_0005`.
@@ -45,7 +45,8 @@ not justify misreporting a healthy deployment as provider success.
   database.
 - The rollback procedure in this document is reviewed and accepted.
 - No executing, processing or unknown PayPal provider transaction exists in
-  production. A `pending_approval` transaction with zero attempts is safe.
+  production. The authorised $25.00 Sandbox payout is terminal `completed`
+  with one completed attempt and no pending reconciliation.
 - The release directory and private virtual environment are complete and
   immutable.
 - The owner explicitly approves the production deployment, migration and
@@ -130,13 +131,14 @@ sudo stat -c 'path=%n size=%s mode=%a owner=%U group=%G' "${pactra_backup}"
 Failure of `pg_dump`, the non-empty check or `pg_restore --list` stops the
 deployment. Do not continue with an incomplete archive.
 
-Verified 2026-11-09 backup:
+Verified final-release 2026-11-09 backup:
 
-- `/opt/pactra/backups/pactra-pre-4534d136766a094aeeac4489a9e694111b9257ae-20261109T163956Z.dump`;
+- `/opt/pactra/backups/pactra-pre-73fdfb692f6daea69ba5f44bc37d9afa1814419a-20261109T170019Z.dump`;
 - SHA-256
-  `e7c1ce7bac3891586d19c0165be42eda0dde21c3da93b2e1fa4178c1c50b7f1e`;
-- 170,547 bytes, mode `0600`, owner/group `pactra:pactra`;
-- `pg_restore --list` and isolated restore passed.
+  `828a3b966c6dea957125fe9860f3793be9a777b781349edbb7ad8260b75264c0`;
+- 170,927 bytes, mode `0600`, owner/group `pactra:pactra`;
+- `pg_restore --list` passed. The runtime-equivalent `4534d13` artifact also
+  passed the documented isolated restore and downgrade/re-upgrade drill.
 
 ## Isolated restore drill
 
@@ -248,11 +250,11 @@ or any `VITE_*` variable.
 
 ## Immediate same-schema rollback
 
-The prior production release `/opt/pactra/releases/9b4bc77` understands
-`20261107_0005`. If a new documentation-closure or otherwise schema-identical
-release fails before writing incompatible data, stop both Pactra services,
-atomically switch `current` to `9b4bc77`, then start API and worker. Do not
-downgrade the database for this path.
+The prior production release `/opt/pactra/releases/4534d13` understands
+`20261107_0005` and has runtime code equivalent to the closure release. If the
+current release fails before writing incompatible data, stop both Pactra
+services, atomically switch `current` to `4534d13`, then start API and worker.
+Do not downgrade the database for this path.
 
 ```bash
 sudo systemctl stop pactra-worker.service
@@ -260,9 +262,9 @@ sudo systemctl stop pactra-api.service
 
 sudo test ! -e /opt/pactra/current.next
 sudo test ! -L /opt/pactra/current.next
-sudo ln -s /opt/pactra/releases/9b4bc77 /opt/pactra/current.next
+sudo ln -s /opt/pactra/releases/4534d13 /opt/pactra/current.next
 sudo mv -Tf /opt/pactra/current.next /opt/pactra/current
-sudo test "$(sudo readlink -f /opt/pactra/current)" = /opt/pactra/releases/9b4bc77
+sudo test "$(sudo readlink -f /opt/pactra/current)" = /opt/pactra/releases/4534d13
 
 sudo systemctl start pactra-api.service
 curl --fail --silent http://127.0.0.1:8010/api/ready
@@ -271,7 +273,8 @@ sudo systemctl is-active pactra-api.service pactra-worker.service
 ```
 
 Verify revision `20261107_0005`, the worker lease, public readiness and the
-prepared PayPal transaction before declaring rollback complete.
+completed PayPal transaction before declaring rollback complete. Its provider
+batch/item identifiers, completed attempt and capture journal must be unchanged.
 
 ## Critical old-release Alembic incompatibility
 
@@ -396,21 +399,20 @@ step.
 
 | Field | Result |
 |---|---|
-| Deployment start | `2026-11-09T16:41:01Z` |
-| Release | `/opt/pactra/releases/4534d13` / `4534d136...` |
-| Previous release | `/opt/pactra/releases/9b4bc77` |
+| Deployment start | `2026-11-09T17:00:40Z` |
+| Release | `/opt/pactra/releases/73fdfb6` / `73fdfb69...` |
+| Previous release | `/opt/pactra/releases/4534d13` |
 | Database before/after | `20261107_0005` / `20261107_0005` |
 | API pre-start migration | Alembic context loaded; no upgrade was required |
 | API | active/running, zero restarts, local and public readiness 200 |
 | Worker | active/running, zero restarts, advisory lease acquired |
 | Public smoke | post-deploy recovery acceptance passed in 32.8 seconds |
-| PayPal checkpoint | `pending_approval`, one $25 hold, zero attempts/provider IDs/journals |
+| PayPal checkpoint | Post-authorisation: `completed`, item `SUCCESS`, one attempt, captured $25 reservation and one balanced capture journal |
 | Rollback | not triggered |
 | Unrelated infrastructure | not changed |
 
-The final evidence-only merge may create a new immutable release with identical
-runtime code. Deploying that closure artifact uses the same-schema sequence and
-keeps `4534d13` as the immediate rollback target.
+The final closure release has runtime-equivalent application code to
+`4534d13`; that release remains the immediate same-schema rollback target.
 
 ## Deployment evidence to retain
 

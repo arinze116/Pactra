@@ -2,8 +2,8 @@
 
 Updated: 2026-11-09, Africa/Lagos
 
-Production runtime: `4534d136766a094aeeac4489a9e694111b9257ae`
-at `/opt/pactra/releases/4534d13`, database revision `20261107_0005`.
+Production runtime: `73fdfb692f6daea69ba5f44bc37d9afa1814419a`
+at `/opt/pactra/releases/73fdfb6`, database revision `20261107_0005`.
 
 ## Engineering gate
 
@@ -20,24 +20,24 @@ at `/opt/pactra/releases/4534d13`, database revision `20261107_0005`.
 | PostgreSQL suite | PASS | 128 passed, including concurrency and migration coverage |
 | Frontend lint/type/build | PASS | ESLint, TypeScript and Vite production build |
 | Dependency audits | PASS | `pip check`, `pip-audit`, production npm audit and full npm audit |
-| CI on runtime SHA | PASS | [42656025377](https://github.com/arinze116/Pactra/actions/runs/42656025377), four jobs passed on `4534d136...` |
+| CI on runtime SHA | PASS | [42659603721](https://github.com/arinze116/Pactra/actions/runs/42659603721), four jobs passed on `73fdfb69...` |
 
 ## Release and production gate
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Immutable artifact | PASS | Archive-built release, 139 tracked members matched, archive SHA-256 `7b54f392...d8610` |
+| Immutable artifact | PASS | Archive-built release, 139 tracked members matched, archive SHA-256 `6c16fbcd...92c4` |
 | Frontend artifacts | PASS | `frontend/dist` present; all recorded build hashes verified |
 | Backup and restore | PASS | Verified custom dump and isolated restore at `0005` |
 | Upgrade/downgrade | PASS | Exact artifact passed `0005 → 0004 → 0005`; old release ready at `0004` |
-| Production deployment | PASS | Symlink switched at `2026-11-09T16:41:01Z`; API and worker active with zero restarts |
-| Worker lease | PASS | Lease acquired at `2026-11-09 17:41:15 WAT` |
+| Production deployment | PASS | Symlink switched at `2026-11-09T17:00:40Z`; API and worker active with zero restarts |
+| Worker lease | PASS | Lease acquired at `2026-11-09 18:00:44 WAT` |
 | Health/readiness | PASS | Local and public `/api/health` and `/api/ready` returned 200 |
 | Public workflow smoke | PASS | Registration, login, wallet, policy, manual payment, AI fallback, rejection, block, receipts, audit, session and isolation |
 | Accessibility/responsive | PASS | Axe on authenticated surfaces; inspected 1440×1000, 1024×768 and 390×844 screenshots; no overflow |
 | Public Lighthouse | PASS | `/`, `/sign-in`, `/sign-up`: 1.00 performance, accessibility and best practices |
 | Security headers | PASS | CSP, HSTS, frame denial, MIME sniffing prevention, referrer and permissions policies |
-| Rollback readiness | PASS | Immediate `0005` rollback to `9b4bc77`; tested legacy downgrade for `0e3e905` |
+| Rollback readiness | PASS | Immediate `0005` rollback to `4534d13`; tested legacy downgrade for `0e3e905` |
 
 ## External provider acceptance
 
@@ -47,9 +47,9 @@ at `/opt/pactra/releases/4534d13`, database revision `20261107_0005`.
 | Genuine Gemini function call | BLOCKED | Model lookup passed; Pactra generation returned provider `503`/timeout and no function call |
 | Deterministic Gemini fallback | PASS | Governed $20 internal payment completed once; provider errors did not break the application |
 | PayPal Sandbox configuration/OAuth | PASS | Sandbox host, Payouts scope, mock disabled, credentials present; OAuth completed in 737 ms |
-| PayPal payout submission | BLOCKED | Separate authorisation for transaction `bfe1e158-...` has not been given |
-| PayPal item-level `SUCCESS` | NOT TESTED | Submission is prohibited until that authorisation |
-| Exactly-once provider capture | NOT TESTED | Requires confirmed item-level `SUCCESS` |
+| PayPal payout submission | PASS | Exact transaction `bfe1e158-...` approved once; worker issued one payout POST and persisted one batch |
+| PayPal item-level `SUCCESS` | PASS | PayPal lookup of the persisted batch returned one item with `transaction_status=SUCCESS` |
+| Exactly-once provider capture | PASS | One attempt, one captured reservation, one balanced $25 capture journal, no duplicate identifiers or reversal |
 
 ## Lighthouse measurements
 
@@ -67,7 +67,6 @@ Desktop-profile production reports are stored under
 - Production deployment: **PASS**.
 - Engineering and public acceptance: **PASS**.
 - Genuine Gemini function-call acceptance: **BLOCKED**.
-- PayPal payout and item-success acceptance: **BLOCKED** pending the mandatory
-  transaction-specific approval.
+- PayPal payout, item-success and exactly-once capture acceptance: **PASS**.
 - Overall product acceptance: **BLOCKED**. A successful deployment does not
-  override the two unverified provider requirements.
+  override the remaining Gemini provider limitation.

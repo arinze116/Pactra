@@ -14,7 +14,8 @@ provider acceptance. `PASS` never means more than the evidence stated.
 | PR #9 | Merge `9b4bc77cf65b5ac85be616f6c6afc4a7481de22b` | PASS |
 | PR #10 | Merge `c599f5ca0603c1cc66b25684358c3336227dd8c3` | PASS |
 | PR #11 | Merge `4534d136766a094aeeac4489a9e694111b9257ae` | PASS |
-| Exact-main CI | [42656025377](https://github.com/arinze116/Pactra/actions/runs/42656025377), four jobs, exact SHA `4534d136...` | PASS |
+| PR #12 | Merge `73fdfb692f6daea69ba5f44bc37d9afa1814419a` | PASS |
+| Exact-main CI | [42659603721](https://github.com/arinze116/Pactra/actions/runs/42659603721), four jobs, exact SHA `73fdfb69...` | PASS |
 | Local/main agreement | Local `main`, `origin/main` and release source agreed before staging | PASS |
 
 The four CI jobs were Backend SQLite, Backend PostgreSQL, Frontend
@@ -73,8 +74,8 @@ npm audit --audit-level=moderate
 - Frontend and logs exposed no credentials. The PayPal page displayed only a
   masked recipient.
 
-These are deterministic implementation results, not proof of provider payout
-success.
+These deterministic implementation results are supplemented below by the
+separately authorised live Sandbox payout and item-level provider evidence.
 
 ## Gemini evidence
 
@@ -98,7 +99,7 @@ SHA-256:
 
 No additional generation retry is justified until provider capacity changes.
 
-## PayPal Sandbox evidence and checkpoint
+## PayPal Sandbox execution evidence
 
 Configuration inspection, without printing credentials, verified:
 
@@ -110,9 +111,9 @@ Configuration inspection, without printing credentials, verified:
 - the worker acquired its database lease after deployment.
 
 The sender email is not exposed by the client-credentials API and was not
-independently verified. OAuth is not payout success.
+independently verified. OAuth alone was not treated as payout success.
 
-Prepared transaction:
+Executed transaction:
 
 | Field | Value |
 |---|---|
@@ -123,22 +124,50 @@ Prepared transaction:
 | Rail | `paypal_sandbox_payouts` |
 | Category/reason | `freelance` / `PayPal Sandbox payout test` |
 | Policy | version `2`; approval threshold `$1.00` |
-| State | `pending_approval` |
-| Posted/reserved/available | `$1,000.00` / `$25.00` / `$975.00` |
-| Attempts/provider IDs/ledger journals | `0` / none / `0` |
+| Pre-approval state | `pending_approval`; active $25.00 reservation; zero attempts, provider IDs and journals |
+| Approval | One API approval at `2026-11-09 18:23:44 WAT`, policy version `2` |
+| Worker submission | One payout POST, HTTP `201`, at `2026-11-09 18:23:47 WAT` |
+| Provider reconciliation | Persisted batch `ZMQQ…3Q8U`; one item `E5KZ…KTYA`; item-level `SUCCESS` |
+| Final state | `completed` at `2026-11-09 18:24:08 WAT`; failure code absent |
+| Final posted/reserved/available | `$975.00` / `$0.00` / `$975.00` |
+| Ledger | One `payment_capture` journal; one $25.00 wallet debit and one $25.00 clearing credit |
 
-The transaction remained unchanged through worker scans and deployment. The
-approval endpoint was not called. Payout item success and provider-backed
-capture are **BLOCKED** pending separate explicit authorisation.
+The user separately authorised this exact transaction, amount, currency and
+recipient. Immediately before approval, the live database still showed the
+prepared values above, one active reservation, no approval action, no attempt,
+no provider identifiers and no journal. The approval endpoint was called once
+with one idempotency key through a short-lived operator session scoped to the
+isolated account; that session was revoked immediately after the response. The
+endpoint changed the transaction to `executing` and created one `submitting`
+attempt; it did not contact PayPal.
+
+The existing worker claimed that attempt, issued the only payout-creation POST,
+persisted the returned batch ID, and reconciled that same batch on its next
+bounded cycle. An independent read-only lookup using the persisted batch ID
+returned HTTP 200 in 746 ms and verified:
+
+- batch status `SUCCESS`;
+- exactly one payout item with `transaction_status=SUCCESS`;
+- persisted provider batch and item IDs match PayPal;
+- stable sender batch and item IDs match attempt 1;
+- amount `$25.00 USD` and the authorised recipient match.
+
+Pactra captured the reservation only after item-level success. Database and
+receipt evidence shows one completed attempt, one captured reservation, one
+balanced capture journal with two entries, zero reversal journals, nine
+lifecycle/audit events and identical receipt contents after reload. Global
+lookups found one transaction and one attempt for each provider identifier and
+one attempt for the stable rail request ID. No unresolved payout remains for
+the isolated account, and worker logs contain one payout POST.
 
 ## Artifact integrity
 
 | Check | Evidence | Status |
 |---|---|---|
-| Release directory | `/opt/pactra/releases/4534d13` | PASS |
-| Embedded SHA | `4534d136766a094aeeac4489a9e694111b9257ae` | PASS |
+| Release directory | `/opt/pactra/releases/73fdfb6` | PASS |
+| Embedded SHA | `73fdfb692f6daea69ba5f44bc37d9afa1814419a` | PASS |
 | Source archive | Preserved inside `.release-metadata` | PASS |
-| Archive SHA-256 | `7b54f3923994af46e7aed7da3e3f60f2d19220d50a2ab0757613d8d1002d8610` | PASS |
+| Archive SHA-256 | `6c16fbcd6b11187182f8ae1d9ea2374f12aa23ca39f629a35f112cabde1792c4` | PASS |
 | Tracked contents | 139 archive members compared byte-for-byte, zero mismatches | PASS |
 | Permissions | `root:pactra`, read-only; no group/world writable files or directories | PASS |
 | Python | 3.12.3, resolved manifest, `pip check`, required imports | PASS |
@@ -150,16 +179,17 @@ capture are **BLOCKED** pending separate explicit authorisation.
 Backup:
 
 - path:
-  `/opt/pactra/backups/pactra-pre-4534d136766a094aeeac4489a9e694111b9257ae-20261109T163956Z.dump`;
+  `/opt/pactra/backups/pactra-pre-73fdfb692f6daea69ba5f44bc37d9afa1814419a-20261109T170019Z.dump`;
 - SHA-256:
-  `e7c1ce7bac3891586d19c0165be42eda0dde21c3da93b2e1fa4178c1c50b7f1e`;
+  `828a3b966c6dea957125fe9860f3793be9a777b781349edbb7ad8260b75264c0`;
 - mode/owner: `0600`, `pactra:pactra`;
 - `pg_restore --list`: PASS.
 
 Restore database: `pactra_restore_4534d13_20261109163956`.
 
 The restored clone was at `20261107_0005` with 16 base tables and preserved
-the prepared PayPal transaction/reservation. The exact artifact then passed:
+the prepared PayPal transaction/reservation. The runtime-equivalent artifact
+then passed:
 
 1. an inserted rate-limit row;
 2. downgrade `0005 → 0004`;
@@ -170,18 +200,18 @@ the prepared PayPal transaction/reservation. The exact artifact then passed:
 6. re-upgrade `0004 → 0005` and recreation of the table/index.
 
 The downgrade intentionally deletes every rate-limit bucket. Immediate
-rollback to `9b4bc77` is schema-compatible and requires no downgrade. Rollback
+rollback to `4534d13` is schema-compatible and requires no downgrade. Rollback
 to `0e3e905` requires both services stopped and the candidate code used to
 downgrade first.
 
 ## Production deployment
 
-Deployment started `2026-11-09T16:41:01Z`.
+Final closure deployment started `2026-11-09T17:00:40Z`.
 
 | Check | Result | Status |
 |---|---|---|
-| Active symlink | `/opt/pactra/releases/4534d13` | PASS |
-| Embedded SHA | `4534d136...` | PASS |
+| Active symlink | `/opt/pactra/releases/73fdfb6` | PASS |
+| Embedded SHA | `73fdfb69...` | PASS |
 | Alembic revision | `20261107_0005` | PASS |
 | Rate-limit table/index | Present | PASS |
 | API | Active/running, zero restarts | PASS |
@@ -189,7 +219,7 @@ Deployment started `2026-11-09T16:41:01Z`.
 | Local health/readiness | 200 | PASS |
 | Public health/readiness | 200 | PASS |
 | Startup logs | No unexpected error; Alembic pre-start was a no-op at head | PASS |
-| PayPal checkpoint after deployment | Still pending; zero attempts/provider IDs/journals | PASS |
+| PayPal authorised execution | Item `SUCCESS`; one completed attempt and one exactly-once $25 capture | PASS |
 
 No rollback trigger occurred. No unrelated service, Docker workload, Nginx
 site, certificate, domain, firewall or Tailscale configuration was changed.
@@ -237,6 +267,9 @@ permissions policy.
 | Production deployment and service health | PASS |
 | Public functional, responsive and accessibility acceptance | PASS |
 | Genuine Gemini function-call response | BLOCKED |
-| Exact $25 PayPal payout submission | BLOCKED pending separate approval |
-| PayPal item-level `SUCCESS` and exactly-once provider capture | NOT TESTED |
+| Exact $25 PayPal payout submission | PASS |
+| PayPal item-level `SUCCESS` and exactly-once provider capture | PASS |
 | Overall product acceptance | BLOCKED |
+
+The only remaining acceptance blocker is a genuine Gemini function-call
+response from the configured production workflow.
