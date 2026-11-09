@@ -9,8 +9,8 @@ switch, migration verification and Pactra service restarts described here.
 
 ## Verified production baseline
 
-- Backend release: `/opt/pactra/releases/73fdfb6`, exact SHA
-  `73fdfb692f6daea69ba5f44bc37d9afa1814419a`.
+- Backend release: `/opt/pactra/releases/63f2583`, exact SHA
+  `63f25839a6b645a8ca404846ecd82d16c1994b7c`.
 - Active symlink: `/opt/pactra/current`.
 - Database: PostgreSQL 16.15, database `pactra`.
 - Production migration: `20261107_0005`.
@@ -37,8 +37,8 @@ not justify misreporting a healthy deployment as provider success.
   checks pass.
 - Production and full dependency audits pass or have an explicitly approved
   PRD-compatible exception.
-- Safe deterministic Gemini fallback acceptance passes. Genuine function-call
-  acceptance may remain an explicitly reported external blocker.
+- Safe deterministic Gemini fallback acceptance and the selected model's
+  genuine function-call acceptance pass.
 - No PayPal submission is required for deployment. Any prepared payout must
   remain unapproved unless its exact transaction receives separate authority.
 - Migration `0005` passes on an isolated clone of the current production
@@ -58,7 +58,7 @@ Record the deployment inputs without printing secrets:
 ```bash
 pactra_release_sha=<FULL_FINAL_RELEASE_SHA>
 pactra_release_dir=/opt/pactra/releases/<SHORT_FINAL_RELEASE_SHA>
-pactra_previous_release=/opt/pactra/releases/4534d13
+pactra_previous_release=/opt/pactra/releases/73fdfb6
 
 git rev-parse HEAD
 git status --short
@@ -93,7 +93,8 @@ An isolated production-data clone upgraded from `0004` to `0005` while an
 `ACCESS SHARE` reader held the existing `transactions` table. The migration
 completed within a two-second lock timeout. Production is now at `0005`.
 
-The exact release artifact also passed a fresh restored-clone drill on
+Release `63f2583` changes no migration file from the previously deployed
+artifact. The identical migration tree passed a restored-clone drill on
 `pactra_restore_4534d13_20261109163956`: downgrade to `0004`, readiness of
 release `0e3e905`, and re-upgrade to `0005`. Counts for users, transactions,
 reservations, ledger entries and audit events were unchanged. The downgrade
@@ -131,12 +132,15 @@ sudo stat -c 'path=%n size=%s mode=%a owner=%U group=%G' "${pactra_backup}"
 Failure of `pg_dump`, the non-empty check or `pg_restore --list` stops the
 deployment. Do not continue with an incomplete archive.
 
-Verified final-release 2026-11-09 backup:
+Verified Gemini-release 2026-11-09 backups:
 
-- `/opt/pactra/backups/pactra-pre-73fdfb692f6daea69ba5f44bc37d9afa1814419a-20261109T170019Z.dump`;
+- `/opt/pactra/backups/pactra-env-pre-gemini-63f2583-20261109T184028Z.env`,
+  mode `0600`, owner/group `root:root`, byte-identical to the pre-change
+  environment;
+- `/opt/pactra/backups/pactra-pre-63f25839a6b645a8ca404846ecd82d16c1994b7c-20261109T184028Z.dump`;
 - SHA-256
-  `828a3b966c6dea957125fe9860f3793be9a777b781349edbb7ad8260b75264c0`;
-- 170,927 bytes, mode `0600`, owner/group `pactra:pactra`;
+  `9f4a9407fc2aa292480e4608f84449be5dbb83e315b193f7c8e7aa68dfe213ac`;
+- 173,373 bytes, mode `0600`, owner/group `pactra:pactra`;
 - `pg_restore --list` passed. The runtime-equivalent `4534d13` artifact also
   passed the documented isolated restore and downgrade/re-upgrade drill.
 
@@ -248,12 +252,45 @@ Deploy the Vercel frontend only through its existing linked project and record
 the resulting deployment ID and alias. Do not place provider secrets in Vercel
 or any `VITE_*` variable.
 
+## Gemini-only API deployment
+
+The Gemini release changes only API assistant/configuration code and requires
+no schema or frontend deployment. Back up `/etc/pactra/pactra.env`, validate
+the new release against the proposed model, change only `GEMINI_MODEL`, and
+atomically switch `current`.
+
+The worker unit declares `PartOf=pactra-api.service`; an ordinary API restart
+would therefore restart the worker. When PostgreSQL is already active and the
+new API release/configuration has passed independent validation, installed
+systemd 255 can restart only the API with dependency propagation disabled:
+
+```bash
+pactra_worker_pid_before=$(systemctl show pactra-worker.service -p MainPID --value)
+pactra_worker_started_before=$(systemctl show pactra-worker.service -p ExecMainStartTimestamp --value)
+
+sudo systemctl --job-mode=ignore-dependencies restart pactra-api.service
+sudo systemctl is-active pactra-api.service pactra-worker.service
+
+test "$(systemctl show pactra-worker.service -p MainPID --value)" = \
+  "${pactra_worker_pid_before}"
+test "$(systemctl show pactra-worker.service -p ExecMainStartTimestamp --value)" = \
+  "${pactra_worker_started_before}"
+```
+
+Verify API readiness, live model configuration, startup logs, database
+revision and one non-financial function call. If the API fails, restore the
+private environment backup, point `current` to `/opt/pactra/releases/73fdfb6`
+when application rollback is also needed, and repeat the API-only restart.
+Never change PayPal settings or records as part of this rollback. If the
+worker PID changes unexpectedly, verify its advisory lease and every unresolved
+payout before continuing.
+
 ## Immediate same-schema rollback
 
-The prior production release `/opt/pactra/releases/4534d13` understands
-`20261107_0005` and has runtime code equivalent to the closure release. If the
+The prior production release `/opt/pactra/releases/73fdfb6` understands
+`20261107_0005`. If the
 current release fails before writing incompatible data, stop both Pactra
-services, atomically switch `current` to `4534d13`, then start API and worker.
+services, atomically switch `current` to `73fdfb6`, then start API and worker.
 Do not downgrade the database for this path.
 
 ```bash
@@ -262,9 +299,9 @@ sudo systemctl stop pactra-api.service
 
 sudo test ! -e /opt/pactra/current.next
 sudo test ! -L /opt/pactra/current.next
-sudo ln -s /opt/pactra/releases/4534d13 /opt/pactra/current.next
+sudo ln -s /opt/pactra/releases/73fdfb6 /opt/pactra/current.next
 sudo mv -Tf /opt/pactra/current.next /opt/pactra/current
-sudo test "$(sudo readlink -f /opt/pactra/current)" = /opt/pactra/releases/4534d13
+sudo test "$(sudo readlink -f /opt/pactra/current)" = /opt/pactra/releases/73fdfb6
 
 sudo systemctl start pactra-api.service
 curl --fail --silent http://127.0.0.1:8010/api/ready
@@ -399,20 +436,19 @@ step.
 
 | Field | Result |
 |---|---|
-| Deployment start | `2026-11-09T17:00:40Z` |
-| Release | `/opt/pactra/releases/73fdfb6` / `73fdfb69...` |
-| Previous release | `/opt/pactra/releases/4534d13` |
+| Deployment start | `2026-11-09T18:42:05Z` |
+| Release | `/opt/pactra/releases/63f2583` / `63f25839...` |
+| Previous release | `/opt/pactra/releases/73fdfb6` |
 | Database before/after | `20261107_0005` / `20261107_0005` |
 | API pre-start migration | Alembic context loaded; no upgrade was required |
-| API | active/running, zero restarts, local and public readiness 200 |
-| Worker | active/running, zero restarts, advisory lease acquired |
-| Public smoke | post-deploy recovery acceptance passed in 32.8 seconds |
+| API | PID `819381`, active/running, local and public readiness 200 |
+| Worker | PID `785136` and original start time unchanged; advisory lease retained |
+| Public smoke | genuine `get_wallet_summary` function call completed in 1.610 seconds with no transaction |
 | PayPal checkpoint | Post-authorisation: `completed`, item `SUCCESS`, one attempt, captured $25 reservation and one balanced capture journal |
 | Rollback | not triggered |
 | Unrelated infrastructure | not changed |
 
-The final closure release has runtime-equivalent application code to
-`4534d13`; that release remains the immediate same-schema rollback target.
+Release `73fdfb6` remains the immediate same-schema rollback target.
 
 ## Deployment evidence to retain
 

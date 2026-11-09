@@ -2,7 +2,7 @@
 
 Pactra is a sandbox-only payment operations workspace for creating governed payment requests, applying spending policy, obtaining human approval, and tracing every ledger and provider transition.
 
-Current production application (release `0e3e905`; this branch is not deployed): <https://pactra-nine.vercel.app>
+Current production application (runtime release `63f2583`): <https://pactra-nine.vercel.app>
 
 > Pactra does not move real money. The in-app wallet is a simulated double-entry ledger. The optional PayPal integration uses PayPal Sandbox Payouts only.
 
@@ -146,7 +146,7 @@ When `AI_ENABLED=true`, the backend sends bounded requests to an approved Gemini
 
 If AI is disabled, quota-exhausted, times out, or returns an invalid response, Pactra records sanitized evidence and uses its deterministic fallback for supported prompts. A fallback response is labelled and is never evidence that Gemini worked.
 
-Live compatibility and isolated governed-workflow acceptance passed for `gemini-3.5-flash-lite`. The currently deployed runtime remains on `gemini-3.8-flash` until the verified release and targeted configuration change complete; production acceptance is recorded separately in [QA/GEMINI-MODEL-COMPATIBILITY.md](./QA/GEMINI-MODEL-COMPATIBILITY.md).
+Live compatibility, isolated governed-workflow acceptance and a genuine production `get_wallet_summary` function call passed for `gemini-3.5-flash-lite`. Production evidence is recorded in [QA/GEMINI-MODEL-COMPATIBILITY.md](./QA/GEMINI-MODEL-COMPATIBILITY.md).
 
 ## Provider integrations
 
@@ -160,7 +160,11 @@ Live compatibility and isolated governed-workflow acceptance passed for `gemini-
 - `FAILED`, `BLOCKED`, `CANCELED`, or `DENIED` release the reservation once.
 - `RETURNED`, `REVERSED`, or `REFUNDED` use an exactly-once compensating ledger journal.
 
-Production readiness currently reports PayPal configured. Existing provider evidence includes successful Sandbox OAuth and a prior terminally denied test payout; no item-level `SUCCESS` has been demonstrated. Mocks and fixtures are used only for deterministic failure-state tests and are never presented as provider acceptance.
+Production PayPal Sandbox acceptance is complete for the separately authorised
+$25.00 payout. One worker submission reconciled to item-level `SUCCESS`, then
+captured one reservation into one balanced journal. Mocks and fixtures remain
+limited to deterministic failure-state tests and are never presented as
+provider acceptance.
 
 ### Internal sandbox
 
@@ -279,7 +283,11 @@ python -m alembic current
 
 Candidate migration `20261107_0005` adds the empty `rate_limit_buckets` table and expiry index. It does not rewrite existing user, wallet, transaction, ledger, or audit rows. Downgrade removes the table and therefore deletes stored rate-limit windows.
 
-The production release `0e3e905` knows migrations only through `0004`. Its pre-start Alembic command cannot start against a database stamped `0005`. A rollback must stop both Pactra services, use candidate migration code to downgrade to `0004`, switch the release symlink, then start the old API and worker. See [QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
+The immediate rollback release `73fdfb6` understands migration `0005` and can
+be restored without a database downgrade. Legacy release `0e3e905` knows only
+through `0004`; using it requires both Pactra services stopped and the current
+migration code to downgrade before the symlink changes. See
+[QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
 
 ## API overview
 
@@ -373,16 +381,18 @@ Readiness reports configuration, not provider success. Worker lease logs prove o
 - Terminal item failure: release once; an explicit later retry creates attempt N+1.
 - Provider return/reversal/refund: post one compensating journal.
 - Worker restart: resume from persisted submitting/processing attempts and stable IDs.
-- Candidate deployment failure after `0005`: follow the stopped-service downgrade procedure; do not point `0e3e905` at a database stamped `0005`.
+- Current deployment failure: use the same-schema `73fdfb6` rollback first;
+  never point legacy `0e3e905` at a database stamped `0005`.
 
 The full backup, deployment, health, migration, and rollback procedure is in [QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
 
 ## Known limitations
 
 - All balances and transfers are Sandbox-only.
-- Gemini compatibility and isolated workflow acceptance pass for `gemini-3.5-flash-lite`; production remains on `gemini-3.8-flash` until the targeted rollout is verified.
+- Gemini compatibility, isolated workflow acceptance and live production
+  function calling pass for `gemini-3.5-flash-lite`.
 - PayPal Sandbox acceptance is proven for the separately authorised $25 payout; this Gemini change does not alter that integration or its records.
-- Production remains release `73fdfb6` at migration `20261107_0005` until this candidate is merged and deployed.
+- Production runs release `63f2583` at migration `20261107_0005`.
 - Provider webhooks are not implemented; reconciliation uses polling.
 - Approval uses the requesting account; separate approver roles and approval-request TTL are not implemented.
 - SQLite cannot prove PostgreSQL locking, triggers, or multi-process concurrency.

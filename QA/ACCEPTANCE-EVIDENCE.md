@@ -15,7 +15,9 @@ provider acceptance. `PASS` never means more than the evidence stated.
 | PR #10 | Merge `c599f5ca0603c1cc66b25684358c3336227dd8c3` | PASS |
 | PR #11 | Merge `4534d136766a094aeeac4489a9e694111b9257ae` | PASS |
 | PR #12 | Merge `73fdfb692f6daea69ba5f44bc37d9afa1814419a` | PASS |
-| Exact-main CI | [42659603721](https://github.com/arinze116/Pactra/actions/runs/42659603721), four jobs, exact SHA `73fdfb69...` | PASS |
+| PR #13 | Merge `60c0843f48351aa1fc611d25dcca14c539f8e843` | PASS |
+| PR #14 | Merge `63f25839a6b645a8ca404846ecd82d16c1994b7c` | PASS |
+| Exact-main CI | [42674909231](https://github.com/arinze116/Pactra/actions/runs/42674909231), four jobs, exact runtime SHA `63f25839...` | PASS |
 | Local/main agreement | Local `main`, `origin/main` and release source agreed before staging | PASS |
 
 The four CI jobs were Backend SQLite, Backend PostgreSQL, Frontend
@@ -81,7 +83,7 @@ separately authorised live Sandbox payout and item-level provider evidence.
 
 | Check | Result | Status |
 |---|---|---|
-| Production model/key presence | `gemini-3.8-flash`; key present | PASS |
+| Production model/key presence | `gemini-3.5-flash-lite`; key present | PASS |
 | Production/project key alignment | Keys compare equal without printing either value | PASS |
 | Actual account discovery | Eight relevant Flash identifiers returned with `generateContent` | PASS |
 | Current model baseline | HTTP 503 at 6,312 ms, then timeout at 12,011 ms | FAIL |
@@ -92,14 +94,16 @@ separately authorised live Sandbox payout and item-level provider evidence.
 | Function-response round trip | Two calls and final text replies; `STOP` finish reasons | PASS |
 | Full isolated Pactra workflow | Extraction, policy, approval, fallback boundary, receipt and audit checks | PASS |
 | Deterministic fallback | Timeout, 503 and malformed/empty response regressions | PASS |
-| Production candidate deployment | Current runtime is unchanged | NOT TESTED |
+| Production candidate deployment | Release `63f2583` active; only `GEMINI_MODEL` changed; API-only restart | PASS |
+| Genuine production function call | One live `get_wallet_summary` call, `STOP`, no fallback/error, zero transactions | PASS |
 
-The production environment file was backed up before the targeted key change:
+The production environment file was backed up before the targeted model
+change:
 
-`/opt/pactra/backups/pactra.env-pre-gemini-key-fix-20261109T160057Z`
+`/opt/pactra/backups/pactra-env-pre-gemini-63f2583-20261109T184028Z.env`
 
 SHA-256:
-`41786f0daecc906dac785bb45d8ef38c25775151e358fcf488f8f188724cf86a`.
+`58a07a9d7d66988466bdb09fffae52f65af0437162d344673489179e14d33778`.
 
 The selected model is `gemini-3.5-flash-lite`; `gemini-3.8-flash` remains the
 documented configuration rollback. Google documents the selected identifier as
@@ -118,6 +122,17 @@ one $49 internal payout with a balanced two-entry receipt, retained one $120
 request at `pending_approval` with one active reservation and zero attempts,
 and created no transaction for a missing-amount request. Full evidence and
 commands are in `QA/GEMINI-MODEL-COMPATIBILITY.md`.
+
+Production rollout used immutable release `/opt/pactra/releases/63f2583` and
+changed only `GEMINI_MODEL`. API PID changed from `785075` to `819381`;
+worker PID `785136`, its original start time and advisory lease remained
+unchanged. A new isolated public account requested only its wallet summary.
+The response completed in 1.610 seconds with one genuine
+`get_wallet_summary` call, empty arguments, the authoritative USD 1,000.00
+balance and zero created transactions. Persisted audit evidence recorded
+model `gemini-3.5-flash-lite`, two provider calls, 1,391 ms cumulative
+provider latency, finish reason `STOP`, one successful tool call and no
+fallback or provider-error event.
 
 ## PayPal Sandbox execution evidence
 
@@ -184,24 +199,24 @@ the isolated account, and worker logs contain one payout POST.
 
 | Check | Evidence | Status |
 |---|---|---|
-| Release directory | `/opt/pactra/releases/73fdfb6` | PASS |
-| Embedded SHA | `73fdfb692f6daea69ba5f44bc37d9afa1814419a` | PASS |
+| Release directory | `/opt/pactra/releases/63f2583` | PASS |
+| Embedded SHA | `63f25839a6b645a8ca404846ecd82d16c1994b7c` | PASS |
 | Source archive | Preserved inside `.release-metadata` | PASS |
-| Archive SHA-256 | `6c16fbcd6b11187182f8ae1d9ea2374f12aa23ca39f629a35f112cabde1792c4` | PASS |
-| Tracked contents | 139 archive members compared byte-for-byte, zero mismatches | PASS |
+| Archive SHA-256 | `6ba14264e0ee63ca49ae26af5ec15427ca3ae9ed25ab705498ee7c543bac5369` | PASS |
+| Tracked contents | 142 tracked files compared byte-for-byte, zero mismatches | PASS |
 | Permissions | `root:pactra`, read-only; no group/world writable files or directories | PASS |
 | Python | 3.12.3, resolved manifest, `pip check`, required imports | PASS |
 | Frontend | Actual `dist` plus per-file SHA-256 manifest | PASS |
-| Capacity | 86 GiB filesystem free and 9.7 GiB memory available at preflight | PASS |
+| Capacity | 85 GiB filesystem free and 9.7 GiB memory available at preflight | PASS |
 
 ## Backup, migration and rollback
 
 Backup:
 
 - path:
-  `/opt/pactra/backups/pactra-pre-73fdfb692f6daea69ba5f44bc37d9afa1814419a-20261109T170019Z.dump`;
+  `/opt/pactra/backups/pactra-pre-63f25839a6b645a8ca404846ecd82d16c1994b7c-20261109T184028Z.dump`;
 - SHA-256:
-  `828a3b966c6dea957125fe9860f3793be9a777b781349edbb7ad8260b75264c0`;
+  `9f4a9407fc2aa292480e4608f84449be5dbb83e315b193f7c8e7aa68dfe213ac`;
 - mode/owner: `0600`, `pactra:pactra`;
 - `pg_restore --list`: PASS.
 
@@ -220,25 +235,26 @@ then passed:
 6. re-upgrade `0004 → 0005` and recreation of the table/index.
 
 The downgrade intentionally deletes every rate-limit bucket. Immediate
-rollback to `4534d13` is schema-compatible and requires no downgrade. Rollback
+rollback to `73fdfb6` is schema-compatible and requires no downgrade. Rollback
 to `0e3e905` requires both services stopped and the candidate code used to
 downgrade first.
 
 ## Production deployment
 
-Final closure deployment started `2026-11-09T17:00:40Z`.
+Gemini production deployment started `2026-11-09T18:42:05Z`.
 
 | Check | Result | Status |
 |---|---|---|
-| Active symlink | `/opt/pactra/releases/73fdfb6` | PASS |
-| Embedded SHA | `73fdfb69...` | PASS |
+| Active symlink | `/opt/pactra/releases/63f2583` | PASS |
+| Embedded SHA | `63f25839...` | PASS |
 | Alembic revision | `20261107_0005` | PASS |
 | Rate-limit table/index | Present | PASS |
-| API | Active/running, zero restarts | PASS |
-| Worker | Active/running, zero restarts, lease acquired | PASS |
+| API | Active/running on PID `819381`; targeted restart completed | PASS |
+| Worker | Active/running on unchanged PID `785136`; lease retained | PASS |
 | Local health/readiness | 200 | PASS |
 | Public health/readiness | 200 | PASS |
 | Startup logs | No unexpected error; Alembic pre-start was a no-op at head | PASS |
+| Gemini live acceptance | Genuine wallet-summary call, audited model/latency/finish reason, no transaction | PASS |
 | PayPal authorised execution | Item `SUCCESS`; one completed attempt and one exactly-once $25 capture | PASS |
 
 No rollback trigger occurred. No unrelated service, Docker workload, Nginx
@@ -287,12 +303,11 @@ permissions policy.
 | Production deployment and service health | PASS |
 | Public functional, responsive and accessibility acceptance | PASS |
 | Genuine Gemini candidate function-call response | PASS |
-| Genuine production Gemini function-call response | NOT TESTED |
+| Genuine production Gemini function-call response | PASS |
 | Exact $25 PayPal payout submission | PASS |
 | PayPal item-level `SUCCESS` and exactly-once provider capture | PASS |
-| Overall product acceptance | BLOCKED |
+| Overall product acceptance | PASS |
 
-The remaining Gemini gate is operational: merge and deploy the exact verified
-candidate, make the targeted model change, and receive a genuine function call
-from the production workflow. Candidate compatibility itself is no longer
-blocked by provider capacity.
+No release-blocking provider or human gate remains. The previous Gemini
+capacity failures remain documented as candidate-specific results; they do not
+invalidate the selected model's isolated and production acceptance evidence.
