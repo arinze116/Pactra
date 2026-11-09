@@ -83,7 +83,7 @@ def paypal_payout(*, key: str, amount_cents: int = 100) -> dict[str, object]:
     return {
         "type": "payout",
         "vendor": "US Personal Sandbox recipient",
-        "recipient": "sandbox-recipient@example.com",
+        "recipient": None,
         "amount_cents": amount_cents,
         "currency": "USD",
         "category": "freelance",
@@ -208,13 +208,18 @@ def test_pending_approval_and_rejection_flows(api: TestClient) -> None:
     assert api.get("/api/wallet").json()["reserved_cents"] == 0
 
 
-def test_paypal_api_requires_approval_and_never_submits_directly(
+def test_paypal_api_uses_configured_recipient_and_never_submits_directly(
     api: TestClient,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(settings, "paypal_payouts_enabled", True)
     monkeypatch.setattr(settings, "paypal_client_id", "sandbox-client")
     monkeypatch.setattr(settings, "paypal_client_secret", "sandbox-secret")
+    monkeypatch.setattr(
+        settings,
+        "paypal_test_recipient_email",
+        "configured-recipient@example.com",
+    )
     monkeypatch.setattr(settings, "paypal_mock_mode", False)
     monkeypatch.setattr(
         settings,
@@ -248,6 +253,7 @@ def test_paypal_api_requires_approval_and_never_submits_directly(
     assert created.status_code == 201
     transaction = created.json()["transaction"]
     assert transaction["status"] == "pending_approval"
+    assert transaction["recipient"] == "configured-recipient@example.com"
     assert provider_calls == 0
 
     approved = api.post(
@@ -266,6 +272,20 @@ def test_paypal_api_requires_approval_and_never_submits_directly(
     )
     assert replay.status_code == 201
     assert replay.json()["transaction"]["id"] == transaction["id"]
+    assert provider_calls == 0
+
+    freeform = paypal_payout(key="api-paypal-freeform-recipient-0001")
+    freeform["recipient"] = "alternate-recipient@example.com"
+    freeform_created = api.post(
+        "/api/transactions",
+        headers=mutation_headers(api),
+        json=freeform,
+    )
+    assert freeform_created.status_code == 201
+    assert (
+        freeform_created.json()["transaction"]["recipient"]
+        == "alternate-recipient@example.com"
+    )
     assert provider_calls == 0
 
     receipt = api.get(f"/api/transactions/{transaction['id']}").json()
@@ -304,8 +324,16 @@ def test_paypal_status_masks_the_global_sandbox_recipient(
     response = api.get("/api/integrations/paypal/status")
 
     assert response.status_code == 200
+    assert response.json()["configured"] is True
     assert response.json()["test_recipient_email"] == "r***@e***.com"
     assert "recipient@example.com" not in response.text
+
+    monkeypatch.setattr(settings, "paypal_test_recipient_email", "")
+    missing_recipient = api.get("/api/integrations/paypal/status")
+
+    assert missing_recipient.status_code == 200
+    assert missing_recipient.json()["configured"] is False
+    assert missing_recipient.json()["test_recipient_email"] is None
 
 
 def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(

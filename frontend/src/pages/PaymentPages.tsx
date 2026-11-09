@@ -84,6 +84,7 @@ export function NewPaymentPage() {
   const [category, setCategory] = useState(preset?.category ?? "software");
   const [reason, setReason] = useState(preset?.reason ?? "");
   const [rail, setRail] = useState<PaymentRail>(scenario === "paypal" ? "internal_sandbox" : preset?.rail ?? "internal_sandbox");
+  const [isUsingConfiguredPayPalRecipient, setIsUsingConfiguredPayPalRecipient] = useState(scenario === "paypal");
   const [error, setError] = useState("");
   const [paypalError, setPaypalError] = useState("");
   const [policyLoading, setPolicyLoading] = useState(true);
@@ -112,7 +113,7 @@ export function NewPaymentPage() {
       return;
     }
     try {
-      const draft = JSON.parse(stored) as Partial<{ type: TransactionType; vendor: string; recipient: string; amount: string; category: string; reason: string; rail: PaymentRail }>;
+      const draft = JSON.parse(stored) as Partial<{ type: TransactionType; vendor: string; recipient: string; amount: string; category: string; reason: string; rail: PaymentRail; isUsingConfiguredPayPalRecipient: boolean }>;
       if (draft.type) setType(draft.type);
       if (typeof draft.vendor === "string") setVendor(draft.vendor);
       if (typeof draft.recipient === "string") setRecipient(draft.recipient);
@@ -120,6 +121,7 @@ export function NewPaymentPage() {
       if (typeof draft.category === "string") setCategory(draft.category);
       if (typeof draft.reason === "string") setReason(draft.reason);
       if (draft.rail) setRail(draft.rail);
+      if (typeof draft.isUsingConfiguredPayPalRecipient === "boolean") setIsUsingConfiguredPayPalRecipient(draft.isUsingConfiguredPayPalRecipient);
     } catch {
       sessionStorage.removeItem(draftKey);
     }
@@ -128,8 +130,8 @@ export function NewPaymentPage() {
 
   useEffect(() => {
     if (!user || !draftHydrated) return;
-    sessionStorage.setItem(draftKey, JSON.stringify({ type, vendor, recipient, amount, category, reason, rail }));
-  }, [amount, category, draftHydrated, draftKey, rail, reason, recipient, type, user, vendor]);
+    sessionStorage.setItem(draftKey, JSON.stringify({ type, vendor, recipient, amount, category, reason, rail, isUsingConfiguredPayPalRecipient }));
+  }, [amount, category, draftHydrated, draftKey, isUsingConfiguredPayPalRecipient, rail, reason, recipient, type, user, vendor]);
 
   useEffect(() => {
     let active = true;
@@ -161,7 +163,8 @@ export function NewPaymentPage() {
         setPaypal(nextPayPal);
         if (scenario === "paypal") {
           setRail(nextPayPal.configured ? "paypal_sandbox_payouts" : "internal_sandbox");
-          setRecipient(nextPayPal.test_recipient_email ?? "");
+          setRecipient("");
+          setIsUsingConfiguredPayPalRecipient(nextPayPal.configured);
         }
       })
       .catch((caught) => {
@@ -178,8 +181,15 @@ export function NewPaymentPage() {
   }, [preset, scenario]);
 
   useEffect(() => {
-    if (type !== "payout") setRail("internal_sandbox");
+    if (type !== "payout") {
+      setRail("internal_sandbox");
+      setIsUsingConfiguredPayPalRecipient(false);
+    }
   }, [type]);
+
+  useEffect(() => {
+    if (rail !== "paypal_sandbox_payouts") setIsUsingConfiguredPayPalRecipient(false);
+  }, [rail]);
 
   useEffect(() => {
     if (!scenario || !preset && scenario !== "insufficient") return;
@@ -190,7 +200,7 @@ export function NewPaymentPage() {
 
   useEffect(() => {
     setConfirming(false);
-  }, [amount, category, rail, reason, recipient, type, vendor]);
+  }, [amount, category, isUsingConfiguredPayPalRecipient, rail, reason, recipient, type, vendor]);
 
   useEffect(() => {
     const numeric = Number(amount);
@@ -245,7 +255,7 @@ export function NewPaymentPage() {
     const paymentPayload: PaymentPayload = {
       type,
       vendor: vendor.trim(),
-      recipient: type === "payout" ? recipient.trim() : null,
+      recipient: type === "payout" && !(rail === "paypal_sandbox_payouts" && isUsingConfiguredPayPalRecipient) ? recipient.trim() : null,
       amount_cents: amountCents,
       currency: "USD",
       category,
@@ -332,7 +342,7 @@ export function NewPaymentPage() {
             <Field label="Vendor or recipient name"><input className="input" maxLength={100} onChange={(event) => setVendor(event.target.value)} required value={vendor} /></Field>
             <Field label="Amount (USD)"><input className="input tabular-nums" inputMode="decimal" onChange={(event) => setAmount(event.target.value)} placeholder="49.00" required value={amount} /></Field>
           </div>
-          {type === "payout" ? <Field label="Recipient email"><div className="flex gap-2"><input className="input flex-1" onChange={(event) => setRecipient(event.target.value)} required type="email" value={recipient} />{paypal?.test_recipient_email ? <button className="rounded-lg border border-line px-3 text-xs font-medium" onClick={() => setRecipient(paypal.test_recipient_email ?? "")} type="button">Use test recipient</button> : null}</div></Field> : null}
+          {type === "payout" ? <Field label="Recipient email">{rail === "paypal_sandbox_payouts" && isUsingConfiguredPayPalRecipient ? <div className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-line bg-surface-raised px-3"><div><p className="text-sm text-ink-800">Configured Sandbox recipient</p><p className="mt-1 text-xs text-ink-500">{paypal?.test_recipient_email ?? "Configured server-side"}</p></div><button className="text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" onClick={() => setIsUsingConfiguredPayPalRecipient(false)} type="button">Use another recipient</button></div> : <div className="flex gap-2"><input className="input flex-1" onChange={(event) => { setRecipient(event.target.value); setIsUsingConfiguredPayPalRecipient(false); }} required type="email" value={recipient} />{rail === "paypal_sandbox_payouts" && paypal?.test_recipient_email ? <button className="rounded-lg border border-line px-3 text-xs font-medium" onClick={() => { setRecipient(""); setIsUsingConfiguredPayPalRecipient(true); }} type="button">Use configured recipient</button> : null}</div>}</Field> : null}
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Category"><select className="input" onChange={(event) => setCategory(event.target.value)} value={category}>{policy?.policy.allowed_categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
             {type === "payout" && paypal?.configured ? <Field label="Execution rail"><select className="input" onChange={(event) => setRail(event.target.value as PaymentRail)} value={rail}><option value="internal_sandbox">Internal sandbox</option><option value="paypal_sandbox_payouts">PayPal Sandbox Payouts</option></select></Field> : <Field label="Execution rail"><div className="input flex items-center text-sm text-ink-600">Internal sandbox</div></Field>}

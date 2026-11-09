@@ -228,11 +228,13 @@ test("overview and wallet sections recover independently", async ({ page }) => {
     await page.unroute(recoveryCase.pattern);
   }
 
-  await page.goto("/app/wallet");
   for (const recoveryCase of [
     { path: "/api/wallet", retry: "Retry wallet" },
     { path: "/api/wallet/ledger", retry: "Retry ledger" },
   ] as const) {
+    // Leave the wallet route before installing the one-shot failure so a
+    // background refresh cannot consume it before the intended navigation.
+    await page.goto("about:blank");
     let shouldFail = true;
     const matcher = (url: URL) => url.pathname === recoveryCase.path;
     await page.route(matcher, async (route) => {
@@ -243,7 +245,7 @@ test("overview and wallet sections recover independently", async ({ page }) => {
       }
       await route.continue();
     });
-    await page.reload();
+    await page.goto("/app/wallet");
     await expect(page.getByRole("button", { name: recoveryCase.retry })).toBeVisible();
     await page.getByRole("button", { name: recoveryCase.retry }).click();
     await expect(page.getByRole("button", { name: recoveryCase.retry })).toHaveCount(0);
@@ -402,6 +404,34 @@ test("transaction history recovers when optional provider status is unavailable"
   await page.getByRole("button", { name: "Load more transactions" }).click();
   await expect(page.getByRole("gridcell", { name: "Page Two Vendor" })).toBeVisible();
   await expect(page.getByText("2 loaded records")).toBeVisible();
+});
+
+test("guided PayPal form keeps the configured recipient server-side", async ({ page }) => {
+  await page.route("**/api/integrations/paypal/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        configured: true,
+        environment: "sandbox",
+        capabilities: ["payouts"],
+        test_recipient_email: "u***@e***.com",
+        last_success_at: null,
+        last_error_code: null,
+      }),
+    });
+  });
+  await register(page, "judge-paypal-recipient");
+  await page.goto("/app/payments/new?scenario=paypal");
+
+  await expect(page.getByText("Configured Sandbox recipient", { exact: true })).toBeVisible();
+  await expect(page.getByText("u***@e***.com", { exact: true })).toBeVisible();
+  await expect(page.locator('input[type="email"]')).toHaveCount(0);
+
+  await page.getByText("Use another recipient", { exact: true }).click();
+  await expect(page.locator('input[type="email"]')).toBeVisible();
+  await page.getByText("Use configured recipient", { exact: true }).click();
+  await expect(page.locator('input[type="email"]')).toHaveCount(0);
 });
 
 test("ambiguous payment retry survives reload without creating a duplicate", async ({ page }) => {

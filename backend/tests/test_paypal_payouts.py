@@ -38,6 +38,7 @@ from backend.services.transactions import (
     create_payment_request,
     enqueue_paypal_reconciliation,
     reject_transaction,
+    transaction_detail,
 )
 from backend.worker import claim_paypal_transaction, reconcile_pending_payouts
 
@@ -332,6 +333,11 @@ def payout_db(monkeypatch):
     monkeypatch.setattr(settings, "paypal_payouts_enabled", True)
     monkeypatch.setattr(settings, "paypal_client_id", "sandbox-client")
     monkeypatch.setattr(settings, "paypal_client_secret", "sandbox-secret")
+    monkeypatch.setattr(
+        settings,
+        "paypal_test_recipient_email",
+        "configured-recipient@example.com",
+    )
     monkeypatch.setattr(settings, "paypal_mock_mode", False)
     with Session(engine, expire_on_commit=False) as session:
         account = create_account(
@@ -450,6 +456,45 @@ async def test_item_success_captures_once_and_later_return_compensates(payout_db
         select(LedgerJournal).where(LedgerJournal.journal_type == "payment_capture")
     ).all()
     assert len(captures) == 1
+    receipt = transaction_detail(
+        session,
+        user_id=user.id,
+        transaction_id=result.transaction.id,
+    )
+    assert receipt["transaction"].status == "completed"
+    assert receipt["transaction"].provider_batch_id == "BATCH-123"
+    assert receipt["transaction"].provider_item_id == "ITEM-1"
+    assert receipt["transaction"].provider_status == "SUCCESS"
+    assert len(receipt["attempts"]) == 1
+    receipt_attempt = receipt["attempts"][0]
+    assert receipt_attempt["attempt_number"] == 1
+    assert receipt_attempt["rail"] == "paypal_sandbox_payouts"
+    assert receipt_attempt["status"] == "completed"
+    assert receipt_attempt["provider_status"] == "SUCCESS"
+    assert receipt_attempt["response_code"] == "PAYPAL_ITEM_SUCCESS"
+    capture_entries = [
+        entry
+        for entry in receipt["ledger_entries"]
+        if entry["journal_type"] == "payment_capture"
+    ]
+    assert len(capture_entries) == 2
+    assert sum(
+        entry["amount_cents"]
+        for entry in capture_entries
+        if entry["direction"] == "debit"
+    ) == 4_900
+    assert sum(
+        entry["amount_cents"]
+        for entry in capture_entries
+        if entry["direction"] == "credit"
+    ) == 4_900
+    event_types = {event["event_type"] for event in receipt["events"]}
+    assert {
+        "funds.reserved",
+        "paypal.payout_submitted",
+        "paypal.payout_reconciled",
+        "ledger.posted",
+    } <= event_types
 
     enqueue_paypal_reconciliation(
         session,

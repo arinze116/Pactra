@@ -396,6 +396,7 @@ def create_payment_request(
             settings.paypal_payouts_enabled
             and settings.paypal_client_id
             and settings.paypal_client_secret
+            and settings.paypal_test_recipient_email
             and not settings.paypal_mock_mode
             and settings.paypal_base_url.rstrip("/")
             == "https://api-m.sandbox.paypal.com"
