@@ -8,6 +8,12 @@ Detailed compatibility evidence: `QA/GEMINI-MODEL-COMPATIBILITY.md`
 
 No Gemini request was sent while creating this operations document.
 
+Pre-demo review on 2026-11-09 confirmed that this accepted contract remains
+unchanged. The readiness branch adds sanitized `gemini_fallback` and cleanup
+events plus frontend request timeouts; it does not change the production model,
+function declarations, policy boundary, provider key, or fallback behavior.
+No Gemini request was sent during that review.
+
 ## Accepted runtime contract
 
 | Setting | Accepted value |

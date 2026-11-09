@@ -233,7 +233,7 @@ The canonical secret-free template is [`.env.example`](./.env.example). The appl
 
 | Variable | Purpose |
 |---|---|
-| `APP_ENV` | `development`, `test`, or `production` |
+| `APP_ENV` | `development`, `test`, `demo`, or `production` |
 | `SECRET_KEY`, `SECRET_KEY_FILE` | Session/CSRF secret; production may load a private file |
 | `DATABASE_URL` | SQLAlchemy URL; PostgreSQL is required in production |
 | `FRONTEND_URL`, `BACKEND_URL`, `CORS_ORIGINS` | Exact application origins |
@@ -252,7 +252,7 @@ The canonical secret-free template is [`.env.example`](./.env.example). The appl
 | `PAYPAL_MOCK_MODE` | Must be `false` in production and provider acceptance |
 | `PAYPAL_REQUEST_TIMEOUT_SECONDS` | Provider request timeout |
 | `VITE_API_URL` | Optional browser API origin; blank for same-origin rewrite |
-| `SEED_DEMO_ACCOUNT` | Optional development seed; `false` in production |
+| `SEED_DEMO_ACCOUNT` | Legacy startup guard; keep `false`; isolated demo data uses `scripts.demo_environment` |
 
 ## Running the application
 
@@ -350,6 +350,23 @@ Python dependency gates:
 
 Playwright covers supported journeys and 14 automated WCAG surfaces with providers disabled. Lighthouse asserts only the homepage; it is not route-wide performance evidence.
 
+## Isolated demo
+
+The supported demo uses `APP_ENV=demo`, a deliberately named local SQLite
+database, fictional data, and disabled providers. It refuses production,
+PostgreSQL, symlinks, production paths, wrong confirmation phrases, and any
+existing non-demo user.
+
+Run the complete automated rehearsal and screenshot capture:
+
+```bash
+cd frontend
+DEMO_PYTHON=/absolute/path/to/pactra/.venv/bin/python npm run test:demo
+```
+
+The manual setup, reset, three scenarios, recovery procedure, screenshots, and
+presentation narrative are indexed by [DEMO/DEMO-GUIDE.md](./DEMO/DEMO-GUIDE.md).
+
 ## CI pipeline
 
 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on pushes and pull requests with read-only repository permission:
@@ -375,6 +392,23 @@ journalctl -u pactra-api.service -u pactra-worker.service --since today
 ```
 
 Readiness reports configuration, not provider success. Worker lease logs prove one active authority, not a completed payout.
+
+Repository-contained read-only diagnostics:
+
+```bash
+python -m scripts.check_public_health \
+  --base-url https://pactra-nine.vercel.app --json
+python -m scripts.check_financial_invariants --json
+python -m scripts.verify_backup /path/to/archive.dump \
+  --sha256 <expected-sha256> --require-checksum --json
+```
+
+The public health GitHub workflow is scheduled only after its branch is merged
+to the default branch. It has no paging destination. The financial checker
+never repairs data, and the backup checker never restores an archive. See
+[QA/OBSERVABILITY-IMPLEMENTATION.md](./QA/OBSERVABILITY-IMPLEMENTATION.md),
+[QA/ALERTING-AND-INCIDENT-RUNBOOK.md](./QA/ALERTING-AND-INCIDENT-RUNBOOK.md),
+and [QA/BACKUP-VERIFICATION-RUNBOOK.md](./QA/BACKUP-VERIFICATION-RUNBOOK.md).
 
 ## Failure recovery and rollback
 
@@ -403,6 +437,9 @@ The full backup, deployment, health, migration, and rollback procedure is in [QA
 - SQLite cannot prove PostgreSQL locking, triggers, or multi-process concurrency.
 - Lighthouse coverage is homepage-only.
 - Demo video recording/upload remains an owner task.
+
+The complete engineering, operations, QA, and demo handover is indexed in
+[QA/FINAL-ENGINEERING-HANDOVER.md](./QA/FINAL-ENGINEERING-HANDOVER.md).
 
 ## Roadmap
 

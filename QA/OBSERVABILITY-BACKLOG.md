@@ -2,25 +2,26 @@
 
 Assessment date: 2026-11-09
 
-Scope: read-only inventory; no monitoring service was installed or connected
+Scope: accepted baseline plus repository-contained pre-demo implementation; no
+monitoring vendor was installed or connected
 
 ## Current state
 
 | Capability | State | Existing evidence | Gap |
 |---|---|---|---|
-| API liveness/readiness | Partially implemented | `/api/health`, `/api/ready`; local, Tailscale and Vercel paths | No external probe, SLO or paging |
-| API latency | Missing | Uvicorn access timestamps and ad hoc Lighthouse runs | No request histogram, route p95/p99 or alert |
-| Worker liveness | Partially implemented | systemd state, restart count and journal | No independent heartbeat or stale-worker alert |
-| Worker lease | Partially implemented | PostgreSQL advisory lock and acquisition log | No continuous lease monitor |
+| API liveness/readiness | Repository-ready | `/api/health`, `/api/ready`; bounded public monitor; five-minute GitHub workflow | Workflow inactive until merge; no paging or SLO |
+| API latency | Partially implemented | Structured request duration with bounded route templates | No aggregation, p95/p99, dashboard or alert |
+| Worker liveness | Partially implemented | systemd state/restarts and structured worker events | No independent heartbeat or stale-worker alert |
+| Worker lease | Partially implemented | PostgreSQL advisory lock and structured acquisition/standby events | No continuous lease monitor |
 | Payout backlog | Partially implemented | Queryable transaction/attempt state | No age/count dashboard or alert |
 | Database health | Partially implemented | readiness `SELECT 1`, PostgreSQL statistics | No external availability, connection or storage alert |
-| Gemini success/latency | Partially implemented | Durable `assistant.provider_completed`, error and fallback audit fields | No aggregation, success-rate or latency alert |
+| Gemini success/latency | Partially implemented | Durable audit fields plus structured fallback classification/latency | No aggregation, success-rate or latency alert |
 | PayPal reconciliation | Partially implemented | Stable IDs, attempt states, audit events and worker logs | No unknown-outcome/unreconciled-reservation alert |
-| Ledger consistency | Partially implemented | Constraints, balanced journal logic and receipt queries | No scheduled invariant scan or alert |
+| Ledger consistency | Partially implemented | Constraints plus tested read-only 10-check diagnostic | No scheduled invariant scan or alert |
 | Disk/memory/CPU | Missing alerting | OS commands and systemd process data | No threshold alert or trend retention |
 | Error aggregation | Missing | systemd journal and Vercel logs | No centralized grouping, retention policy or paging |
-| Backup integrity | Partially implemented | Manual SHA-256 and `pg_restore --list`; retained restore clones | No scheduled verification/freshness alert |
-| Frontend availability | Partially implemented | Vercel deployment state and public curl | No independent browser/route monitor |
+| Backup integrity | Partially implemented | Tested checksum/age/size/archive verifier and retained restore clones | No scheduled verification/freshness alert |
+| Frontend availability | Repository-ready | Public HTML check in five-minute GitHub workflow | Workflow inactive until merge; no notification target |
 | Security events | Partially implemented | GitHub secret scanning, audit events, access logs | No auth anomaly or tenant-boundary alerting |
 
 The frontend dependency tree contains transitive Sentry/OpenTelemetry packages
@@ -46,22 +47,44 @@ were found. This is not an implemented monitoring system.
 
 These are point-in-time measurements, not an SLO or capacity guarantee.
 
+## Pre-demo branch implementation
+
+Implemented and tested in `release/final-pre-demo-readiness`:
+
+- privacy-safe structured API/Gemini/worker events;
+- frontend/server correlation IDs and bounded request timeouts;
+- public frontend, liveness and readiness monitor;
+- five-minute GitHub Actions schedule;
+- read-only financial invariant checker;
+- backup checksum, size, age and archive-list verifier;
+- alert and incident runbook.
+
+These changes are not deployed. The scheduled workflow is not active until a
+reviewed merge to the default branch, and it still has no pager. Production
+activation of API/worker logging requires a separately approved release.
+
 ## P0 — financial and availability safety
 
 ### OBS-001 External production availability
 
-Implement an independent HTTPS monitor for:
+The branch implements an independent GitHub-hosted HTTPS monitor for:
 
 - `https://pactra-nine.vercel.app/`;
 - `/api/health`;
 - `/api/ready`.
 
-Acceptance:
+Completed:
 
-- check at least once per minute from outside node1;
-- distinguish frontend, API and database readiness;
-- alert only after a short confirmation window to avoid a single transient;
-- payload contains route/status/latency only, never cookies or response bodies;
+- five-minute checks from GitHub-hosted runners;
+- separate frontend, liveness and database-readiness classification;
+- bounded timeout/latency and body-safe output;
+- no authentication or persistent test data.
+
+Remaining acceptance:
+
+- decide whether one-minute frequency is justified beyond the current
+  five-minute free repository schedule;
+- add a confirmation window if paging is connected;
 - escalation route and ownership are documented.
 
 ### OBS-002 Worker liveness, lease and backlog
@@ -118,7 +141,7 @@ payload or credential material.
 
 ### OBS-005 Ledger consistency
 
-Add a read-only scheduled invariant check for:
+The read-only checker now covers:
 
 - debit total equals credit total per journal;
 - one active/captured/released reservation state per transaction as allowed;
@@ -127,8 +150,8 @@ Add a read-only scheduled invariant check for:
 - compensation is at most once;
 - derived wallet balance is internally consistent.
 
-Any nonzero inconsistency is a financial incident. The checker must never
-repair data automatically.
+Any nonzero inconsistency is a financial incident. The checker never repairs
+data automatically. Scheduling and notification remain outstanding.
 
 ## P1 — provider and recovery visibility
 

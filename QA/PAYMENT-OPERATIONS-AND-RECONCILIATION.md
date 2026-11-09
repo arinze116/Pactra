@@ -11,6 +11,13 @@ Execution evidence: `QA/PAYPAL-SANDBOX-EXECUTION-RUNBOOK.md`
 No PayPal request, approval, reconciliation, retry or financial transaction
 was performed while creating this operations document.
 
+Pre-demo review on 2026-11-09 added a read-only invariant diagnostic covering
+balanced journals, capture/reservation state, provider identifier uniqueness,
+item-level success authority, unknown outcomes and lifecycle linkage. Its
+production read-only run passed all 10 checks with zero violations. No PayPal
+request or financial mutation was performed. See
+`QA/OBSERVABILITY-IMPLEMENTATION.md`.
+
 ## Accepted Sandbox transaction
 
 The preserved acceptance transaction is
