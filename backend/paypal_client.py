@@ -4,7 +4,9 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import re
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -124,6 +126,35 @@ class PayPalClient:
     def _money_cents(amount_cents: int) -> str:
         return f"{Decimal(amount_cents) / Decimal(100):.2f}"
 
+    def _duplicate_batch_submission(
+        self, payload: dict[str, Any]
+    ) -> PayoutSubmission | None:
+        """Recover the original batch reference from PayPal's duplicate link."""
+        expected_origin = urlsplit(self.base_url)
+        path_prefix = "/v1/payments/payouts/"
+        links = payload.get("links")
+        if not isinstance(links, list):
+            return None
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            if str(link.get("rel") or "").lower() != "self":
+                continue
+            href = link.get("href")
+            if not isinstance(href, str):
+                continue
+            parsed = urlsplit(href)
+            if (
+                parsed.scheme != expected_origin.scheme
+                or parsed.netloc != expected_origin.netloc
+                or not parsed.path.startswith(path_prefix)
+            ):
+                continue
+            batch_id = parsed.path.removeprefix(path_prefix)
+            if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", batch_id):
+                return PayoutSubmission(batch_id=batch_id, batch_status="PENDING")
+        return None
+
     async def create_payout(
         self,
         *,
@@ -177,10 +208,18 @@ class PayPalClient:
             )
         if response.status_code >= 400:
             try:
-                error_name = str(response.json().get("name", "")).upper()
+                decoded_payload = response.json()
+                error_payload = (
+                    decoded_payload if isinstance(decoded_payload, dict) else {}
+                )
+                error_name = str(error_payload.get("name", "")).upper()
             except (TypeError, ValueError):
+                error_payload = {}
                 error_name = ""
             if error_name == "DUPLICATE_BATCH_ID":
+                recovered = self._duplicate_batch_submission(error_payload)
+                if recovered is not None:
+                    return recovered
                 raise PayPalUnknownOutcome(
                     "PayPal already received this stable payout attempt; reconciliation is required"
                 )

@@ -2,20 +2,28 @@
 
 from collections import deque
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from backend.config import settings
+from backend.config import Settings, settings
 from backend.models import (
     FundReservation,
     LedgerJournal,
     PaymentTransaction,
     TransactionAttempt,
 )
-from backend.paypal_client import PayPalUnknownOutcome, PayoutStatus, PayoutSubmission
+from backend.paypal_client import (
+    PayPalClient,
+    PayPalRejected,
+    PayPalUnknownOutcome,
+    PayoutStatus,
+    PayoutSubmission,
+)
 from backend.services.accounts import create_account
 from backend.services.ledger import get_wallet_for_user, wallet_balance
 from backend.services.paypal import ProviderUnavailable, submit_or_reconcile_payout
@@ -40,6 +48,161 @@ class FakePayPalClient:
     async def get_payout(self, batch_id: str):
         assert batch_id == "BATCH-123"
         return self.statuses.popleft()
+
+
+def paypal_settings() -> Settings:
+    return Settings(
+        _env_file=None,
+        app_env="test",
+        paypal_payouts_enabled=True,
+        paypal_client_id="sandbox-client",
+        paypal_client_secret="sandbox-secret",
+        paypal_test_recipient_email="recipient@example.com",
+        paypal_mock_mode=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_batch_response_recovers_original_batch_reference() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "name": "DUPLICATE_BATCH_ID",
+                "links": [
+                    {
+                        "href": (
+                            "https://api-m.sandbox.paypal.com/"
+                            "v1/payments/payouts/BATCH-ORIGINAL"
+                        ),
+                        "rel": "self",
+                        "method": "GET",
+                    }
+                ],
+            },
+        )
+
+    client = PayPalClient(paypal_settings())
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url=client.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    client._token = "test-token"
+    client._token_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    try:
+        submission = await client.create_payout(
+            transaction_id="550e8400-e29b-41d4-a716-446655440000",
+            attempt_number=1,
+            recipient_email="recipient@example.com",
+            amount_cents=2_500,
+            currency="USD",
+            note="Sandbox test",
+        )
+    finally:
+        await client.close()
+
+    assert submission == PayoutSubmission(
+        batch_id="BATCH-ORIGINAL",
+        batch_status="PENDING",
+    )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_batch_without_safe_reference_remains_unknown() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"name": "DUPLICATE_BATCH_ID", "links": []},
+        )
+
+    client = PayPalClient(paypal_settings())
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url=client.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    client._token = "test-token"
+    client._token_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    try:
+        with pytest.raises(PayPalUnknownOutcome):
+            await client.create_payout(
+                transaction_id="550e8400-e29b-41d4-a716-446655440000",
+                attempt_number=1,
+                recipient_email="recipient@example.com",
+                amount_cents=2_500,
+                currency="USD",
+                note="Sandbox test",
+            )
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "expected_error"),
+    [
+        ([], PayPalRejected),
+        (
+            {"name": "DUPLICATE_BATCH_ID", "links": "not-a-list"},
+            PayPalUnknownOutcome,
+        ),
+        (
+            {
+                "name": "DUPLICATE_BATCH_ID",
+                "links": [
+                    {
+                        "href": "https://example.com/v1/payments/payouts/BATCH-OTHER",
+                        "rel": "self",
+                    }
+                ],
+            },
+            PayPalUnknownOutcome,
+        ),
+        (
+            {
+                "name": "DUPLICATE_BATCH_ID",
+                "links": [
+                    {
+                        "href": (
+                            "https://api-m.sandbox.paypal.com/"
+                            "v1/payments/payouts/BATCH-WRONG-REL"
+                        ),
+                        "rel": "next",
+                    }
+                ],
+            },
+            PayPalUnknownOutcome,
+        ),
+    ],
+)
+async def test_duplicate_batch_rejects_malformed_or_untrusted_links(
+    payload: object,
+    expected_error: type[Exception],
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=payload)
+
+    client = PayPalClient(paypal_settings())
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url=client.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    client._token = "test-token"
+    client._token_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    try:
+        with pytest.raises(expected_error):
+            await client.create_payout(
+                transaction_id="550e8400-e29b-41d4-a716-446655440000",
+                attempt_number=1,
+                recipient_email="recipient@example.com",
+                amount_cents=2_500,
+                currency="USD",
+                note="Sandbox test",
+            )
+    finally:
+        await client.close()
 
 
 @pytest.fixture

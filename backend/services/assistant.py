@@ -583,6 +583,25 @@ def _execute_tool(
     raise ValueError("Assistant requested an unsupported tool")
 
 
+def _function_response_part(
+    call: types.FunctionCall,
+    *,
+    name: str,
+    response: dict[str, Any],
+) -> types.Part:
+    """Return a Gemini function response, preserving an ID when supplied."""
+    call_id = str(call.id or "").strip()
+    function_response: dict[str, Any] = {
+        "name": name,
+        "response": response,
+    }
+    if call_id:
+        function_response["id"] = call_id
+    return types.Part(
+        function_response=types.FunctionResponse(**function_response)
+    )
+
+
 async def _run_gemini(
     session: Session,
     *,
@@ -625,7 +644,6 @@ async def _run_gemini(
                                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
                                     disable=True
                                 ),
-                                temperature=0.1,
                                 max_output_tokens=2000,
                             ),
                         ),
@@ -670,6 +688,16 @@ async def _run_gemini(
                 tool_log.append(safe_call)
                 if transaction_id:
                     transaction_ids.append(transaction_id)
+                record_audit_event(
+                    session,
+                    user_id=user.id,
+                    actor_type="system",
+                    actor_id=None,
+                    entity_type="conversation",
+                    entity_id=conversation.id,
+                    event_type="assistant.tool_called",
+                    payload={"tool": name, "succeeded": "error" not in result},
+                )
                 session.add(
                     ConversationMessage(
                         conversation_id=conversation.id,
@@ -680,7 +708,7 @@ async def _run_gemini(
                 )
                 session.commit()
                 tool_parts.append(
-                    types.Part.from_function_response(name=name, response=result)
+                    _function_response_part(call, name=name, response=result)
                 )
             contents.append(types.Content(role="tool", parts=tool_parts))
         return (
@@ -741,6 +769,16 @@ async def run_assistant(
             conversation.title = _title_from_message(message)
         conversation.updated_at = utc_now()
         session.add_all([conversation, user_message])
+        record_audit_event(
+            session,
+            user_id=user.id,
+            actor_type="user",
+            actor_id=user.id,
+            entity_type="conversation",
+            entity_id=conversation.id,
+            event_type="assistant.message_sent",
+            payload={"message_length": len(message)},
+        )
         session.commit()
 
     tool_log: list[dict[str, Any]] = []
@@ -825,6 +863,16 @@ async def run_assistant(
             except (ValidationError, ValueError, IntegrationUnavailable, TransactionIdempotencyConflict) as exc:
                 session.rollback()
                 reply = str(exc)
+        record_audit_event(
+            session,
+            user_id=user.id,
+            actor_type="system",
+            actor_id=None,
+            entity_type="conversation",
+            entity_id=conversation.id,
+            event_type="assistant.fallback_used",
+            payload={"parsed": parsed is not None, "provider_failed": ai_failed},
+        )
 
     assistant_message = ConversationMessage(
         conversation_id=conversation.id,
