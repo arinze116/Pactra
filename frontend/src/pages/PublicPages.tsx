@@ -22,16 +22,16 @@ export function LandingPage() {
   return <div className="min-h-screen bg-canvas text-ink-950">
     <header className="relative z-30 border-b border-white/[0.06] bg-canvas/95 backdrop-blur">
       <div className="mx-auto flex h-[72px] max-w-[1500px] items-center justify-between px-5 sm:px-8">
-        <Link className="flex items-center gap-3 text-lg font-medium" to="/"><BrandMark />Pactra</Link>
+        <Link className="flex min-h-11 items-center gap-3 text-lg font-medium" to="/"><BrandMark />Pactra</Link>
         <nav aria-label="Public navigation" className="hidden items-center gap-7 text-sm md:flex">
           <div className="relative" onMouseEnter={() => setFeatureOpen(true)} onMouseLeave={() => setFeatureOpen(false)}>
-            <button aria-expanded={featureOpen} className="flex h-10 items-center gap-1.5 text-ink-600 transition-colors duration-150 hover:text-ink-950" onClick={() => setFeatureOpen((open) => !open)} type="button">Product <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${featureOpen ? "rotate-180" : ""}`} /></button>
+            <button aria-expanded={featureOpen} className="flex h-11 items-center gap-1.5 text-ink-600 transition-colors duration-150 hover:text-ink-950" onClick={() => setFeatureOpen((open) => !open)} type="button">Product <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${featureOpen ? "rotate-180" : ""}`} /></button>
             {featureOpen ? <div className="feature-menu absolute right-0 top-full grid w-[600px] grid-cols-[220px_1fr] overflow-hidden rounded-2xl border border-line bg-surface shadow-float" onFocus={() => setFeatureOpen(true)}>
               <div className="border-r border-line bg-canvas-deep p-2">{productFeatures.map((feature, index) => <button className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm transition-colors duration-150 ${activeFeature === index ? "bg-surface-raised text-ink-950" : "text-ink-500 hover:bg-surface hover:text-ink-800"}`} key={feature.label} onFocus={() => setActiveFeature(index)} onMouseEnter={() => setActiveFeature(index)} type="button"><feature.icon className="h-4 w-4" strokeWidth={1.5} />{feature.label}</button>)}</div>
               <div className="flex min-h-60 flex-col justify-between p-6"><div><span className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-surface-raised text-pactra-300"><ActiveFeatureIcon className="h-4 w-4" strokeWidth={1.5} /></span><p className="mt-5 text-lg font-medium text-ink-950">{productFeatures[activeFeature].label}</p><p className="mt-2 max-w-sm text-sm leading-6 text-ink-500">{productFeatures[activeFeature].detail}</p></div><Link className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-pactra-300" to="/sign-up">Try it in the sandbox <ArrowRight className="h-4 w-4" /></Link></div>
             </div> : null}
           </div>
-          <Link className="text-ink-600 transition-colors duration-150 hover:text-ink-950" to="/sign-in">Sign in</Link>
+          <Link className="inline-flex min-h-11 items-center px-1 text-ink-600 transition-colors duration-150 hover:text-ink-950" to="/sign-in">Sign in</Link>
           <Link className="action-primary" to="/sign-up">Create sandbox</Link>
         </nav>
         <button aria-expanded={mobileOpen} aria-label={mobileOpen ? "Close navigation" : "Open navigation"} className="icon-button md:hidden" onClick={() => setMobileOpen((open) => !open)} type="button">{mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}</button>
