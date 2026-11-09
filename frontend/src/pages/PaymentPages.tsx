@@ -5,7 +5,7 @@ import { ApiError, api, createIdempotencyKey, isAmbiguousMutationError } from ".
 import { useAuth } from "../auth";
 import { AssistantWorkspace } from "../components/AssistantWorkspace";
 import { ErrorNotice, PageHeader, Panel } from "../components/UI";
-import type { PayPalStatus, PaymentRail, PaymentRequest, PolicyEnvelope, TransactionType } from "../types";
+import type { PayPalStatus, PaymentRail, PaymentRequest, PolicyEnvelope, PolicyPreview, TransactionType } from "../types";
 
 type PaymentPayload = Omit<PaymentRequest, "idempotency_key">;
 
@@ -90,8 +90,12 @@ export function NewPaymentPage() {
   const [paypalLoading, setPaypalLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [preview, setPreview] = useState<PolicyPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
   const [draftHydrated, setDraftHydrated] = useState(false);
   const paymentAttemptRef = useRef<PendingPaymentAttempt | null>(null);
+  const guidedInsufficientKeyRef = useRef<string | null>(null);
   const draftKey = `pactra-payment-draft:${user?.id ?? "anonymous"}`;
   const attemptKey = `pactra-payment-attempt:${user?.id ?? "anonymous"}`;
 
@@ -178,8 +182,47 @@ export function NewPaymentPage() {
   }, [type]);
 
   useEffect(() => {
+    if (!scenario || !preset && scenario !== "insufficient") return;
+    api.startGuidedTest().catch((caught) => {
+      setError(caught instanceof Error ? caught.message : "Guided test tracking unavailable");
+    });
+  }, [preset, scenario]);
+
+  useEffect(() => {
     setConfirming(false);
   }, [amount, category, rail, reason, recipient, type, vendor]);
+
+  useEffect(() => {
+    const numeric = Number(amount);
+    if (!vendor.trim() || !Number.isFinite(numeric) || numeric <= 0 || !/^\d+(\.\d{1,2})?$/.test(amount) || !category) {
+      setPreview(null);
+      setPreviewError("");
+      setPreviewLoading(false);
+      return;
+    }
+    let active = true;
+    setPreviewLoading(true);
+    setPreviewError("");
+    const timeout = window.setTimeout(() => {
+      api.previewPayment({
+        vendor: vendor.trim(),
+        amount_cents: Math.round(numeric * 100),
+        currency: "USD",
+        category,
+      })
+        .then((result) => { if (active) setPreview(result); })
+        .catch((caught) => {
+          if (!active) return;
+          setPreview(null);
+          setPreviewError(caught instanceof Error ? caught.message : "Policy preview unavailable");
+        })
+        .finally(() => { if (active) setPreviewLoading(false); });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [amount, category, vendor]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -194,7 +237,7 @@ export function NewPaymentPage() {
       return;
     }
     const amountCents = Math.round(numeric * 100);
-    if (policy && amountCents >= policy.policy.approval_threshold_cents && !confirming) {
+    if (preview?.decision === "approval_required" && !confirming) {
       setConfirming(true);
       return;
     }
@@ -245,7 +288,32 @@ export function NewPaymentPage() {
     }
   }
 
-  const needsConfirmation = Boolean(policy) && Number(amount || 0) * 100 >= (policy?.policy.approval_threshold_cents ?? 0);
+  const needsConfirmation = preview?.decision === "approval_required";
+
+  async function runInsufficientFundsScenario() {
+    const requestKey = guidedInsufficientKeyRef.current ?? createIdempotencyKey("guided-insufficient");
+    guidedInsufficientKeyRef.current = requestKey;
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await api.runInsufficientFundsScenario(requestKey);
+      guidedInsufficientKeyRef.current = null;
+      navigate(`/app/transactions/${result.transaction.id}`);
+    } catch (caught) {
+      if (!isAmbiguousMutationError(caught)) guidedInsufficientKeyRef.current = null;
+      setError(caught instanceof Error ? caught.message : "Insufficient-funds scenario failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (scenario === "insufficient") {
+    return <>
+      <PageHeader title="Insufficient-funds test" description="Create a real persisted policy outcome without posting a debit" />
+      {error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}
+      <Panel className="max-w-2xl p-5 sm:p-6"><h2 className="text-base font-medium">Run the controlled sandbox scenario</h2><p className="mt-3 text-sm leading-6 text-ink-600">Pactra will create temporary auditable policy versions that permit the balance check to run first, submit a request for one cent more than your available sandbox balance, persist the expected block, and restore your prior policy settings. No ledger debit or reservation is created.</p><button className="action-primary mt-6" disabled={submitting} onClick={() => void runInsufficientFundsScenario()} type="button">{submitting ? "Verifying funds control" : "Run insufficient-funds test"}</button></Panel>
+    </>;
+  }
 
   return <>
     <PageHeader title="New payment" description="Policy and wallet checks run on the server before any sandbox funds move" />
@@ -257,7 +325,7 @@ export function NewPaymentPage() {
           <fieldset>
             <legend className="text-sm font-medium">Request type</legend>
             <div className="mt-3 grid grid-cols-3 gap-2">
-              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button aria-pressed={type === value} className={`h-10 rounded-lg border text-xs font-medium transition-colors ${type === value ? "border-pactra-600 bg-pactra-100 text-pactra-300" : "border-line bg-surface text-ink-600 hover:bg-surface-raised"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
+              {(["vendor_payment", "payout", "sandbox_transfer"] as TransactionType[]).map((value) => <button aria-pressed={type === value} className={`h-11 rounded-lg border text-xs font-medium transition-colors ${type === value ? "border-pactra-600 bg-pactra-100 text-pactra-300" : "border-line bg-surface text-ink-600 hover:bg-surface-raised"}`} key={value} onClick={() => setType(value)} type="button">{value === "vendor_payment" ? "Vendor" : value === "payout" ? "Payout" : "Transfer"}</button>)}
             </div>
           </fieldset>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -275,8 +343,9 @@ export function NewPaymentPage() {
         </form>
       </Panel>
       <aside className="space-y-4">
+        <Panel className="p-5" aria-live="polite"><div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-pactra-700" />Likely policy decision</div>{previewLoading ? <p className="mt-4 text-xs text-ink-500">Checking current policy and available funds…</p> : previewError ? <p className="mt-4 text-xs text-negative">{previewError}. Final submission remains server-authoritative.</p> : preview ? <div className="mt-4"><p className={`text-sm font-medium ${preview.decision === "blocked" ? "text-negative" : preview.decision === "approval_required" ? "text-warning-dark" : "text-positive-dark"}`}>{preview.decision === "blocked" ? "Likely blocked" : preview.decision === "approval_required" ? "Likely needs approval" : "Likely auto-approved"}</p><p className="mt-2 text-xs leading-5 text-ink-500">Policy v{preview.policy_version}{preview.reason_code ? ` · ${preview.reason_code.replace(/_/g, " ")}` : " · all checks pass"}. The final decision is recalculated when you submit.</p></div> : <p className="mt-4 text-xs text-ink-500">Enter a vendor and valid amount to preview the current decision.</p>}</Panel>
         <Panel className="p-5"><div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-pactra-700" />Decision order</div><ol className="policy-trace mt-5 space-y-4 text-xs text-ink-600">{["Account and category", "Vendor and payment cap", "Daily and category budgets", "Available wallet funds", "Approval threshold"].map((item, index) => <li className="flex items-center gap-3" key={item}><span>{index + 1}</span>{item}</li>)}</ol></Panel>
-        <Panel className="p-5"><p className="text-sm font-medium">Rail disclosure</p><p className="mt-2 text-xs leading-5 text-ink-500">Internal payments use Pactra's simulated ledger. PayPal Sandbox payouts are sent by the configured sandbox business account. The balances are not linked.</p><p aria-live="polite" className={`mt-4 text-xs font-medium ${paypal?.configured ? "text-positive-dark" : "text-ink-500"}`}>{paypalLoading ? "Checking PayPal Sandbox status" : paypalError ? "PayPal status could not be verified; internal sandbox only" : paypal?.configured ? "PayPal Sandbox configured" : "PayPal Sandbox unavailable"}</p><Link className="mt-3 inline-flex text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" to="/app/settings/integrations/paypal">Integration details</Link></Panel>
+        <Panel className="p-5"><p className="text-sm font-medium">Rail disclosure</p><p className="mt-2 text-xs leading-5 text-ink-500">Internal payments use Pactra's simulated ledger. PayPal Sandbox payouts are sent by the configured sandbox business account. The balances are not linked.</p><p aria-live="polite" className={`mt-4 text-xs font-medium ${paypal?.configured ? "text-positive-dark" : "text-ink-500"}`}>{paypalLoading ? "Checking PayPal Sandbox status" : paypalError ? "PayPal status could not be verified; internal sandbox only" : paypal?.configured ? "PayPal Sandbox configured" : "PayPal Sandbox unavailable"}</p><Link className="mt-2 inline-flex min-h-11 items-center text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" to="/app/settings/integrations/paypal">Integration details</Link></Panel>
       </aside>
     </div>
   </>;

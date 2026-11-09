@@ -26,11 +26,13 @@ class FakeGeminiClient:
         self._responses = list(responses or [])
         self._error = error
         self.calls = 0
+        self.requests: list[dict[str, object]] = []
         self.aio = self
         self.models = self
 
-    async def generate_content(self, **_kwargs):
+    async def generate_content(self, **kwargs):
         self.calls += 1
+        self.requests.append(kwargs)
         if self._error is not None:
             raise self._error
         response = self._responses.pop(0)
@@ -48,8 +50,17 @@ class SlowGeminiClient(FakeGeminiClient):
         await asyncio.sleep(60)
 
 
-def gemini_tool_response(name: str, arguments: dict[str, object]) -> object:
-    call = SimpleNamespace(name=name, args=arguments)
+class Provider503Error(RuntimeError):
+    code = 503
+
+
+def gemini_tool_response(
+    name: str,
+    arguments: dict[str, object],
+    *,
+    call_id: str = "gemini-call-1",
+) -> object:
+    call = SimpleNamespace(id=call_id, name=name, args=arguments)
     content = SimpleNamespace(parts=[SimpleNamespace(function_call=call)])
     return SimpleNamespace(candidates=[SimpleNamespace(content=content)], text="")
 
@@ -57,6 +68,18 @@ def gemini_tool_response(name: str, arguments: dict[str, object]) -> object:
 def gemini_text_response(text: str) -> object:
     content = SimpleNamespace(parts=[])
     return SimpleNamespace(candidates=[SimpleNamespace(content=content)], text=text)
+
+
+def test_gemini_function_response_allows_missing_optional_call_id() -> None:
+    call = SimpleNamespace(id=None)
+    part = assistant._function_response_part(
+        call,
+        name="get_wallet_summary",
+        response={"available_balance_cents": 100_000},
+    )
+
+    assert part.function_response.id is None
+    assert part.function_response.name == "get_wallet_summary"
 
 
 @pytest.fixture
@@ -141,6 +164,7 @@ async def test_gemini_tool_call_uses_governed_service_and_persists_tool_message(
                     "reason": "Monthly subscription",
                     "rail": "internal_sandbox",
                 },
+                call_id="create-payment-call-1",
             ),
             gemini_text_response("The payment was created."),
         ]
@@ -165,6 +189,23 @@ async def test_gemini_tool_call_uses_governed_service_and_persists_tool_message(
     assert [message.role for message in messages] == ["user", "tool", "assistant"]
     assert messages[1].tool_calls[0]["name"] == "create_payment_request"
     assert "completed after backend policy and ledger confirmation" in result.reply
+    first_config = fake.requests[0]["config"]
+    assert first_config.temperature is None
+    second_contents = fake.requests[1]["contents"]
+    function_response = second_contents[-1].parts[0].function_response
+    assert function_response.id == "create-payment-call-1"
+    assert function_response.name == "create_payment_request"
+    events = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.event_type.in_(
+                ["assistant.message_sent", "assistant.tool_called"]
+            )
+        )
+    ).all()
+    assert {event.event_type for event in events} == {
+        "assistant.message_sent",
+        "assistant.tool_called",
+    }
 
 
 @pytest.mark.asyncio
@@ -198,6 +239,13 @@ async def test_gemini_failure_is_audited_and_disclosed_before_fallback(
         "code": "AI_UNAVAILABLE",
         "model": settings.gemini_model,
     }
+    fallback_audit = session.exec(
+        select(AuditEvent).where(AuditEvent.event_type == "assistant.fallback_used")
+    ).one()
+    assert fallback_audit.payload == {
+        "parsed": True,
+        "provider_failed": True,
+    }
 
 
 @pytest.mark.asyncio
@@ -223,6 +271,76 @@ async def test_gemini_timeout_retries_then_uses_bounded_fallback(
     assert fake.calls == 3
     assert result.transaction_ids == []
     assert result.reply.startswith("AI is temporarily unavailable")
+
+
+@pytest.mark.asyncio
+async def test_gemini_503_retries_without_leaking_provider_details(
+    assistant_db,
+    monkeypatch,
+) -> None:
+    session, user, _other = assistant_db
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-gemini-key")
+    fake = FakeGeminiClient(
+        error=Provider503Error("provider stack secret-sentinel-503")
+    )
+    monkeypatch.setattr(assistant.genai, "Client", lambda **_kwargs: fake)
+
+    result = await run_assistant(
+        session,
+        user=user,
+        message="What is my current sandbox wallet balance?",
+        conversation_id=None,
+        request_id="assistant-gemini-503-0001",
+    )
+
+    assert fake.calls == 3
+    assert result.transaction_ids == []
+    assert result.reply.startswith("AI is temporarily unavailable")
+    assert "secret-sentinel-503" not in result.reply
+
+
+@pytest.mark.asyncio
+async def test_malformed_gemini_tool_arguments_fail_closed(
+    assistant_db,
+    monkeypatch,
+) -> None:
+    session, user, _other = assistant_db
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-gemini-key")
+    fake = FakeGeminiClient(
+        [
+            gemini_tool_response(
+                "create_payment_request",
+                {
+                    "type": "vendor_payment",
+                    "vendor": "Linear",
+                    "recipient": None,
+                    "amount_cents": 4_900,
+                    "currency": "USD",
+                    "category": "software",
+                    "reason": "Monthly subscription",
+                    "rail": "internal_sandbox",
+                    "user_id": "00000000-0000-4000-8000-000000000000",
+                },
+            ),
+            gemini_text_response("Payment completed"),
+        ]
+    )
+    monkeypatch.setattr(assistant.genai, "Client", lambda **_kwargs: fake)
+
+    result = await run_assistant(
+        session,
+        user=user,
+        message="Pay Linear $49 for our monthly software subscription",
+        conversation_id=None,
+        request_id="assistant-malformed-tool-0001",
+    )
+
+    assert result.transaction_ids == []
+    assert session.exec(select(PaymentTransaction)).all() == []
+    assert result.reply.startswith("The payment action could not be completed")
+    assert result.tool_calls[0]["result"].get("error")
 
 
 @pytest.mark.asyncio
@@ -362,6 +480,13 @@ async def test_paypal_fallback_does_not_silently_switch_rails(assistant_db) -> N
     assert result.transaction_ids == []
     assert "PayPal Sandbox is not configured" in result.reply
     assert session.exec(select(PaymentTransaction)).all() == []
+    fallback_audit = session.exec(
+        select(AuditEvent).where(AuditEvent.event_type == "assistant.fallback_used")
+    ).one()
+    assert fallback_audit.payload == {
+        "parsed": True,
+        "provider_failed": False,
+    }
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,13 @@
 import type {
   AssistantResponse,
+  ApprovalItem,
   ConversationMessage,
   ConversationSummary,
   LedgerPage,
   PayPalStatus,
   PaymentRequest,
   PaymentResponse,
+  PolicyPreview,
   Policy,
   PolicyEnvelope,
   PolicyVersion,
@@ -83,6 +85,7 @@ export function isAmbiguousMutationError(error: unknown) {
 export const api = {
   register: (email: string, password: string) => request<{ user: User; wallet: WalletBalance }>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
   login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  session: () => request<{ user: User | null }>("/api/auth/session"),
   me: () => request<{ user: User }>("/api/auth/me"),
   logout: async () => {
     await request<void>("/api/auth/logout", { method: "POST" });
@@ -93,6 +96,8 @@ export const api = {
   ledger: () => request<LedgerPage>("/api/wallet/ledger?limit=100"),
   topUp: (amount_cents: number, idempotency_key = createIdempotencyKey("topup")) => request<{ balance: WalletBalance }>("/api/wallet/topups", { method: "POST", body: JSON.stringify({ amount_cents, idempotency_key }) }),
   resetSandbox: (idempotency_key = createIdempotencyKey("reset")) => request<{ balance_cents: number; sandbox_generation: number }>("/api/wallet/reset", { method: "POST", body: JSON.stringify({ confirmation: "RESET", idempotency_key }) }),
+  startGuidedTest: () => request<{ started: boolean; sandbox_generation: number }>("/api/judge/guided/start", { method: "POST" }),
+  runInsufficientFundsScenario: (idempotency_key = createIdempotencyKey("guided-insufficient")) => request<PaymentResponse>("/api/judge/scenarios/insufficient-funds", { method: "POST", body: JSON.stringify({ idempotency_key }) }),
   policy: () => request<PolicyEnvelope>("/api/policy"),
   policyHistory: () => request<{ items: PolicyVersion[] }>("/api/policies"),
   savePolicy: (policy: Policy) => request<PolicyEnvelope>("/api/policy", { method: "PUT", body: JSON.stringify(policy) }),
@@ -100,8 +105,9 @@ export const api = {
   spendSummary: () => request<SpendSummary>("/api/spend-summary"),
   transactions: (query = "") => request<TransactionPage>(`/api/transactions${query ? `?${query}` : ""}`),
   transaction: (id: string) => request<TransactionDetail>(`/api/transactions/${encodeURIComponent(id)}`),
+  previewPayment: (payload: Pick<PaymentRequest, "vendor" | "amount_cents" | "currency" | "category">) => request<PolicyPreview>("/api/transactions/preview", { method: "POST", body: JSON.stringify(payload) }),
   createPayment: (payload: Omit<PaymentRequest, "idempotency_key">, idempotency_key = createIdempotencyKey("payment")) => request<PaymentResponse>("/api/transactions", { method: "POST", body: JSON.stringify({ ...payload, idempotency_key }) }),
-  approvals: () => request<{ items: Transaction[] }>("/api/approvals"),
+  approvals: () => request<{ items: ApprovalItem[] }>("/api/approvals"),
   approve: (id: string, idempotency_key = createIdempotencyKey("approve")) => request<Transaction>(`/api/approvals/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ idempotency_key }) }),
   reject: (id: string, reason: string, idempotency_key = createIdempotencyKey("reject")) => request<Transaction>(`/api/approvals/${encodeURIComponent(id)}/reject`, { method: "POST", body: JSON.stringify({ reason, idempotency_key }) }),
   retry: (id: string, idempotency_key = createIdempotencyKey("retry")) => request<{ transaction: Transaction }>(`/api/transactions/${encodeURIComponent(id)}/retry`, { method: "POST", body: JSON.stringify({ idempotency_key }) }),

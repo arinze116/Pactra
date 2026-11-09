@@ -11,15 +11,24 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.defaults import default_policy
-from backend.models import FundReservation, LedgerJournal, PaymentTransaction, User, utc_now
+from backend.models import (
+    AuditEvent,
+    FundReservation,
+    LedgerJournal,
+    PaymentTransaction,
+    User,
+    utc_now,
+)
 from backend.services.accounts import create_account
 from backend.services.ledger import get_wallet_for_user, list_wallet_ledger, wallet_balance
 from backend.services.policies import save_policy
+from backend.services.sandbox import reset_sandbox
 from backend.services.transactions import (
     AlreadyActioned,
     PolicyBlocked,
     PolicyChanged,
     TransactionIdempotencyConflict,
+    TransactionInProgress,
     approve_transaction,
     create_payment_request,
     reject_transaction,
@@ -165,6 +174,45 @@ def test_approval_reserves_then_captures_and_is_single_use(transaction_db) -> No
             transaction_id=result.transaction.id,
             idempotency_key="approve-payment-0002",
         )
+
+
+def test_approval_threshold_boundaries_are_deterministic(transaction_db) -> None:
+    session, user = transaction_db
+    policy = default_policy()
+    policy["approval_threshold_cents"] = 100
+    save_policy(session, user_id=user.id, policy_json=policy)
+    session.commit()
+
+    below = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=99,
+            key="approval-threshold-below-0001",
+        ),
+    )
+    at_threshold = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=100,
+            key="approval-threshold-exact-0001",
+        ),
+    )
+    above = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=101,
+            key="approval-threshold-above-0001",
+        ),
+    )
+    session.commit()
+
+    assert below.transaction.status == "completed"
+    assert at_threshold.transaction.status == "completed"
+    assert above.transaction.status == "pending_approval"
+    assert above.transaction.policy_result["reason_code"] == "APPROVAL_REQUIRED"
 
 
 def test_rejection_releases_hold_without_posting(transaction_db) -> None:
@@ -314,6 +362,66 @@ def test_policy_version_change_requires_review_before_approval(transaction_db) -
     assert approved.status == "completed"
 
 
+def test_approval_revalidation_block_is_audited_and_releases_hold(
+    transaction_db,
+) -> None:
+    session, user = transaction_db
+    result = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=12_000,
+            key="policy-block-after-review",
+            category="freelance",
+            vendor="Ada Contractor",
+        ),
+    )
+    session.commit()
+
+    policy = default_policy()
+    policy["blocked_vendors"] = ["Ada Contractor"]
+    save_policy(session, user_id=user.id, policy_json=policy)
+    session.commit()
+
+    with pytest.raises(PolicyChanged) as caught:
+        approve_transaction(
+            session,
+            user=user,
+            transaction_id=result.transaction.id,
+            idempotency_key="policy-block-after-review-approval",
+        )
+    session.commit()
+
+    assert caught.value.transaction.status == "blocked"
+    reservation = session.exec(
+        select(FundReservation).where(
+            FundReservation.transaction_id == result.transaction.id
+        )
+    ).one()
+    assert reservation.status == "released"
+    event = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == result.transaction.id,
+            AuditEvent.event_type == "payment.blocked",
+        )
+    ).one()
+    assert event.actor_id == user.id
+    assert event.payload == {
+        "source": "approval_revalidation",
+        "reason_code": "VENDOR_BLOCKED",
+        "previous_policy_version": 1,
+        "policy_version": 2,
+    }
+    transitions = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == result.transaction.id,
+            AuditEvent.event_type == "transaction.state_changed",
+        )
+    ).all()
+    transition = next(event for event in transitions if event.payload["to"] == "blocked")
+    assert transition.payload == {"from": "pending_approval", "to": "blocked"}
+
+
 def test_failed_internal_transaction_can_retry_once(transaction_db) -> None:
     session, user = transaction_db
     transaction = PaymentTransaction(
@@ -357,6 +465,49 @@ def test_failed_internal_transaction_can_retry_once(transaction_db) -> None:
     )
     assert replayed.status == "completed"
     assert replayed_attempt.id == attempt.id
+
+
+def test_reset_waits_for_unresolved_provider_outcome(transaction_db) -> None:
+    session, user = transaction_db
+    transaction = PaymentTransaction(
+        user_id=user.id,
+        idempotency_key="unresolved-provider-reset-test",
+        type="payout",
+        vendor="Sandbox recipient",
+        recipient="recipient@example.com",
+        amount_cents=2_500,
+        currency="USD",
+        category="freelance",
+        reason="Provider outcome is unresolved",
+        status="executing",
+        sandbox_generation=1,
+        policy_version=1,
+        policy_result={"decision": "approved"},
+        rail="paypal_sandbox_payouts",
+        provider_status="PROCESSING",
+    )
+    session.add(transaction)
+    session.commit()
+
+    with pytest.raises(TransactionInProgress):
+        reset_sandbox(
+            session,
+            user=user,
+            idempotency_key="reset-blocked-provider-0001",
+        )
+    session.rollback()
+
+    transaction.status = "failed"
+    transaction.provider_status = "FAILED"
+    session.add(transaction)
+    session.commit()
+    result = reset_sandbox(
+        session,
+        user=user,
+        idempotency_key="reset-after-provider-terminal-0001",
+    )
+    session.commit()
+    assert result.sandbox_generation == 2
 
 
 def test_concurrent_policy_reservations_do_not_exceed_category_budget(

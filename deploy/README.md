@@ -33,6 +33,35 @@ Disable only Pactra's Funnel route with
 `sudo tailscale funnel --https=443 off`. Do not reset or reconfigure the base
 Tailscale connection.
 
+## PostgreSQL backup and restore drill
+
+Create a private custom-format archive before each release or migration:
+
+```bash
+sudo install -d -o pactra -g pactra -m 0700 /opt/pactra/backups
+sudo -u pactra pg_dump --format=custom --compress=9 \
+  --file=/opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump pactra
+sudo chmod 0600 /opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump
+sudo -u pactra pg_restore --list \
+  /opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump
+```
+
+Never test a restore over the live `pactra` database. Create a new drill
+database, restore into it, and verify the migration revision and table counts:
+
+```bash
+sudo -u postgres createdb --owner=pactra pactra_restore_check_YYYYMMDD
+sudo -u pactra pg_restore --exit-on-error \
+  --dbname=pactra_restore_check_YYYYMMDD \
+  /opt/pactra/backups/pactra-YYYYMMDDTHHMMSSZ.dump
+sudo -u pactra psql --dbname=pactra_restore_check_YYYYMMDD \
+  --command="SELECT version_num FROM alembic_version;"
+```
+
+Keep the live service pointed at `pactra` until the drill database has been
+validated. Removing a drill database or rotating archives is a separate,
+explicitly approved operation.
+
 ## Vercel frontend
 
 The linked Vercel project is `pactra`. Use `frontend` as the upload root,
@@ -42,3 +71,33 @@ rewrite. Leave `VITE_API_URL` absent so browser requests remain same-origin.
 
 After deployment, verify registration, CSRF-protected mutations, cookies,
 receipts, persistence, and cross-user isolation through the public Vercel URL.
+
+## Release-candidate migration and rollback
+
+The current release candidate adds migration `20261107_0005`. It creates only
+the `rate_limit_buckets` table and its expiry index. It does not rewrite user,
+wallet, transaction, audit, or ledger rows. Test the migration on a restored
+database before production approval.
+
+For an approved release:
+
+1. Create and verify `/opt/pactra/backups/pactra-pre-<release-sha>-<UTC>.dump`.
+2. Install the immutable release directory without changing `/opt/pactra/current`.
+3. Stop only `pactra-api` and `pactra-worker`, switch the symlink, and start the
+   API. Its pre-start migration advances PostgreSQL to `20261107_0005`.
+4. Verify `/api/ready`, registration/login rate limits, wallet, preview,
+   payment, approval, receipt, reset, worker lease, Funnel and Vercel rewrite.
+5. Start the worker only after API and database readiness pass.
+
+Expected interruption is one API restart, normally under a minute. If the new
+release fails, stop both Pactra services before rollback. Release `0e3e905`
+cannot start while the database is stamped `20261107_0005` because its Alembic
+graph ends at `0004`. While services remain stopped, use the candidate release's
+migration code to downgrade to `20261107_0004`, verify the rate-limit table is
+absent, switch `/opt/pactra/current` back to `0e3e905`, then start the API and
+worker. The downgrade deletes stored rate-limit buckets but does not alter user,
+wallet, transaction, ledger, or audit rows. Use the verified backup only for a
+separately diagnosed database restore.
+
+The exact backup, stopped-service downgrade, symlink, health-check, and recovery
+commands are maintained in `QA/DEPLOYMENT-AND-ROLLBACK.md`.

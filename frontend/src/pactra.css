@@ -66,15 +66,15 @@ select:focus-visible {
   }
 
   .action-secondary {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium text-ink-700 transition-colors duration-150 hover:border-ink-300 hover:bg-surface-raised hover:text-ink-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium text-ink-700 transition-colors duration-150 hover:border-ink-300 hover:bg-surface-raised hover:text-ink-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40;
   }
 
   .action-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-pactra-600 px-4 text-sm font-medium text-white transition-colors duration-150 hover:bg-pactra-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-raised disabled:text-ink-400;
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-pactra-600 px-4 text-sm font-medium text-white transition-colors duration-150 hover:bg-pactra-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-raised disabled:text-ink-400;
   }
 
   .icon-button {
-    @apply grid h-9 w-9 place-items-center rounded-lg border border-line bg-surface-raised text-ink-500 transition-colors duration-150 hover:text-ink-950;
+    @apply grid h-11 w-11 place-items-center rounded-lg border border-line bg-surface-raised text-ink-500 transition-colors duration-150 hover:text-ink-950;
   }
 
   .icon-button-small {

@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from .auth import (
     AuthContext,
+    SESSION_COOKIE,
     auth_rate_limiter,
     clear_session_cookies,
     client_ip,
@@ -34,8 +35,8 @@ from .database import get_session, session_scope
 from .defaults import INITIAL_SANDBOX_CENTS
 from .errors import ApiError
 from .models import AuthSession, PaymentTransaction, TransactionAttempt, User
-from .paypal_client import PayPalClient
 from .schemas import (
+    ApprovalItemResponse,
     ApprovalListResponse,
     ApprovalRequest,
     AssistantRequest,
@@ -48,10 +49,14 @@ from .schemas import (
     ConversationMessagesResponse,
     ConversationSummaryResponse,
     ConversationUpdateRequest,
+    GuidedScenarioRequest,
+    GuidedStartResponse,
     LedgerItemResponse,
     LedgerPageResponse,
     LoginRequest,
     PaymentRequest,
+    PaymentPreviewRequest,
+    PaymentPreviewResponse,
     PaymentResponse,
     PolicyInput,
     PolicyResponse,
@@ -63,6 +68,7 @@ from .schemas import (
     ResetRequest,
     ResetResponse,
     ReversalRequest,
+    SessionStateResponse,
     SpendSummaryResponse,
     TopUpRequest,
     TopUpResponse,
@@ -93,16 +99,17 @@ from .services.ledger import (
     top_up_wallet,
     wallet_balance,
 )
+from .services.judge import run_insufficient_funds_scenario, start_guided_test
 from .services.policies import (
     PolicyError,
     PolicyUnchanged,
     get_current_policy,
     list_policy_versions,
+    preview_policy_decision,
     reset_policy,
     save_policy,
     spend_summary as build_spend_summary,
 )
-from .services.paypal import ProviderUnavailable, submit_or_reconcile_payout
 from .services.sandbox import ResetRateLimited, reset_sandbox
 from .services.transactions import (
     AlreadyActioned,
@@ -116,7 +123,7 @@ from .services.transactions import (
     TransactionServiceError,
     approve_transaction as approve_payment,
     create_payment_request,
-    get_owned_transaction,
+    enqueue_paypal_reconciliation,
     list_pending_approvals,
     list_transactions as query_transactions,
     reject_transaction as reject_payment,
@@ -137,12 +144,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     with session_scope() as session:
         session.exec(text("SELECT 1 FROM users LIMIT 1")).all()
-    app.state.paypal_client = PayPalClient()
     logger.info("Pactra sandbox API started")
-    try:
-        yield
-    finally:
-        await app.state.paypal_client.close()
+    yield
 
 
 app = FastAPI(
@@ -171,6 +174,7 @@ async def request_context_and_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Cache-Control"] = "no-store"
     response.headers["Content-Security-Policy"] = (
         "default-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     )
@@ -188,10 +192,15 @@ async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
     }
     if exc.details:
         error["details"] = exc.details
-    return JSONResponse(
+    response = JSONResponse(
         status_code=exc.status_code,
         content={"error": error},
     )
+    if exc.status_code == 429 and exc.details:
+        retry_after = exc.details.get("retry_after_seconds")
+        if isinstance(retry_after, int) and retry_after > 0:
+            response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 @app.exception_handler(RequestValidationError)
@@ -216,6 +225,16 @@ MutationAuthDependency = Annotated[AuthContext, Depends(require_csrf)]
 
 def _user_response(user: User) -> UserResponse:
     return UserResponse(id=user.id, email=user.email)
+
+
+def _masked_email(value: str) -> str:
+    """Return a stable display hint without exposing the configured address."""
+    local, separator, domain = value.partition("@")
+    if not separator:
+        return "***"
+    domain_name, dot, suffix = domain.rpartition(".")
+    masked_domain = f"{domain_name[:1]}***{dot}{suffix}" if dot else "***"
+    return f"{local[:1]}***@{masked_domain}"
 
 
 def _balance_response(balance: Any) -> WalletBalanceResponse:
@@ -266,6 +285,13 @@ def register(
     db_session: SessionDependency,
 ) -> RegistrationResponse:
     auth_rate_limiter.check(
+        db_session,
+        "register:global",
+        limit=settings.auth_registration_global_rate_limit_per_hour,
+        window=timedelta(hours=1),
+    )
+    auth_rate_limiter.check(
+        db_session,
         f"register:{client_ip(request)}",
         limit=settings.auth_registration_rate_limit_per_hour,
         window=timedelta(hours=1),
@@ -302,7 +328,14 @@ def login(
     db_session: SessionDependency,
 ) -> AuthResponse:
     auth_rate_limiter.check(
-        login_rate_key(request, str(payload.email)),
+        db_session,
+        "login:global",
+        limit=settings.auth_login_global_rate_limit_per_minute,
+        window=timedelta(minutes=1),
+    )
+    auth_rate_limiter.check(
+        db_session,
+        login_rate_key(str(payload.email)),
         limit=5,
         window=timedelta(minutes=15),
     )
@@ -324,7 +357,7 @@ def login(
             db_session.commit()
         raise ApiError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.")
 
-    old_raw_token = request.cookies.get("pactra_session")
+    old_raw_token = request.cookies.get(SESSION_COOKIE)
     if old_raw_token:
         old_session = db_session.exec(
             select(AuthSession).where(
@@ -356,6 +389,26 @@ def login(
 def current_user(response: Response, context: AuthDependency) -> AuthResponse:
     set_csrf_response_header(response, context.raw_token)
     return AuthResponse(user=_user_response(context.user))
+
+
+@app.get("/api/auth/session", response_model=SessionStateResponse)
+def current_session_state(
+    request: Request,
+    response: Response,
+    db_session: SessionDependency,
+) -> SessionStateResponse:
+    """Discover browser session state without treating signed-out users as errors."""
+    if not request.cookies.get(SESSION_COOKIE):
+        return SessionStateResponse(user=None)
+    try:
+        context = require_auth_context(request, db_session)
+    except ApiError as exc:
+        if exc.status_code != status.HTTP_401_UNAUTHORIZED:
+            raise
+        clear_session_cookies(response)
+        return SessionStateResponse(user=None)
+    set_csrf_response_header(response, context.raw_token)
+    return SessionStateResponse(user=_user_response(context.user))
 
 
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -533,6 +586,7 @@ async def chat(
     db_session: SessionDependency,
 ) -> AssistantResponse:
     auth_rate_limiter.check(
+        db_session,
         f"assistant:{context.user.id}:{client_ip(request)}",
         limit=20,
         window=timedelta(minutes=1),
@@ -542,7 +596,9 @@ async def chat(
             db_session,
             user=context.user,
             message=payload.message,
-            conversation_id=payload.conversation_id,
+            conversation_id=(
+                str(payload.conversation_id) if payload.conversation_id else None
+            ),
             request_id=payload.request_id,
         )
     except ConversationNotFound as exc:
@@ -550,24 +606,6 @@ async def chat(
     except ConversationArchived as exc:
         raise ApiError(409, "CONVERSATION_ARCHIVED", str(exc)) from exc
 
-    client = getattr(request.app.state, "paypal_client", None)
-    for transaction_id in result.transaction_ids:
-        transaction = get_owned_transaction(
-            db_session,
-            user_id=context.user.id,
-            transaction_id=transaction_id,
-        )
-        if transaction.rail != "paypal_sandbox_payouts" or transaction.status != "executing":
-            continue
-        if client is None:
-            continue
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            db_session.commit()
     result = refresh_assistant_payment_state(
         db_session,
         user_id=context.user.id,
@@ -642,7 +680,7 @@ def start_conversation(
     response_model=ConversationSummaryResponse,
 )
 def change_conversation(
-    conversation_id: str,
+    conversation_id: UUID,
     payload: ConversationUpdateRequest,
     context: MutationAuthDependency,
     db_session: SessionDependency,
@@ -651,7 +689,7 @@ def change_conversation(
         conversation = update_conversation(
             db_session,
             user_id=context.user.id,
-            conversation_id=conversation_id,
+            conversation_id=str(conversation_id),
             title=payload.title,
             archived=payload.archived,
         )
@@ -686,7 +724,7 @@ def change_conversation(
     response_model=ConversationMessagesResponse,
 )
 def get_conversation_messages(
-    conversation_id: str,
+    conversation_id: UUID,
     context: AuthDependency,
     db_session: SessionDependency,
 ) -> ConversationMessagesResponse:
@@ -694,7 +732,7 @@ def get_conversation_messages(
         messages = list_messages(
             db_session,
             user_id=context.user.id,
-            conversation_id=conversation_id,
+            conversation_id=str(conversation_id),
         )
     except ConversationNotFound as exc:
         raise ApiError(404, "NOT_FOUND", "Conversation not found") from exc
@@ -749,6 +787,7 @@ def update_policy(
     db_session: SessionDependency,
 ) -> PolicyResponse:
     auth_rate_limiter.check(
+        db_session,
         f"policy:{context.user.id}:{client_ip(request)}",
         limit=20,
         window=timedelta(hours=1),
@@ -785,6 +824,67 @@ def reset_account_policy(
 
 
 @app.post(
+    "/api/transactions/preview",
+    response_model=PaymentPreviewResponse,
+)
+def preview_transaction_policy(
+    payload: PaymentPreviewRequest,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> PaymentPreviewResponse:
+    decision = preview_policy_decision(
+        db_session,
+        user=context.user,
+        vendor=payload.vendor,
+        amount_cents=payload.amount_cents,
+        currency=payload.currency,
+        category=payload.category,
+    )
+    return PaymentPreviewResponse(
+        decision=decision.decision,
+        reason_code=decision.reason_code,
+        policy_version=decision.policy_version,
+        checks=decision.checks,
+    )
+
+
+@app.post("/api/judge/guided/start", response_model=GuidedStartResponse)
+def begin_guided_test(
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> GuidedStartResponse:
+    generation = start_guided_test(db_session, user=context.user)
+    db_session.commit()
+    return GuidedStartResponse(started=True, sandbox_generation=generation)
+
+
+@app.post(
+    "/api/judge/scenarios/insufficient-funds",
+    response_model=PaymentResponse,
+)
+def create_guided_insufficient_funds_outcome(
+    payload: GuidedScenarioRequest,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> PaymentResponse:
+    try:
+        transaction, decision, balance = run_insufficient_funds_scenario(
+            db_session,
+            user=context.user,
+            idempotency_key=payload.idempotency_key,
+        )
+        db_session.commit()
+    except RuntimeError as exc:
+        db_session.rollback()
+        raise ApiError(409, "GUIDED_SCENARIO_UNAVAILABLE", str(exc)) from exc
+    return PaymentResponse(
+        transaction=_transaction_response(transaction),
+        policy_result=decision.snapshot(),
+        balance=_balance_response(balance),
+    )
+
+
+@app.post(
     "/api/transactions",
     response_model=PaymentResponse,
     status_code=status.HTTP_201_CREATED,
@@ -796,6 +896,7 @@ async def create_transaction(
     db_session: SessionDependency,
 ) -> PaymentResponse:
     auth_rate_limiter.check(
+        db_session,
         f"payment:{context.user.id}:{client_ip(request)}",
         limit=30,
         window=timedelta(minutes=1),
@@ -816,18 +917,22 @@ async def create_transaction(
         db_session.commit()
     except PolicyBlocked as exc:
         db_session.commit()
-        transaction_body = _transaction_response(exc.transaction).model_dump(mode="json")
-        policy_body = exc.decision.snapshot()
-        code = exc.decision.reason_code or "POLICY_BLOCKED"
-        status_code = 402 if code == "INSUFFICIENT_FUNDS" else 422
-        public_code = "INSUFFICIENT_FUNDS" if status_code == 402 else "POLICY_BLOCKED"
+        wallet = get_wallet_for_user(db_session, context.user.id)
+        outcome = PaymentResponse(
+            transaction=_transaction_response(exc.transaction),
+            policy_result=exc.decision.snapshot(),
+            balance=_balance_response(wallet_balance(db_session, wallet)),
+        )
+        is_insufficient = exc.decision.reason_code == "INSUFFICIENT_FUNDS"
         raise ApiError(
-            status_code,
-            public_code,
-            "Your available sandbox balance is too low."
-            if status_code == 402
-            else "This request is blocked by your spending policy.",
-            details={"transaction": transaction_body, "policy_result": policy_body},
+            402 if is_insufficient else 422,
+            "INSUFFICIENT_FUNDS" if is_insufficient else exc.code,
+            (
+                "Your available sandbox balance is too low."
+                if is_insufficient
+                else "This request is blocked by your spending policy."
+            ),
+            details=outcome.model_dump(mode="json"),
         ) from exc
     except TransactionIdempotencyConflict as exc:
         db_session.rollback()
@@ -838,40 +943,6 @@ async def create_transaction(
     except LedgerError as exc:
         db_session.rollback()
         raise ApiError(409, "INSUFFICIENT_FUNDS", str(exc)) from exc
-    if (
-        result.transaction.rail == "paypal_sandbox_payouts"
-        and result.transaction.status == "executing"
-    ):
-        client = getattr(request.app.state, "paypal_client", None)
-        if client is None:
-            raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=result.transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            # Unknown outcomes stay executing with their reservation. Definite
-            # pre-submission failures are persisted as failed by the service.
-            db_session.commit()
-        if result.transaction.status == "failed":
-            raise ApiError(
-                502,
-                "PROVIDER_UNAVAILABLE",
-                "PayPal Sandbox payout failed.",
-                details={
-                    "transaction": _transaction_response(
-                        result.transaction
-                    ).model_dump(mode="json")
-                },
-            )
-        wallet = get_wallet_for_user(db_session, context.user.id)
-        result = type(result)(
-            transaction=result.transaction,
-            policy_result=result.transaction.policy_result,
-            balance=wallet_balance(db_session, wallet),
-            replayed=False,
-        )
     return PaymentResponse(
         transaction=_transaction_response(result.transaction),
         policy_result=result.policy_result,
@@ -942,13 +1013,15 @@ def list_account_transactions(
 
 @app.get("/api/transactions/{transaction_id}", response_model=TransactionDetailResponse)
 def get_transaction_detail(
-    transaction_id: str,
+    transaction_id: UUID,
     db_session: SessionDependency,
     context: AuthDependency,
 ) -> TransactionDetailResponse:
     try:
         detail = transaction_detail(
-            db_session, user_id=context.user.id, transaction_id=transaction_id
+            db_session,
+            user_id=context.user.id,
+            transaction_id=str(transaction_id),
         )
     except TransactionNotFound as exc:
         raise ApiError(404, "NOT_FOUND", "Transaction not found") from exc
@@ -963,7 +1036,7 @@ def get_transaction_detail(
 
 @app.post("/api/transactions/{transaction_id}/reverse")
 def reverse_completed_transaction(
-    transaction_id: str,
+    transaction_id: UUID,
     payload: ReversalRequest,
     context: MutationAuthDependency,
     db_session: SessionDependency,
@@ -972,7 +1045,7 @@ def reverse_completed_transaction(
         transaction, journal = reverse_transaction(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
             reason=payload.reason,
         )
@@ -997,10 +1070,9 @@ def reverse_completed_transaction(
 
 
 @app.post("/api/transactions/{transaction_id}/retry", status_code=status.HTTP_202_ACCEPTED)
-async def retry_failed_transaction(
-    transaction_id: str,
+def retry_failed_transaction(
+    transaction_id: UUID,
     payload: ApprovalRequest,
-    request: Request,
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> dict[str, Any]:
@@ -1008,7 +1080,7 @@ async def retry_failed_transaction(
         transaction, attempt = retry_transaction(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
         )
         db_session.commit()
@@ -1024,17 +1096,6 @@ async def retry_failed_transaction(
     except LedgerError as exc:
         db_session.rollback()
         raise ApiError(409, "INSUFFICIENT_FUNDS", str(exc)) from exc
-    if transaction.rail == "paypal_sandbox_payouts" and transaction.status == "executing":
-        client = getattr(request.app.state, "paypal_client", None)
-        if client is None:
-            raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            db_session.commit()
     return {
         "transaction": _transaction_response(transaction).model_dump(mode="json"),
         "attempt": {
@@ -1050,15 +1111,27 @@ async def retry_failed_transaction(
 def get_approvals(
     context: AuthDependency, db_session: SessionDependency
 ) -> ApprovalListResponse:
-    items = list_pending_approvals(db_session, user_id=context.user.id)
-    return ApprovalListResponse(items=[_transaction_response(item) for item in items])
+    items = list_pending_approvals(db_session, user=context.user)
+    return ApprovalListResponse(
+        items=[
+            ApprovalItemResponse(
+                transaction=_transaction_response(item.transaction),
+                requester=_user_response(item.requester),
+                current_policy_decision=item.policy_decision.decision,
+                current_policy_reason_code=item.policy_decision.reason_code,
+                current_policy_version=item.policy_decision.policy_version,
+                policy_checks=item.policy_decision.checks,
+                available_balance=_balance_response(item.balance),
+            )
+            for item in items
+        ]
+    )
 
 
 @app.post("/api/approvals/{transaction_id}/approve", response_model=TransactionResponse)
-async def approve_pending_transaction(
-    transaction_id: str,
+def approve_pending_transaction(
+    transaction_id: UUID,
     payload: ApprovalRequest,
-    request: Request,
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> TransactionResponse:
@@ -1066,7 +1139,7 @@ async def approve_pending_transaction(
         transaction = approve_payment(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
         )
         db_session.commit()
@@ -1089,17 +1162,6 @@ async def approve_pending_transaction(
     except IntegrationUnavailable as exc:
         db_session.rollback()
         raise ApiError(409, exc.code, str(exc)) from exc
-    if transaction.rail == "paypal_sandbox_payouts" and transaction.status == "executing":
-        client = getattr(request.app.state, "paypal_client", None)
-        if client is None:
-            raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            db_session.commit()
     return _transaction_response(transaction)
 
 
@@ -1148,50 +1210,44 @@ def paypal_integration_status(
         "configured": configured,
         "environment": "sandbox",
         "capabilities": ["payouts"],
-        "test_recipient_email": settings.paypal_test_recipient_email or None,
+        "test_recipient_email": (
+            _masked_email(settings.paypal_test_recipient_email)
+            if settings.paypal_test_recipient_email
+            else None
+        ),
         "last_success_at": latest_success,
         "last_error_code": latest_error,
     }
 
 
 @app.post("/api/transactions/{transaction_id}/reconcile", response_model=TransactionResponse)
-async def reconcile_paypal_transaction(
-    transaction_id: str,
-    request: Request,
+def reconcile_paypal_transaction(
+    transaction_id: UUID,
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> TransactionResponse:
     try:
-        transaction = get_owned_transaction(
+        transaction = enqueue_paypal_reconciliation(
             db_session,
-            user_id=context.user.id,
-            transaction_id=transaction_id,
-            for_update=True,
+            user=context.user,
+            transaction_id=str(transaction_id),
         )
+        db_session.commit()
     except TransactionNotFound as exc:
+        db_session.rollback()
         raise ApiError(404, "NOT_FOUND", "Transaction not found") from exc
-    if transaction.rail != "paypal_sandbox_payouts" or transaction.status not in {
-        "executing",
-        "completed",
-    }:
-        raise ApiError(409, "NOT_RECONCILABLE", "This transaction cannot be reconciled")
-    client = getattr(request.app.state, "paypal_client", None)
-    if client is None:
-        raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-    try:
-        await submit_or_reconcile_payout(
-            db_session, client=client, transaction=transaction
-        )
-        db_session.commit()
-    except ProviderUnavailable as exc:
-        db_session.commit()
-        raise ApiError(502, "PROVIDER_UNAVAILABLE", str(exc)) from exc
+    except AlreadyActioned as exc:
+        db_session.rollback()
+        raise ApiError(409, "NOT_RECONCILABLE", str(exc)) from exc
+    except IntegrationUnavailable as exc:
+        db_session.rollback()
+        raise ApiError(409, "PROVIDER_OUTCOME_UNKNOWN", str(exc)) from exc
     return _transaction_response(transaction)
 
 
 @app.post("/api/approvals/{transaction_id}/reject", response_model=TransactionResponse)
 def reject_pending_transaction(
-    transaction_id: str,
+    transaction_id: UUID,
     payload: RejectionRequest,
     context: MutationAuthDependency,
     db_session: SessionDependency,
@@ -1200,7 +1256,7 @@ def reject_pending_transaction(
         transaction = reject_payment(
             db_session,
             user=context.user,
-            transaction_id=transaction_id,
+            transaction_id=str(transaction_id),
             idempotency_key=payload.idempotency_key,
             reason=payload.reason.strip() if payload.reason else None,
         )

@@ -6,12 +6,12 @@ import signal
 from collections.abc import Callable
 from contextlib import AbstractContextManager, contextmanager
 
-from sqlalchemy import text
+from sqlalchemy import and_, or_, text, update
 from sqlmodel import Session, select
 
 from backend.config import settings
 from backend.database import engine, session_scope
-from backend.models import PaymentTransaction
+from backend.models import PaymentTransaction, TransactionAttempt
 from backend.paypal_client import PayPalClient
 from backend.services.paypal import ProviderUnavailable, submit_or_reconcile_payout
 
@@ -49,38 +49,97 @@ def reconciliation_lease():
                 )
 
 
+def claim_paypal_transaction(
+    session: Session, *, transaction_id: str
+) -> PaymentTransaction | None:
+    """Atomically claim one payout row while this database transaction is open."""
+    transaction = session.exec(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.id == transaction_id,
+            PaymentTransaction.rail == "paypal_sandbox_payouts",
+            PaymentTransaction.status.in_(["executing", "completed"]),
+        )
+        .with_for_update(skip_locked=True)
+    ).one_or_none()
+    if transaction is None:
+        return None
+
+    attempt = session.exec(
+        select(TransactionAttempt)
+        .where(TransactionAttempt.transaction_id == transaction.id)
+        .order_by(TransactionAttempt.attempt_number.desc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    ).one_or_none()
+    if attempt is None or attempt.rail != "paypal_sandbox_payouts":
+        return None
+
+    if attempt.provider_batch_id:
+        if attempt.status not in {"processing", "unknown"}:
+            return None
+        return transaction
+
+    if transaction.status != "executing" or attempt.status != "submitting":
+        return None
+    claimed = session.exec(
+        update(TransactionAttempt)
+        .where(
+            TransactionAttempt.id == attempt.id,
+            TransactionAttempt.status == "submitting",
+            TransactionAttempt.provider_batch_id.is_(None),
+        )
+        .values(status="claimed")
+    )
+    if claimed.rowcount != 1:
+        return None
+    session.flush()
+    return transaction
+
+
 async def reconcile_pending_payouts(
     *,
     client: PayPalClient,
     session_factory: SessionFactory = session_scope,
     limit: int = RECONCILIATION_BATCH_SIZE,
 ) -> int:
-    """Reconcile one bounded batch while preserving stable provider attempts."""
+    """Process one bounded payout batch while preserving stable provider attempts."""
     with session_factory() as session:
         transaction_ids = list(
             session.exec(
-                select(PaymentTransaction.id)
+                select(TransactionAttempt.transaction_id)
+                .join(
+                    PaymentTransaction,
+                    PaymentTransaction.id == TransactionAttempt.transaction_id,
+                )
                 .where(
                     PaymentTransaction.rail == "paypal_sandbox_payouts",
-                    PaymentTransaction.status == "executing",
+                    PaymentTransaction.status.in_(["executing", "completed"]),
+                    or_(
+                        and_(
+                            PaymentTransaction.status == "executing",
+                            TransactionAttempt.status == "submitting",
+                            TransactionAttempt.provider_batch_id.is_(None),
+                        ),
+                        and_(
+                            TransactionAttempt.status.in_(["processing", "unknown"]),
+                            TransactionAttempt.provider_batch_id.is_not(None),
+                        ),
+                    ),
                 )
-                .order_by(PaymentTransaction.updated_at.asc())
+                .order_by(TransactionAttempt.started_at.asc())
                 .limit(limit)
             ).all()
         )
 
-    reconciled = 0
+    processed = 0
     for transaction_id in transaction_ids:
         try:
             with session_factory() as session:
-                transaction = session.exec(
-                    select(PaymentTransaction)
-                    .where(
-                        PaymentTransaction.id == transaction_id,
-                        PaymentTransaction.status == "executing",
-                    )
-                    .with_for_update()
-                ).one_or_none()
+                transaction = claim_paypal_transaction(
+                    session,
+                    transaction_id=transaction_id,
+                )
                 if transaction is None:
                     continue
                 try:
@@ -92,13 +151,13 @@ async def reconcile_pending_payouts(
                 except ProviderUnavailable:
                     # Unknown/transient provider state is local truth and must commit.
                     pass
-                reconciled += 1
+                processed += 1
         except Exception:
             logger.exception(
                 "PayPal reconciliation failed for transaction %s",
                 transaction_id,
             )
-    return reconciled
+    return processed
 
 
 async def _wait_for_stop(stop_event: asyncio.Event, seconds: float) -> None:
@@ -133,7 +192,7 @@ async def run_reconciliation_worker(stop_event: asyncio.Event) -> None:
                     try:
                         count = await reconcile_pending_payouts(client=client)
                         if count:
-                            logger.info("Reconciled %s PayPal payout(s)", count)
+                            logger.info("Processed %s PayPal payout(s)", count)
                     except Exception:
                         logger.exception("PayPal reconciliation scan failed")
                     await _wait_for_stop(

@@ -14,7 +14,8 @@
     "test:e2e": "npm run test:e2e:journeys && npm run test:e2e:accessibility",
     "test:e2e:journeys": "playwright test tests/e2e/judge-flow.spec.ts",
     "test:e2e:accessibility": "playwright test tests/e2e/accessibility.spec.ts",
-    "test:e2e:public": "playwright test --config playwright.public.config.ts"
+    "test:e2e:public": "playwright test --config playwright.public.config.ts",
+    "test:lighthouse:assert": "node scripts/assert-lighthouse.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "5.3.0",
@@ -33,16 +34,20 @@
     "@types/node": "22.20.5",
     "@types/react": "18.3.31",
     "@types/react-dom": "18.3.7",
-    "@vitejs/plugin-react": "4.7.0",
+    "@vitejs/plugin-react": "^6.2.1",
     "autoprefixer": "10.6.2",
     "eslint": "9.39.5",
     "eslint-plugin-react-hooks": "5.2.0",
     "eslint-plugin-react-refresh": "0.4.26",
     "globals": "15.15.0",
+    "lighthouse": "^13.6.0",
     "postcss": "8.5.32",
     "tailwindcss": "3.4.19",
     "typescript": "5.7.3",
     "typescript-eslint": "8.72.1",
-    "vite": "5.4.21"
+    "vite": "^8.3.6"
+  },
+  "overrides": {
+    "minimatch": "11.0.5"
   }
 }

@@ -15,7 +15,9 @@ const reuseExistingServer = process.env.E2E_REUSE_SERVER === "true";
 const localDatabasePath = join(tmpdir(), `pactra-e2e-${process.pid}-${Date.now()}.db`).replace(/\\/g, "/");
 const databaseURL = process.env.CI
   ? process.env.DATABASE_URL
-  : process.env.E2E_DATABASE_URL ?? `sqlite:///${localDatabasePath}`;
+  : process.env.E2E_DATABASE_URL
+    ?? process.env.E2E_RESOLVED_DATABASE_URL
+    ?? `sqlite:///${localDatabasePath}`;
 
 if (!databaseURL) {
   throw new Error("CI E2E requires DATABASE_URL to point to the isolated pactra_e2e database");

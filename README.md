@@ -1,245 +1,407 @@
 # Pactra
 
-Govern every payment, safely.
+Pactra is a sandbox-only payment operations workspace for creating governed payment requests, applying spending policy, obtaining human approval, and tracing every ledger and provider transition.
 
-Pactra is a sandbox-only payment operations workspace built for the PayPal AI Hackathon 2026. A judge can create an isolated account, receive simulated test funds, configure spending policy, request payments manually or through Gemini, approve exceptions, and inspect the complete policy, ledger, and provider lifecycle.
+Current production application (release `0e3e905`; this branch is not deployed): <https://pactra-nine.vercel.app>
 
-No real money moves. Pactra's append-only ledger is the source of truth for the in-app test wallet. PayPal Sandbox Payouts is a separate external test rail and is never reported as successful until the individual payout item succeeds and Pactra's ledger capture commits.
+> Pactra does not move real money. The in-app wallet is a simulated double-entry ledger. The optional PayPal integration uses PayPal Sandbox Payouts only.
 
-- Live app: <https://pactra-nine.vercel.app> — verified against the Oracle PostgreSQL runtime on 6 November 2026
-- Demo video: pending owner recording/upload
-- Product contract: [`Pactra-PRD-Judge-Ready.md`](./Pactra-PRD-Judge-Ready.md)
-- Judge demo and release gates: [`DEMO.md`](./DEMO.md) and [`SUBMISSION.md`](./SUBMISSION.md)
+## What Pactra does
 
-## What works
+Teams need more than a payment form when an AI assistant can propose spending. Pactra places an authenticated policy and ledger boundary between every request source and every execution rail. Manual requests and Gemini tool calls use the same transaction service; neither can bypass policy, approval, wallet, ownership, or idempotency checks.
 
-- Email/password accounts with Argon2id, opaque server-side sessions, CSRF protection, and owner-scoped data
-- Per-user double-entry sandbox ledger with initial funds, top-ups, reservations, reset generations, retries, and compensating reversals
-- Deterministic, versioned category/vendor/transaction/daily/budget/approval policy enforcement
-- Atomic approval and rejection workflow with current-policy re-evaluation
-- One validated transaction service shared by manual requests and the Gemini assistant
-- Internal sandbox execution for every judge, with honest fallback when external services are unavailable
-- PayPal Sandbox Payouts submission, stable provider idempotency references, item-level reconciliation, and reservation-safe failure handling
-- Transaction receipts, lifecycle audit events, ledger entries, filtering, and AG Grid history
-- Authenticated React/TypeScript workspace with loading, empty, failure, and recovery states
-- Alembic migrations, PostgreSQL production configuration, backend tests, and Playwright judge journeys
+Implemented capabilities include:
+
+- Email/password accounts with Argon2id, opaque server-side sessions, CSRF protection, and owner-scoped records.
+- A per-user, double-entry sandbox ledger with top-ups, reservations, captures, resets, retries, and compensating reversals.
+- Versioned limits for category, vendor, transaction, daily spend, budget, available funds, and human approval.
+- Manual and assistant-created payment requests using one server-authoritative transaction lifecycle.
+- Atomic approval and rejection with current-policy re-evaluation.
+- Internal sandbox execution available without provider credentials.
+- Worker-owned PayPal Sandbox Payouts submission and item-level reconciliation.
+- Persisted transaction receipts, policy checks, provider attempts, audit events, and ledger entries.
+- A seven-step judge walkthrough covering the six payment outcomes plus reset/repeatability.
+
+## Product workflow
+
+1. A user creates a sandbox account and receives $1,000.00 of simulated funds.
+2. The user reviews or edits a versioned spending policy.
+3. A manual form or Gemini tool call creates a payment request with an idempotency key.
+4. The backend evaluates policy in a deterministic order and persists the decision.
+5. Eligible funds are reserved exactly once.
+6. The request is blocked, waits for approval, or becomes executable.
+7. Internal payments capture immediately. PayPal requests wait for the worker and provider item truth.
+8. The receipt exposes the policy, attempt, audit, provider, and balanced-ledger evidence owned by that user.
 
 ## Architecture
 
-```text
-React/Vite workspace
-        |
-        v
-FastAPI session + CSRF boundary
-        |
-        +--> Gemini typed tools ----+
-        |                           |
-        +--> manual payment form ---+--> transaction service
-                                             |
-                                   deterministic policy + reservation
-                                             |
-                                approval or selected sandbox rail
-                                      /                    \
-                           internal sandbox       PayPal Sandbox Payouts
-                                      \                    /
-                               append-only ledger + audit receipt
+```mermaid
+flowchart LR
+    Browser[React / Vite] -->|session + CSRF| API[FastAPI API]
+    Gemini[Gemini typed tools] --> API
+    API --> Policy[Policy engine]
+    Policy --> DB[(PostgreSQL)]
+    API --> Ledger[Double-entry ledger]
+    Ledger --> DB
+    API -->|persist attempt only| Queue[Executable payout state]
+    Worker[PayPal worker] -->|FOR UPDATE SKIP LOCKED| Queue
+    Worker -->|stable sender IDs| PayPal[PayPal Sandbox Payouts]
+    PayPal -->|batch and item status| Worker
+    Worker --> Ledger
+    Worker --> DB
 ```
 
-The model can propose typed actions, but it cannot choose a user, alter policy, mutate the ledger, or access provider credentials. Manual and AI-created requests use the same authenticated backend service.
+Production uses Vercel for the static frontend and same-origin `/api/*` rewrite, plus FastAPI, PostgreSQL, and one systemd worker on the Oracle VPS. Tailscale Funnel terminates the public API HTTPS route. PostgreSQL and Uvicorn remain bound locally.
 
-## Quick start
+## Technology stack
 
-Requirements: Python 3.11.10+ and Node.js 22.23.2. Gemini and PayPal credentials are optional for local development; the internal sandbox rail and deterministic assistant fallback work without them.
+| Layer | Implementation |
+|---|---|
+| Frontend | React 18, TypeScript 5, Vite 8, React Router, AG Grid |
+| API | FastAPI, Pydantic, SQLModel, SQLAlchemy |
+| Database | PostgreSQL in production; SQLite for local/lightweight tests |
+| Migrations | Alembic |
+| Authentication | Argon2id, opaque database sessions, HttpOnly cookies, synchronizer CSRF token |
+| AI | Gemini REST integration with typed functions and deterministic fallback |
+| Payments | PayPal Payouts REST API v1, Sandbox host only |
+| Testing | Pytest, Playwright, Axe, Lighthouse, pip-audit, npm audit |
+| Operations | systemd, Vercel, Tailscale Funnel |
 
-```powershell
-Copy-Item .env.example .env
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+## Product routes
+
+| Route | Purpose |
+|---|---|
+| `/` | Public product page |
+| `/sign-up`, `/sign-in` | Account and session entry |
+| `/app` | Wallet, policy capacity, recent activity, and judge walkthrough |
+| `/app/payments/new` | Governed manual payment or payout request |
+| `/app/assistant/:conversationId?` | Persisted assistant conversation |
+| `/app/approvals` | Pending approval and rejection decisions |
+| `/app/transactions` | Filtered AG Grid history |
+| `/app/transactions/:id` | Owned receipt, policy, provider, audit, and ledger evidence |
+| `/app/policies` | Current policy editor and version history |
+| `/app/wallet` | Balance, top-up, ledger history, and reset |
+| `/app/settings` | Session and account controls |
+| `/app/settings/integrations/paypal` | PayPal Sandbox configuration and reconciliation status |
+
+QA captures genuine desktop, tablet, and mobile screenshots into the ignored `artifacts/` directory so stale binaries are not presented as permanent release evidence. The public application above is the current visual reference.
+
+## Payment execution architecture
+
+The API never submits a PayPal payout. It validates the request, evaluates policy, reserves funds, persists the transaction and stable provider attempt, then returns. The worker is the sole submission authority.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as API
+    participant D as PostgreSQL
+    participant W as Worker
+    participant P as PayPal Sandbox
+
+    U->>A: Create or approve payout
+    A->>D: Policy decision + reservation + attempt N
+    A-->>U: pending approval or executing
+    W->>D: Atomic claim (SKIP LOCKED)
+    W->>P: One item, stable batch/request/item IDs
+    P-->>W: Batch accepted or error
+    W->>D: Persist batch reference before reconciliation
+    W->>P: GET batch/item status
+    alt item SUCCESS
+        W->>D: Capture reservation once
+    else terminal item failure
+        W->>D: Release reservation once
+    else pending or unknown
+        W->>D: Keep reservation and executing state
+    end
+```
+
+The sender batch and `PayPal-Request-Id` are `pactra-{transaction_uuid}-a{attempt_number}`. The sender item ID is stable for the transaction. Concurrent workers cannot both claim the same attempt. API replays and duplicate worker delivery do not create a second local attempt or provider submission.
+
+Batch acceptance is not success. Pactra captures the ledger only after the individual payout item reports `SUCCESS`.
+
+### Ambiguous submissions
+
+A timeout, connection reset, provider 5xx, or malformed success response may mean PayPal accepted the request even though Pactra has no batch ID. Pactra records the attempt as `unknown`, retains the reservation, and excludes it from automatic scans.
+
+The authenticated receipt then offers **Recover submission**. After explicit confirmation, the API changes the same attempt from `unknown` to `submitting`; the worker replays the exact same stable identifiers. A PayPal duplicate-batch response can recover the original batch reference. Pactra never creates attempt N+1 while the prior outcome is unresolved.
+
+## Approval and policy model
+
+Policy evaluation order is fixed:
+
+1. Active account and wallet; USD currency.
+2. Allowed category.
+3. Blocked vendor.
+4. Per-transaction limit.
+5. Daily committed plus reserved spend.
+6. Category committed plus reserved spend.
+7. Available sandbox funds.
+8. Human approval when amount is greater than the threshold.
+
+The exact threshold is auto-approved; the first cent above it requires approval. Approval and rejection are conditional, idempotent state transitions. A pending request is re-evaluated if the policy changes. Expired or revoked sessions cannot act. Pactra currently uses the requesting account as the approval actor; multi-role approver separation and a request-specific approval TTL are not implemented.
+
+## AI behaviour
+
+When `AI_ENABLED=true`, the backend sends bounded requests to the configured Gemini model and accepts only declared typed function calls. Tool arguments are validated again, and payment tools call the same authenticated transaction service as the manual form. Gemini never receives provider credentials and cannot select another tenant.
+
+If AI is disabled, quota-exhausted, times out, or returns an invalid response, Pactra records sanitized evidence and uses its deterministic fallback for supported prompts. A fallback response is labelled and is never evidence that Gemini worked.
+
+The configured production readiness endpoint currently reports AI configured and enabled, but the latest recorded live generation returned `429 RESOURCE_EXHAUSTED`; genuine Gemini function calling remains unverified.
+
+## Provider integrations
+
+### PayPal Sandbox
+
+- Host is fixed to `https://api-m.sandbox.paypal.com` in production.
+- Startup rejects live PayPal hosts, enabled payouts without credentials/recipient, and production mock mode.
+- OAuth, submission, and status retrieval happen server-side.
+- One Pactra payout creates one PayPal item.
+- Pending, processing, unclaimed, on-hold, and unknown states retain the reservation.
+- `FAILED`, `BLOCKED`, `CANCELED`, or `DENIED` release the reservation once.
+- `RETURNED`, `REVERSED`, or `REFUNDED` use an exactly-once compensating ledger journal.
+
+Production readiness currently reports PayPal configured. Existing provider evidence includes successful Sandbox OAuth and a prior terminally denied test payout; no item-level `SUCCESS` has been demonstrated. Mocks and fixtures are used only for deterministic failure-state tests and are never presented as provider acceptance.
+
+### Internal sandbox
+
+The internal rail is always available to authenticated users. It moves only simulated Pactra ledger funds and never creates a PayPal object.
+
+## Security model
+
+- Argon2id password hashes and timing-balanced unknown-account verification.
+- Opaque, hashed, expiring database sessions with idle expiry and revocation.
+- Secure/HttpOnly/SameSite cookies in production plus same-origin and CSRF checks for mutations.
+- Exact CORS origins and restrictive API/frontend security headers.
+- Strict Pydantic request schemas and UUID route validation.
+- Owner filters on transactions, receipts, conversations, policies, approvals, wallet, and audit data.
+- PostgreSQL row locks and uniqueness constraints for financial idempotency.
+- Immutable posted ledger journals/entry sets and audit events in PostgreSQL.
+- Shared, database-backed rate limits across API processes and restarts.
+- Sanitized provider errors; no credentials, tokens, or raw provider bodies in responses or logs.
+- Provider-status responses mask the globally configured Sandbox recipient.
+- Sandbox-only PayPal configuration guards.
+
+No inbound provider webhook endpoint exists, so webhook signature verification is not claimed. Reconciliation uses authenticated polling.
+
+## Repository structure
+
+```text
+backend/                 FastAPI, models, services, migrations, worker, tests
+frontend/                React application, browser tests, Lighthouse assertion
+deploy/                  systemd, Vercel, Nginx examples, operations guide
+QA/                      Acceptance, security, test, deployment, and release evidence
+scripts/                 Isolated test-data helpers
+.github/workflows/ci.yml Exact-SHA CI gates
+Pactra-PRD-Judge-Ready.md Product acceptance authority
+```
+
+## Prerequisites
+
+- Python 3.11.10 or compatible 3.11+
+- Node.js 22.23.2 / npm
+- PostgreSQL for production and concurrency tests
+- Chromium dependencies for Playwright and Lighthouse
+
+## Local installation
+
+```bash
+cp .env.example .env
+python3 -m venv .venv
+. .venv/bin/activate
 python -m pip install -r requirements-dev.txt
-alembic upgrade head
+python -m alembic upgrade head
 
 cd frontend
 npm ci
 cd ..
 ```
 
-Do not put real-money credentials in `.env`. The safe default is `PAYPAL_MOCK_MODE=false` with payouts disabled. For a real provider test, use only a PayPal Sandbox business app and a distinct Sandbox recipient, keep `PAYPAL_MOCK_MODE=false`, then enable `PAYPAL_PAYOUTS_ENABLED=true`. Pactra never presents mock output as a PayPal result.
+Do not place live credentials in `.env`. Use only isolated Sandbox credentials for an explicitly authorized provider test.
 
-Start the API:
+## Environment variables
 
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
+The canonical secret-free template is [`.env.example`](./.env.example). The application reads these names:
+
+| Variable | Purpose |
+|---|---|
+| `APP_ENV` | `development`, `test`, or `production` |
+| `SECRET_KEY`, `SECRET_KEY_FILE` | Session/CSRF secret; production may load a private file |
+| `DATABASE_URL` | SQLAlchemy URL; PostgreSQL is required in production |
+| `FRONTEND_URL`, `BACKEND_URL`, `CORS_ORIGINS` | Exact application origins |
+| `SESSION_COOKIE_SECURE`, `SESSION_COOKIE_SAMESITE` | Cookie transport policy |
+| `SESSION_TTL_HOURS`, `SESSION_IDLE_HOURS` | Absolute and idle session limits |
+| `AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR` | Per-client registration ceiling |
+| `AUTH_REGISTRATION_GLOBAL_RATE_LIMIT_PER_HOUR` | Shared registration ceiling |
+| `AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE` | Shared login ceiling |
+| `AI_ENABLED` | Enable the Gemini path only when a key is present |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Server-only Gemini credential and model |
+| `GEMINI_REQUEST_TIMEOUT_SECONDS`, `MAX_CHAT_HISTORY` | AI bounds |
+| `PAYPAL_PAYOUTS_ENABLED` | Enable the worker-owned PayPal rail |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal Sandbox business-app credentials |
+| `PAYPAL_BASE_URL` | Must be `https://api-m.sandbox.paypal.com` in production |
+| `PAYPAL_TEST_RECIPIENT_EMAIL` | Configured Sandbox recipient |
+| `PAYPAL_MOCK_MODE` | Must be `false` in production and provider acceptance |
+| `PAYPAL_REQUEST_TIMEOUT_SECONDS` | Provider request timeout |
+| `VITE_API_URL` | Optional browser API origin; blank for same-origin rewrite |
+| `SEED_DEMO_ACCOUNT` | Optional development seed; `false` in production |
+
+## Running the application
+
+Backend:
+
+```bash
+.venv/bin/python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In a second terminal, start the interface:
+Worker:
 
-```powershell
-cd frontend
-npm run dev
+```bash
+.venv/bin/python -m backend.worker
 ```
 
-Open <http://localhost:5173>, create a fresh account, and use the in-product judge walkthrough. Development API documentation is available at <http://localhost:8000/docs>; production disables it.
+Frontend:
 
-## Demo prompts
-
-- `Pay Linear $49 for our monthly software subscription.` → approved and captured
-- `Send $125 to ada@example.com for freelance contract work` → waits for human approval
-- `Pay AWS $185 for cloud hosting.` → blocked by the per-transaction cap
-- `Show me today's remaining budget.` → Gemini tool query when AI is configured
-
-## Default policy
-
-Each account receives a versioned database policy seeded from the defaults. Rules run server-side in this exact order:
-
-1. Active account/wallet and USD currency
-2. Allowed category
-3. Blocked vendor
-4. Per-transaction limit
-5. Daily committed plus reserved spend
-6. Category committed plus reserved spend
-7. Available sandbox funds
-8. Human-approval threshold
-
-The first failing rule wins, producing a stable machine-readable reason in the audit log.
-
-| Control | Default |
-|---|---:|
-| Daily limit | $500 |
-| Per-transaction cap | $150 |
-| Human approval above | $100 |
-| Categories | ops, software, cloud, freelance |
-
-Completed transactions consume committed budget. Pending approvals and unresolved provider payouts reserve funds and budget capacity. Blocked and rejected requests do not debit the posted ledger.
-
-## Payment rails
-
-- `internal_sandbox`: deterministic Pactra ledger execution, available to every judge without credentials.
-- `paypal_sandbox_payouts`: outbound payout requests from the configured PayPal sandbox business account. Pactra stores batch/item state separately, keeps the reservation while processing or unknown, and posts its ledger capture only after payout-item `SUCCESS`.
-
-Pactra wallet balances and PayPal sandbox account balances are separate systems. The UI always shows the rail actually used. PayPal Orders checkout is not used as an outbound payout API.
-
-## API
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | Account and session lifecycle |
-| `GET/POST` | `/api/wallet`, `/api/wallet/topups`, `/api/wallet/reset` | Ledger-backed sandbox funds |
-| `GET/PUT` | `/api/policy` | Current policy and immutable version save |
-| `POST` | `/api/transactions` | Create one governed manual payment request |
-| `GET` | `/api/transactions`, `/api/transactions/{id}` | Filtered history and receipt |
-| `POST` | `/api/approvals/{id}/approve`, `/reject` | Single-use human review |
-| `POST` | `/api/transactions/{id}/retry`, `/reverse`, `/reconcile` | Safe lifecycle recovery actions |
-| `POST` | `/api/chat` | Persisted Gemini/fallback assistant using the same transaction service |
-| `GET` | `/api/integrations/paypal/status` | Sandbox provider capability without secrets |
-| `GET` | `/api/health`, `/api/ready` | Liveness and database/config readiness |
-
-## Verification
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-alembic upgrade head
+```bash
 cd frontend
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+Development OpenAPI is at <http://127.0.0.1:8000/docs>. Production disables API documentation.
+
+## Database and migrations
+
+Create or advance the schema:
+
+```bash
+python -m alembic upgrade head
+python -m alembic current
+```
+
+Candidate migration `20261107_0005` adds the empty `rate_limit_buckets` table and expiry index. It does not rewrite existing user, wallet, transaction, ledger, or audit rows. Downgrade removes the table and therefore deletes stored rate-limit windows.
+
+The production release `0e3e905` knows migrations only through `0004`. Its pre-start Alembic command cannot start against a database stamped `0005`. A rollback must stop both Pactra services, use candidate migration code to downgrade to `0004`, switch the release symlink, then start the old API and worker. See [QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
+
+## API overview
+
+The authoritative request/response schemas are generated from `backend/main.py` and `backend/schemas.py`. Main groups are:
+
+- `/api/auth/*` — register, login, session, password change, logout.
+- `/api/wallet*` — balance, top-up, ledger, reset.
+- `/api/policy`, `/api/policies`, `/api/spend-summary` — policy and capacity.
+- `/api/transactions*`, `/api/approvals*` — preview, create, history, receipt, approval, rejection, retry, reversal, reconciliation/recovery.
+- `/api/chat`, `/api/conversations*` — assistant and persisted history.
+- `/api/judge/*` — guided test instrumentation.
+- `/api/integrations/paypal/status` — sanitized configured state and owned provider evidence.
+- `/api/health`, `/api/ready` — liveness and database/configuration readiness.
+
+`POST /api/transactions/{id}/reconcile` never performs provider I/O in the API process. It queues either a read-only known-batch refresh or an explicit same-ID ambiguous-submission recovery for the worker.
+
+## Tests
+
+Backend SQLite:
+
+```bash
+APP_ENV=test DATABASE_URL=sqlite:////tmp/pactra-tests.db \
+  SECRET_KEY=test-only-secret-key-at-least-32-bytes \
+  PAYPAL_PAYOUTS_ENABLED=false PAYPAL_MOCK_MODE=false \
+  SESSION_COOKIE_SECURE=false \
+  .venv/bin/python -m alembic upgrade head
+
+APP_ENV=test DATABASE_URL=sqlite:////tmp/pactra-tests.db \
+  SECRET_KEY=test-only-secret-key-at-least-32-bytes \
+  PAYPAL_PAYOUTS_ENABLED=false PAYPAL_MOCK_MODE=false \
+  SESSION_COOKIE_SECURE=false \
+  .venv/bin/python -m pytest -q
+```
+
+PostgreSQL uses the same commands with an isolated `postgresql+psycopg://...` URL. Never point tests at production.
+
+Frontend and browser gates:
+
+```bash
+cd frontend
+npm ci
 npm run lint
 npm run build
 npm run test:e2e
-PUBLIC_BASE_URL=https://pactra-nine.vercel.app npm run test:e2e:public
 npm audit --omit=dev --audit-level=high
+npm audit --audit-level=moderate
 ```
 
-Playwright starts the API and frontend, migrates an isolated local SQLite database automatically, and explicitly disables Gemini and PayPal. CI keeps its isolated PostgreSQL database. The suite never inherits the root `.env` database or provider flags. Judges and CI do not need external credentials for the internal sandbox path.
+Python dependency gates:
 
-## Judge walkthrough
-
-1. Open the app and create your own account; there is no shared judge password.
-2. Confirm the wallet shows `$1,000.00` and the persistent sandbox-only notice.
-3. Add `$100.00` test funds from Wallet.
-4. Create a `$49.00` software payment to Linear and open its completed receipt.
-5. Create a `$125.00` freelance payout to Ada Contractor on the internal rail, then approve it.
-6. Create a `$185.00` cloud request to AWS and inspect the transaction-limit block with no ledger debit.
-7. Change the approval threshold or categories under Policies and confirm the version increments.
-8. Use the Assistant prompt `Pay Notion $20 for our software subscription`.
-9. Filter Transactions, inspect lifecycle/ledger details, reject another pending request, and reset the sandbox by typing `RESET`.
-10. If the PayPal integration page reports `Configured`, use the provided test-recipient shortcut, approve the payout, and refresh until the payout item reaches a truthful terminal state.
-
-## Environment configuration
-
-Server-only secrets must be stored in the hosting provider, never in Vite variables or source control.
-
-| Variable | Production value or purpose |
-|---|---|
-| `APP_ENV` | `production` |
-| `SECRET_KEY` / `SECRET_KEY_FILE` | Unique random secret, 32+ characters; Oracle uses an absolute `0600` secret file |
-| `DATABASE_URL` | PostgreSQL connection string; the Oracle service uses a local peer-authenticated socket |
-| `FRONTEND_URL` | Exact HTTPS frontend origin |
-| `BACKEND_URL` | Browser-visible HTTPS API origin; use the Vercel origin when `/api` is rewritten same-origin |
-| `CORS_ORIGINS` | Comma-separated exact HTTPS frontend origins; no wildcard |
-| `SESSION_COOKIE_SECURE` | `true` |
-| `SESSION_COOKIE_SAMESITE` | `lax` when Vercel proxies `/api`; `none` only for an intentionally cross-site topology |
-| `SESSION_TTL_HOURS`, `SESSION_IDLE_HOURS` | Defaults: `168` and `24` |
-| `AI_ENABLED` | Set `true` only after `GEMINI_API_KEY` is present |
-| `GEMINI_API_KEY` | Server-side Google AI Studio key |
-| `GEMINI_MODEL` | `gemini-3.8-flash`, verified in the provider model catalogue |
-| `GEMINI_REQUEST_TIMEOUT_SECONDS` | Per-attempt application deadline; default `12` |
-| `MAX_CHAT_HISTORY` | Default `20` |
-| `PAYPAL_PAYOUTS_ENABLED` | Set `true` only after all Sandbox values below are present |
-| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal Sandbox business-app credentials |
-| `PAYPAL_TEST_RECIPIENT_EMAIL` | Distinct active PayPal Sandbox recipient account |
-| `PAYPAL_BASE_URL` | Exactly `https://api-m.sandbox.paypal.com` |
-| `PAYPAL_MOCK_MODE` | `false` in production and for real Sandbox tests |
-| `PAYPAL_REQUEST_TIMEOUT_SECONDS` | Default `15` |
-| `VITE_API_URL` | Leave blank when Vercel rewrites same-origin `/api`; contains no secret when used locally |
-| `SEED_DEMO_ACCOUNT` | `false` in production |
-
-The API returns the CSRF synchronizer token through an explicitly exposed response header while keeping both auth cookies HttpOnly. The target Vercel rewrite keeps browser traffic same-origin, so production cookies remain Secure and SameSite=Lax.
-
-## Deployment
-
-The production topology is Vercel for the static frontend and the Oracle Ubuntu VPS for FastAPI, PostgreSQL, and one persistent reconciliation worker. Vercel rewrites same-origin `/api/*` requests to a trusted Tailscale Funnel endpoint, which proxies to the loopback API without exposing PostgreSQL or a plaintext public API:
-
-```text
-https://pactra-nine.vercel.app/api/*
-        -> https://node1.taild90918.ts.net/api/*
-        -> http://127.0.0.1:8010/api/*
+```bash
+.venv/bin/python -m pip check
+.venv/bin/python -m pip_audit -r requirements.txt
 ```
 
-Oracle's public security list did not admit TCP 80/443, so the direct SSLIP/Certbot route could not complete. Tailscale terminates trusted public HTTPS with a Let's Encrypt certificate while the final hop remains on the VPS loopback interface. `sudo tailscale funnel status` shows the active route; `sudo tailscale funnel --https=443 off` is the rollback command.
+Playwright covers supported journeys and 14 automated WCAG surfaces with providers disabled. Lighthouse asserts only the homepage; it is not route-wide performance evidence.
 
-Versioned deployment assets live in `deploy/`:
+## CI pipeline
 
-- `systemd/pactra-api.service` runs Alembic before binding Uvicorn to `127.0.0.1:8010`.
-- `systemd/pactra-worker.service` runs reconciliation separately from the API. A PostgreSQL advisory lock prevents a second worker from becoming authoritative.
-- `pactra.env.oracle-baseline` is a secret-free, loopback-only production baseline.
-- `nginx/pactra-api.conf.example` remains the preferred direct-domain template when Oracle admits HTTPS traffic.
-- `frontend/vercel.json` contains the active same-origin rewrite and production security headers.
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on pushes and pull requests with read-only repository permission:
 
-`render.yaml` remains available as the previous fallback and must not be destroyed before the Oracle/Vercel replacement is publicly verified. Because reconciliation is intentionally no longer embedded in the web process, PayPal payouts must remain disabled on any Render deployment that does not also supervise `python -m backend.worker`.
+- Backend SQLite tests.
+- Backend PostgreSQL tests, migration, `pip check`, and `pip-audit`.
+- Frontend lint, type-check/build, production dependency audit, and full dependency audit.
+- Playwright journeys, Axe WCAG checks, and homepage-only Lighthouse budgets.
 
-Before a public judge release, add server-side `GEMINI_API_KEY`, PayPal Sandbox client credentials, and `PAYPAL_TEST_RECIPIENT_EMAIL`; then set `AI_ENABLED=true` and `PAYPAL_PAYOUTS_ENABLED=true`. Keep `PAYPAL_MOCK_MODE=false`. Never put those values in Vite variables or the repository. If either optional integration is unavailable, leave only its feature flag off; the internal sandbox ledger and deterministic assistant fallback remain usable and the UI reports the provider state honestly.
+Provider success is intentionally outside CI. CI mocks/fakes prove state-machine behaviour, not Gemini or PayPal acceptance.
 
-The release is not submission-ready until a real PayPal Sandbox Payouts batch has been created and reconciled at item level in the deployed environment. A mock or internal-ledger transaction is never evidence of that provider smoke test.
+## Deployment and monitoring
 
-## Security notes
+Deployment assets are under `deploy/`. The API systemd unit runs `alembic upgrade head` before Uvicorn. The worker starts only after API readiness and holds a PostgreSQL advisory lease. The Vercel project serves `frontend/dist` and rewrites `/api/*` to the existing Funnel endpoint.
 
-- Secrets are loaded only from environment variables and `.env` is ignored.
-- Gemini sees tool results, never PayPal credentials or bearer tokens.
-- Tool inputs are validated independently of model output; payment amounts and payees must be explicit in the current user message, so conversation history and retrieved transaction text cannot authorize movement.
-- PayPal error messages are sanitised; credentials and response bodies are not logged.
-- Payout emails are validated and all payment amounts must be finite and positive.
-- Pending payments are re-evaluated against hard limits immediately before approval.
-- CORS is restricted to configured origins.
-- Production startup refuses SQLite, insecure cookies, weak secrets, mock-enabled payouts, missing enabled-provider credentials, and any non-sandbox PayPal host.
-- Posted ledger entries are immutable in PostgreSQL; corrections use balanced compensating journals.
+Operational checks:
 
-SQLite is supported only for local development and lightweight tests. Public deployment requires PostgreSQL for durable data, locking, and ledger triggers.
+```bash
+curl --fail --silent http://127.0.0.1:8010/api/health
+curl --fail --silent http://127.0.0.1:8010/api/ready
+systemctl is-active pactra-api.service pactra-worker.service
+journalctl -u pactra-api.service -u pactra-worker.service --since today
+```
 
-The PRD-pinned Vite 5 development toolchain currently reports upstream dev-server advisories in a full npm audit. Production dependencies audit cleanly, the deployed artifact is static, and the development server must remain bound to localhost. Upgrading the PRD-pinned major version requires a deliberate compatibility pass.
+Readiness reports configuration, not provider success. Worker lease logs prove one active authority, not a completed payout.
 
-## Known external blockers
+## Failure recovery and rollback
 
-- Gemini credentials and the configured model catalogue entry are verified, but live balance-tool smokes returned a provider `ServerError` and then timed out. The application now enforces a 12-second per-attempt deadline, retries three times, and reached deterministic fallback in 37.7 seconds. Regression coverage also proves malicious conversation history and retrieved transaction text cannot authorize a payment. Live Gemini tool execution is therefore not claimed.
-- A new `$0.01` PayPal Sandbox Payouts smoke ran on 6 November 2026 with mock mode off. PayPal returned an item-level `FAILED` state; Pactra released the reservation and preserved the full balance correctly. A terminal-success smoke still requires a distinct active Sandbox recipient able to receive USD and a Payouts-capable business app.
-- Devpost submission and the public demo-video upload remain owner actions.
+- Lost API response: retry with the same client idempotency key.
+- Pending approval: re-evaluate current policy before deciding.
+- PayPal timeout/5xx/incomplete response: retain reservation and mark the attempt unknown.
+- Unknown without batch ID: use **Recover submission** once; the worker reuses the same provider IDs.
+- Known batch pending: queue a worker refresh; never submit a replacement batch.
+- Terminal item failure: release once; an explicit later retry creates attempt N+1.
+- Provider return/reversal/refund: post one compensating journal.
+- Worker restart: resume from persisted submitting/processing attempts and stable IDs.
+- Candidate deployment failure after `0005`: follow the stopped-service downgrade procedure; do not point `0e3e905` at a database stamped `0005`.
 
-## License
+The full backup, deployment, health, migration, and rollback procedure is in [QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
 
-MIT © 2026 Arinze
+## Known limitations
+
+- All balances and transfers are Sandbox-only.
+- Genuine Gemini function calling remains blocked by provider quota/entitlement evidence despite production configuration being present.
+- PayPal Sandbox OAuth/configuration is not item-level payout success. No current evidence shows a payout item reaching `SUCCESS` and reconciling through this candidate.
+- The worker-only correction on this branch is not deployed; production remains `0e3e905` at migration `0004`.
+- Provider webhooks are not implemented; reconciliation uses polling.
+- Approval uses the requesting account; separate approver roles and approval-request TTL are not implemented.
+- SQLite cannot prove PostgreSQL locking, triggers, or multi-process concurrency.
+- Lighthouse coverage is homepage-only.
+- Demo video recording/upload remains an owner task.
+
+## Roadmap
+
+Planned, not implemented:
+
+- Separate requester/approver roles and approval expiry policy.
+- Signed PayPal webhooks as a complement to polling.
+- Additional currencies and production payment rails after a separate security/compliance design.
+- Route-level performance budgets and real-user monitoring.
+
+## Contributing
+
+Work on a feature branch. Keep provider tests deterministic unless a separate Sandbox operation is explicitly authorized. Add regression coverage for critical state changes, run the full relevant gates, update the README-to-product matrix, and open a pull request without secrets or generated local artifacts. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+## Licence
+
+Pactra is licensed under the [MIT License](./LICENSE).

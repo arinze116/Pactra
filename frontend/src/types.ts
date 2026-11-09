@@ -74,6 +74,21 @@ export interface PaymentResponse {
   policy_result: Record<string, unknown>;
   balance: WalletBalance;
 }
+export interface PolicyPreview {
+  decision: "approved" | "approval_required" | "blocked";
+  reason_code: string | null;
+  policy_version: number;
+  checks: Array<Record<string, unknown>>;
+}
+export interface ApprovalItem {
+  transaction: Transaction;
+  requester: User;
+  current_policy_decision: "approved" | "approval_required" | "blocked";
+  current_policy_reason_code: string | null;
+  current_policy_version: number;
+  policy_checks: Array<Record<string, unknown>>;
+  available_balance: WalletBalance;
+}
 export interface TransactionPage { items: Transaction[]; next_cursor: string | null }
 export interface SpendCategory {
   category: string;

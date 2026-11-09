@@ -3,32 +3,49 @@ import { CircleDollarSign, ShieldCheck } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, createIdempotencyKey, isAmbiguousMutationError } from "../api";
 import { useAuth } from "../auth";
-import { EmptyState, ErrorNotice, formatCents, PageHeader, Panel } from "../components/UI";
+import { EmptyState, ErrorNotice, formatCents, LoadingBlock, PageHeader, Panel } from "../components/UI";
 import type { LedgerItem, PayPalStatus, WalletBalance } from "../types";
 
 export { PolicyWorkspace as PoliciesPage } from "../components/PolicyWorkspace";
 export function WalletPage() {
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [ledger, setLedger] = useState<LedgerItem[]>([]);
-  const [error, setError] = useState("");
+  const [walletError, setWalletError] = useState("");
+  const [ledgerError, setLedgerError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [walletLoading, setWalletLoading] = useState(true);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState("");
   const topUpKeysRef = useRef(new Map<number, string>());
   const resetKeyRef = useRef<string | null>(null);
-  const load = useCallback(async () => {
+  const loadWallet = useCallback(async () => {
+    setWalletLoading(true);
+    setWalletError("");
     try {
-      const [balance, history] = await Promise.all([api.wallet(), api.ledger()]);
-      setWallet(balance);
-      setLedger(history.items);
+      setWallet(await api.wallet());
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Wallet unavailable");
-      throw caught;
+      setWalletError(caught instanceof Error ? caught.message : "Wallet unavailable");
+    } finally {
+      setWalletLoading(false);
     }
   }, []);
-  useEffect(() => { void load().catch(() => undefined); }, [load]);
-  async function topUp(amount: number) { if (!window.confirm(`Add ${formatCents(amount)} in sandbox test funds? No real money moves.`)) return; const requestKey = topUpKeysRef.current.get(amount) ?? createIdempotencyKey("topup"); topUpKeysRef.current.set(amount, requestKey); setBusy(true); setError(""); try { const result = await api.topUp(amount, requestKey); setWallet(result.balance); await load(); topUpKeysRef.current.delete(amount); } catch (caught) { if (!isAmbiguousMutationError(caught)) topUpKeysRef.current.delete(amount); setError(caught instanceof Error ? caught.message : "Top-up failed"); } finally { setBusy(false); } }
-  async function reset() { if (confirmReset !== "RESET") return; const requestKey = resetKeyRef.current ?? createIdempotencyKey("reset"); resetKeyRef.current = requestKey; setBusy(true); setError(""); try { await api.resetSandbox(requestKey); await load(); resetKeyRef.current = null; setConfirmReset(""); } catch (caught) { if (!isAmbiguousMutationError(caught)) resetKeyRef.current = null; setError(caught instanceof Error ? caught.message : "Reset failed"); } finally { setBusy(false); } }
-  return <><PageHeader title="Sandbox wallet" description="Available equals posted balance minus active reservations. Every change is ledger-backed." />{error ? <div className="mb-5"><ErrorNotice message={error} /></div> : null}<div className="grid gap-4 md:grid-cols-3">{wallet ? <><WalletMetric label="Available" value={wallet.available_cents} /><WalletMetric label="Reserved" value={wallet.reserved_cents} /><WalletMetric label="Posted total" value={wallet.posted_cents} /></> : null}</div><div className="mt-6 grid gap-6 xl:grid-cols-[1fr_380px]"><Panel><div className="border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Ledger history</h2><p className="mt-1 text-xs text-ink-500">Generation {wallet?.sandbox_generation ?? "—"}</p></div>{ledger.length ? <div className="divide-y divide-line">{ledger.map((item) => <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6" key={item.journal_id}><div><p className="text-sm font-medium capitalize">{item.journal_type.replace(/_/g, " ")}</p><p className="mt-1 text-xs text-ink-500">{item.counter_account_label} · {new Date(item.created_at).toLocaleString()}</p></div><p className={`font-mono text-sm font-medium tabular-nums ${item.wallet_delta_cents >= 0 ? "text-positive-dark" : "text-ink-950"}`}>{item.wallet_delta_cents >= 0 ? "+" : ""}{formatCents(item.wallet_delta_cents)}</p></div>)}</div> : <EmptyState title="No ledger activity" description="Initial issuance appears after account creation" />}</Panel><div className="space-y-6"><Panel className="p-5"><div className="flex items-center gap-2 text-sm font-medium"><CircleDollarSign className="h-4 w-4" />Add test funds</div><p className="mt-2 text-xs leading-5 text-ink-500">Preset credits are sandbox issuance, not deposits or real cash.</p><div className="mt-4 grid grid-cols-3 gap-2">{[10_000, 50_000, 100_000].map((amount) => <button className="h-10 rounded-lg border border-line text-xs font-medium hover:bg-canvas disabled:opacity-50" disabled={busy} key={amount} onClick={() => void topUp(amount)}>{formatCents(amount)}</button>)}</div></Panel><Panel className="border-negative/20 p-5"><p className="text-sm font-medium text-negative">Reset sandbox</p><p className="mt-2 text-xs leading-5 text-ink-500">Restores the posted balance to $1,000, resets policy defaults, cancels pending requests, and preserves receipts.</p><label className="mt-4 block text-xs font-medium text-ink-600">Type RESET<input className="input mt-2" onChange={(event) => setConfirmReset(event.target.value)} value={confirmReset} /></label><button className="mt-3 h-10 w-full rounded-lg border border-negative/30 text-sm font-medium text-negative disabled:opacity-40" disabled={busy || confirmReset !== "RESET"} onClick={() => void reset()}>Reset sandbox</button></Panel></div></div></>;
+  const loadLedger = useCallback(async () => {
+    setLedgerLoading(true);
+    setLedgerError("");
+    try {
+      setLedger((await api.ledger()).items);
+    } catch (caught) {
+      setLedgerError(caught instanceof Error ? caught.message : "Ledger unavailable");
+    } finally {
+      setLedgerLoading(false);
+    }
+  }, []);
+  useEffect(() => { void Promise.allSettled([loadWallet(), loadLedger()]); }, [loadLedger, loadWallet]);
+  async function refreshWalletPage() { await Promise.allSettled([loadWallet(), loadLedger()]); }
+  async function topUp(amount: number) { if (!window.confirm(`Add ${formatCents(amount)} in sandbox test funds? No real money moves.`)) return; const requestKey = topUpKeysRef.current.get(amount) ?? createIdempotencyKey("topup"); topUpKeysRef.current.set(amount, requestKey); setBusy(true); setActionError(""); try { const result = await api.topUp(amount, requestKey); setWallet(result.balance); await refreshWalletPage(); topUpKeysRef.current.delete(amount); } catch (caught) { if (!isAmbiguousMutationError(caught)) topUpKeysRef.current.delete(amount); setActionError(caught instanceof Error ? caught.message : "Top-up failed"); } finally { setBusy(false); } }
+  async function reset() { if (confirmReset !== "RESET") return; const requestKey = resetKeyRef.current ?? createIdempotencyKey("reset"); resetKeyRef.current = requestKey; setBusy(true); setActionError(""); try { await api.resetSandbox(requestKey); await refreshWalletPage(); resetKeyRef.current = null; setConfirmReset(""); } catch (caught) { if (!isAmbiguousMutationError(caught)) resetKeyRef.current = null; setActionError(caught instanceof Error ? caught.message : "Reset failed"); } finally { setBusy(false); } }
+  return <><PageHeader title="Sandbox wallet" description="Available equals posted balance minus active reservations. Every change is ledger-backed." />{actionError ? <div className="mb-5"><ErrorNotice message={actionError} /></div> : null}{walletError ? <div className="mb-5"><ErrorNotice message={`${walletError}${wallet ? ". Last loaded wallet values are shown." : ""}`} onRetry={() => void loadWallet()} retryLabel="Retry wallet" /></div> : null}<div className="grid gap-4 md:grid-cols-3">{wallet ? <><WalletMetric label={`Available${walletError ? " · stale" : ""}`} value={wallet.available_cents} /><WalletMetric label={`Reserved${walletError ? " · stale" : ""}`} value={wallet.reserved_cents} /><WalletMetric label={`Posted total${walletError ? " · stale" : ""}`} value={wallet.posted_cents} /></> : walletLoading ? <><LoadingBlock className="h-28" /><LoadingBlock className="h-28" /><LoadingBlock className="h-28" /></> : null}</div><div className="mt-6 grid gap-6 xl:grid-cols-[1fr_380px]"><Panel><div className="border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Ledger history</h2><p className="mt-1 text-xs text-ink-500">Generation {wallet?.sandbox_generation ?? "—"}{ledgerError ? " · stale" : ""}</p></div>{ledgerError ? <div className="p-4"><ErrorNotice message={`${ledgerError}${ledger.length ? ". Last loaded ledger entries are shown." : ""}`} onRetry={() => void loadLedger()} retryLabel="Retry ledger" /></div> : null}{ledgerLoading && !ledger.length ? <div className="space-y-3 p-5"><LoadingBlock className="h-16" /><LoadingBlock className="h-16" /></div> : ledger.length ? <div className="divide-y divide-line">{ledger.map((item) => <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6" key={item.journal_id}><div><p className="text-sm font-medium capitalize">{item.journal_type.replace(/_/g, " ")}</p><p className="mt-1 text-xs text-ink-500">{item.counter_account_label} · {new Date(item.created_at).toLocaleString()}</p></div><p className={`font-mono text-sm font-medium tabular-nums ${item.wallet_delta_cents >= 0 ? "text-positive-dark" : "text-ink-950"}`}>{item.wallet_delta_cents >= 0 ? "+" : ""}{formatCents(item.wallet_delta_cents)}</p></div>)}</div> : !ledgerError ? <EmptyState title="No ledger activity" description="Initial issuance appears after account creation" /> : null}</Panel><div className="space-y-6"><Panel className="p-5"><div className="flex items-center gap-2 text-sm font-medium"><CircleDollarSign className="h-4 w-4" />Add test funds</div><p className="mt-2 text-xs leading-5 text-ink-500">Preset credits are sandbox issuance, not deposits or real cash.</p><div className="mt-4 grid grid-cols-3 gap-2">{[10_000, 50_000, 100_000].map((amount) => <button className="h-10 rounded-lg border border-line text-xs font-medium hover:bg-canvas disabled:opacity-50" disabled={busy} key={amount} onClick={() => void topUp(amount)}>{formatCents(amount)}</button>)}</div></Panel><Panel className="border-negative/20 p-5"><p className="text-sm font-medium text-negative">Reset sandbox</p><p className="mt-2 text-xs leading-5 text-ink-500">Restores the posted balance to $1,000, resets policy defaults, cancels pending requests, and preserves receipts.</p><label className="mt-4 block text-xs font-medium text-ink-600">Type RESET<input className="input mt-2" onChange={(event) => setConfirmReset(event.target.value)} value={confirmReset} /></label><button className="mt-3 h-10 w-full rounded-lg border border-negative/30 text-sm font-medium text-negative disabled:opacity-40" disabled={busy || confirmReset !== "RESET"} onClick={() => void reset()}>Reset sandbox</button></Panel></div></div></>;
 }
 
 function WalletMetric({ label, value }: { label: string; value: number }) { return <Panel className="p-5"><p className="text-xs text-ink-500">{label}</p><p className="mt-3 text-2xl font-medium tabular-nums">{formatCents(value)}</p></Panel>; }

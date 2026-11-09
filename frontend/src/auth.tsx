@@ -20,7 +20,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    api.me().then(({ user: nextUser }) => {
+    api.session().then(({ user: nextUser }) => {
       if (active) setUser(nextUser);
     }).catch(() => {
       if (active) setUser(null);

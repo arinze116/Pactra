@@ -1,12 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 
 const password = "JudgePassword2026!";
+const apiOrigin = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "8000"}`;
+const frontendOrigin = `http://127.0.0.1:${process.env.E2E_FRONTEND_PORT ?? "5173"}`;
 
 async function register(page: Page, prefix: string) {
   const email = `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Create sandbox account" }).click();
   await expect(page).toHaveURL(/\/app$/);
   return email;
@@ -27,6 +30,74 @@ async function expectNoHorizontalOverflow(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 }
+
+async function exercisePasswordReveal(page: Page, viewport: { width: number; height: number }, prefix: string) {
+  await page.setViewportSize(viewport);
+  const email = `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
+  await page.goto("/sign-up");
+  const signUpPassword = page.getByLabel("Password", { exact: true });
+  await page.getByLabel("Email").fill(email);
+  await signUpPassword.fill(password);
+  await signUpPassword.evaluate((input: HTMLInputElement) => input.setSelectionRange(5, 10));
+  const showSignUp = page.getByRole("button", { name: "Show password" });
+  await showSignUp.focus();
+  await showSignUp.press("Space");
+  await expect(page.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
+  await expect(signUpPassword).toHaveAttribute("type", "text");
+  await expect(signUpPassword).toHaveValue(password);
+  await expect(signUpPassword).toBeFocused();
+  expect(await signUpPassword.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([5, 10]);
+  await page.getByRole("button", { name: "Create sandbox account" }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: "Sign out of this session" }).click();
+  await page.getByLabel("Email").fill(email);
+  const signInPassword = page.getByLabel("Password", { exact: true });
+  await signInPassword.fill(password);
+  const showSignIn = page.getByRole("button", { name: "Show password" });
+  await showSignIn.focus();
+  await showSignIn.press("Enter");
+  await expect(page.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
+  await expect(signInPassword).toHaveAttribute("type", "text");
+  await expect(signInPassword).toHaveValue(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/\/app$/);
+}
+
+test("password reveal remains accessible through sign-up and sign-in", async ({ page }) => {
+  await exercisePasswordReveal(page, { width: 1440, height: 900 }, "judge-reveal-desktop");
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: "Sign out of this session" }).click();
+  await exercisePasswordReveal(page, { width: 390, height: 844 }, "judge-reveal-mobile");
+});
+
+test("authentication and the application shell are keyboard operable", async ({ page }) => {
+  const email = `judge-keyboard-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
+  await page.goto("/sign-up");
+
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Pactra" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Email")).toBeFocused();
+  await page.keyboard.type(email);
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Password", { exact: true })).toBeFocused();
+  await page.keyboard.type(password);
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Show password" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Create sandbox account" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.goto("/app");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
+});
 
 test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await register(page, "judge-core");
@@ -60,6 +131,9 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await submitPayment(page);
   await expect(page).toHaveURL(/\/app\/transactions\//);
   await expect(page.getByText("Completed").first()).toBeVisible();
+  await expect(page.getByText("Internal ledger capture")).toBeVisible();
+  await expect(page.getByText("Not applicable — internal ledger only")).toBeVisible();
+  await expect(page.getByText("SUCCESS", { exact: true })).toHaveCount(0);
 
   await page.getByRole("link", { name: "New payment" }).first().click();
   await page.getByRole("button", { name: "Payout" }).click();
@@ -70,11 +144,15 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await page.getByLabel("Business reason").fill("Contract work");
   await submitPayment(page);
   await expect(page.getByText("Needs approval").first()).toBeVisible();
+  const payoutReceipt = page.url();
+  await expect(page.getByText("ada@example.com", { exact: true })).toBeVisible();
 
   await page.goto("/app/approvals");
   await expect(page.getByText("Ada Contractor")).toBeVisible();
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("No requests need approval")).toBeVisible();
+  await page.goto(payoutReceipt);
+  await expect(page.getByText("ada@example.com", { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: "Assistant" }).first().click();
   await page.getByLabel("Message Pactra").fill("Pay Notion $20 for our software subscription");
@@ -101,6 +179,7 @@ test("policy changes, blocked requests and rejection remain auditable", async ({
   await expect(page.getByText(/Version 2/)).toBeVisible();
 
   await page.goto("/app/payments/new?scenario=auto");
+  await expect(page.getByText("Likely needs approval")).toBeVisible();
   await submitPayment(page);
   await expect(page.getByText("Needs approval").first()).toBeVisible();
 
@@ -109,14 +188,140 @@ test("policy changes, blocked requests and rejection remain auditable", async ({
   await expect(page.getByText("Blocked").first()).toBeVisible();
   await expect(page.getByText("TRANSACTION_LIMIT_EXCEEDED", { exact: false })).toBeVisible();
 
-  await page.goto("/app/payments/new?scenario=reject");
-  await submitPayment(page);
   await page.goto("/app/approvals");
-  const contractor = page.getByRole("article").filter({ hasText: "Contractor" });
-  await contractor.getByRole("button", { name: "Reject" }).click();
-  await contractor.getByLabel("Rejection reason for Contractor").fill("Invoice needs correction");
-  await contractor.getByRole("button", { name: "Confirm rejection" }).click();
-  await expect(contractor).not.toBeVisible();
+  const pendingCard = page.getByRole("article").filter({ hasText: "Linear" });
+  await expect(pendingCard.getByText(/judge-policy-.*@example\.com/)).toBeVisible();
+  await expect(pendingCard.getByText("Available balance")).toBeVisible();
+  await expect(pendingCard.getByText("Policy checks")).toBeVisible();
+  await expect(pendingCard.getByText("Age")).toBeVisible();
+  await pendingCard.getByRole("button", { name: "Reject" }).click();
+  await pendingCard.getByLabel("Rejection reason for Linear").fill("Invoice needs correction");
+  await pendingCard.getByRole("button", { name: "Confirm rejection" }).click();
+  await expect(pendingCard).not.toBeVisible();
+});
+
+test("overview and wallet sections recover independently", async ({ page }) => {
+  await register(page, "judge-partial-recovery");
+  await expect(page.getByText("$1,000.00").first()).toBeVisible();
+
+  const overviewCases = [
+    { pattern: "**/api/wallet", method: "GET", retry: "Retry wallet" },
+    { pattern: "**/api/spend-summary", method: "GET", retry: "Retry spend summary" },
+    { pattern: "**/api/transactions?limit=100", method: "GET", retry: "Retry transactions" },
+    { pattern: "**/api/approvals", method: "GET", retry: "Retry approvals" },
+  ] as const;
+  for (const recoveryCase of overviewCases) {
+    let shouldFail = true;
+    await page.route(recoveryCase.pattern, async (route) => {
+      if (shouldFail && route.request().method() === recoveryCase.method) {
+        shouldFail = false;
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+    await page.reload();
+    await expect(page.getByRole("button", { name: recoveryCase.retry })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent transactions" })).toBeVisible();
+    await page.getByRole("button", { name: recoveryCase.retry }).click();
+    await expect(page.getByRole("button", { name: recoveryCase.retry })).toHaveCount(0);
+    await page.unroute(recoveryCase.pattern);
+  }
+
+  await page.goto("/app/wallet");
+  for (const recoveryCase of [
+    { path: "/api/wallet", retry: "Retry wallet" },
+    { path: "/api/wallet/ledger", retry: "Retry ledger" },
+  ] as const) {
+    let shouldFail = true;
+    const matcher = (url: URL) => url.pathname === recoveryCase.path;
+    await page.route(matcher, async (route) => {
+      if (shouldFail && route.request().method() === "GET") {
+        shouldFail = false;
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+    await page.reload();
+    await expect(page.getByRole("button", { name: recoveryCase.retry })).toBeVisible();
+    await page.getByRole("button", { name: recoveryCase.retry }).click();
+    await expect(page.getByRole("button", { name: recoveryCase.retry })).toHaveCount(0);
+    await page.unroute(matcher);
+  }
+});
+
+test("guided insufficient-funds outcome and internal reversal remain auditable", async ({ page }) => {
+  await register(page, "judge-controls");
+  await page.goto("/app/payments/new?scenario=insufficient");
+  await page.getByRole("button", { name: "Run insufficient-funds test" }).click();
+  await expect(page).toHaveURL(/\/app\/transactions\//);
+  await expect(page.getByText("INSUFFICIENT_FUNDS", { exact: true })).toBeVisible();
+  await expect(page.getByText("No ledger posting has occurred", { exact: false })).toBeVisible();
+
+  await page.goto("/app/payments/new?scenario=auto");
+  await submitPayment(page);
+  await expect(page.getByRole("button", { name: "Reverse" })).toBeVisible();
+  const transactionUrl = page.url();
+  const transactionId = transactionUrl.split("/").pop();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Reverse" }).click();
+  await expect(page.getByText("Reversed").first()).toBeVisible();
+  await expect(page.getByText("Compensating sandbox reversal posted")).toBeVisible();
+  await expect(page.getByText(/\$98\.00 debits = \$98\.00 credits/)).toBeVisible();
+
+  const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "pactra_csrf")?.value;
+  expect(csrf).toBeTruthy();
+  const second = await page.request.post(`${apiOrigin}/api/transactions/${transactionId}/reverse`, {
+    headers: { Origin: frontendOrigin, "X-CSRF-Token": csrf ?? "" },
+    data: { idempotency_key: "browser-second-reversal-0001", reason: "Must fail" },
+  });
+  expect(second.status()).toBe(409);
+  expect((await second.json()).error.code).toBe("NOT_REVERSIBLE");
+});
+
+test("failed internal retry is idempotent through the browser path", async ({ page }) => {
+  const email = await register(page, "judge-browser-retry");
+  const python = process.env.E2E_RESOLVED_PYTHON;
+  const databaseUrl = process.env.E2E_RESOLVED_DATABASE_URL;
+  expect(python).toBeTruthy();
+  expect(databaseUrl).toBeTruthy();
+  const transactionId = execFileSync(
+    python ?? "python",
+    ["-m", "scripts.seed_e2e_failed_transaction", email],
+    {
+      cwd: "..",
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        APP_ENV: "test",
+        DATABASE_URL: databaseUrl ?? "",
+        PAYPAL_MOCK_MODE: "false",
+        SESSION_COOKIE_SECURE: "false",
+      },
+    },
+  ).trim();
+
+  let retryKey = "";
+  await page.route(`**/api/transactions/${transactionId}/retry`, async (route) => {
+    retryKey = (route.request().postDataJSON() as { idempotency_key: string }).idempotency_key;
+    await route.continue();
+  });
+  await page.goto(`/app/transactions/${transactionId}`);
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByText("Completed").first()).toBeVisible();
+  await expect(page.getByText("Internal ledger capture")).toBeVisible();
+  expect(retryKey).toMatch(/^retry-/);
+
+  const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "pactra_csrf")?.value;
+  const replay = await page.request.post(`${apiOrigin}/api/transactions/${transactionId}/retry`, {
+    headers: { Origin: frontendOrigin, "X-CSRF-Token": csrf ?? "" },
+    data: { idempotency_key: retryKey },
+  });
+  expect(replay.status()).toBe(202);
+  expect((await replay.json()).transaction.id).toBe(transactionId);
+  await page.reload();
+  await expect(page.getByText("Internal ledger capture")).toHaveCount(1);
 });
 
 test("another signed-in user cannot open a private receipt", async ({ page }) => {
@@ -349,6 +554,92 @@ test("policy editor rejects invalid state and only confirms persisted saves", as
   await expect(save).toBeDisabled();
 });
 
+test("ambiguous PayPal recovery is explicit and reuses the existing attempt", async ({ page }) => {
+  await register(page, "judge-paypal-recovery");
+  await page.goto("/app/payments/new?scenario=auto");
+  await submitPayment(page);
+  await expect(page).toHaveURL(/\/app\/transactions\//);
+  const transactionId = page.url().split("/").pop() ?? "";
+  let recoveryRequests = 0;
+  const receiptResponse = await page.request.get(`${apiOrigin}/api/transactions/${transactionId}`);
+  expect(receiptResponse.status()).toBe(200);
+  const receipt = await receiptResponse.json() as {
+    transaction: Record<string, unknown>;
+    attempts: Array<Record<string, unknown>>;
+  };
+  receipt.transaction = {
+    ...receipt.transaction,
+    type: "payout",
+    vendor: "PayPal recovery fixture",
+    recipient: "masked-recipient@example.com",
+    amount_cents: 100,
+    status: "executing",
+    rail: "paypal_sandbox_payouts",
+    rail_reference: null,
+    provider_batch_id: null,
+    provider_item_id: null,
+    provider_status: "UNKNOWN",
+    failure_code: "PAYPAL_OUTCOME_UNKNOWN",
+    completed_at: null,
+  };
+  receipt.attempts = [{
+    id: "11111111-1111-4111-8111-111111111111",
+    attempt_number: 1,
+    rail: "paypal_sandbox_payouts",
+    rail_request_id: `pactra-${transactionId}-a1`,
+    status: "unknown",
+    response_code: "PAYPAL_OUTCOME_UNKNOWN",
+    provider_batch_id: null,
+    provider_item_id: null,
+    provider_status: "UNKNOWN",
+  }];
+
+  await page.route(`**/api/transactions/${transactionId}/reconcile`, async (route) => {
+    recoveryRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: transactionId,
+        type: "payout",
+        vendor: "PayPal recovery fixture",
+        recipient: "masked-recipient@example.com",
+        amount_cents: 100,
+        currency: "USD",
+        category: "freelance",
+        reason: "Ambiguous recovery UI fixture",
+        status: "executing",
+        sandbox_generation: 1,
+        policy_version: 1,
+        rail: "paypal_sandbox_payouts",
+        rail_reference: null,
+        provider_batch_id: null,
+        provider_item_id: null,
+        provider_status: "UNKNOWN",
+        failure_code: "PAYPAL_OUTCOME_UNKNOWN",
+        created_at: "2026-11-09T00:00:00Z",
+        updated_at: "2026-11-09T00:00:00Z",
+        completed_at: null,
+      }),
+    });
+  });
+
+  await page.route(`**/api/transactions/${transactionId}`, async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", json: receipt });
+  });
+
+  await page.reload();
+  await expect(page.getByText(/Provider outcome unknown/)).toBeVisible();
+  const recover = page.getByRole("button", { name: "Recover submission" });
+  await expect(recover).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("reuse the original stable PayPal request identifiers");
+    await dialog.accept();
+  });
+  await recover.click();
+  expect(recoveryRequests).toBe(1);
+});
+
 test.describe("mobile judge navigation", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -363,7 +654,7 @@ test.describe("mobile judge navigation", () => {
     await page.getByRole("link", { name: "Create sandbox" }).click();
 
     await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Create sandbox account" }).click();
     await expect(page).toHaveURL(/\/app$/);
     await expectNoHorizontalOverflow(page);
@@ -374,7 +665,7 @@ test.describe("mobile judge navigation", () => {
     await expect(page).toHaveURL(/\/sign-in$/);
 
     await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(/\/app$/);
     await expectNoHorizontalOverflow(page);

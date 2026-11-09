@@ -6,6 +6,8 @@ const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export default function globalSetup() {
   const databaseURL = process.env.E2E_RESOLVED_DATABASE_URL;
   const pythonCommand = process.env.E2E_RESOLVED_PYTHON ?? "python";
+  const frontendURL = `http://127.0.0.1:${process.env.E2E_FRONTEND_PORT ?? "5173"}`;
+  const backendURL = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "8000"}`;
   if (!databaseURL) throw new Error("E2E database isolation was not configured");
 
   const result = spawnSync(pythonCommand, ["-m", "alembic", "upgrade", "head"], {
@@ -16,9 +18,9 @@ export default function globalSetup() {
       APP_ENV: "test",
       SECRET_KEY: "pactra-e2e-only-secret-key-32-bytes-minimum",
       DATABASE_URL: databaseURL,
-      FRONTEND_URL: "http://127.0.0.1:5173",
-      BACKEND_URL: "http://127.0.0.1:8000",
-      CORS_ORIGINS: "http://127.0.0.1:5173",
+      FRONTEND_URL: frontendURL,
+      BACKEND_URL: backendURL,
+      CORS_ORIGINS: frontendURL,
       AI_ENABLED: "false",
       GEMINI_API_KEY: "",
       PAYPAL_PAYOUTS_ENABLED: "false",

@@ -347,6 +347,30 @@ def evaluate_policy(
     )
 
 
+def preview_policy_decision(
+    session: Session,
+    *,
+    user: User,
+    vendor: str,
+    amount_cents: int,
+    currency: str,
+    category: str,
+) -> PolicyDecision:
+    """Evaluate the current policy without creating or reserving anything."""
+    wallet = session.exec(select(Wallet).where(Wallet.user_id == user.id)).one()
+    policy = get_current_policy(session, user.id)
+    return evaluate_policy(
+        session,
+        user=user,
+        wallet=wallet,
+        policy=policy,
+        vendor=vendor,
+        amount_cents=amount_cents,
+        currency=currency,
+        category=category,
+    )
+
+
 def spend_summary(session: Session, *, user_id: str, wallet: Wallet) -> dict[str, Any]:
     policy = get_current_policy(session, user_id)
     data = policy.policy_json

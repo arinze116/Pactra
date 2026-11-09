@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
+from uuid import UUID
 
 from sqlalchemy import case, func
 from sqlmodel import Session, select
@@ -496,7 +497,10 @@ def _decode_cursor(cursor: str) -> tuple[datetime, str]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
-        return datetime.fromisoformat(payload["created_at"]), str(payload["journal_id"])
+        created_at = datetime.fromisoformat(payload["created_at"])
+        if created_at.tzinfo is None:
+            raise ValueError("Cursor timestamp must include a timezone")
+        return created_at, str(UUID(str(payload["journal_id"])))
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise LedgerError("Ledger cursor is invalid") from exc
 

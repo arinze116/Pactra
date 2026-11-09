@@ -66,7 +66,7 @@ def app_settings() -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_legacy_mock_payment_cannot_claim_provider_success(
+async def test_legacy_payment_path_is_disabled_before_provider_execution(
     policy_path: Path, session: Session, app_settings: Settings
 ) -> None:
     policy_engine = PolicyEngine(policy_path)
@@ -87,7 +87,7 @@ async def test_legacy_mock_payment_cannot_claim_provider_success(
 
     transaction = session.get(Transaction, result["transaction_id"])
     assert result["outcome"] == "failed"
-    assert "Mock PayPal mode" in result["error"]
+    assert "Legacy payment execution is disabled" in result["error"]
     assert transaction is not None
     assert transaction.paypal_status == "FAILED"
     software = next(
@@ -120,7 +120,7 @@ async def test_pending_payment_waits_for_human_then_executes(
         assert transaction.status == "pending_approval"
         assert transaction.paypal_order_id is None
 
-        with pytest.raises(PayPalError, match="Mock PayPal mode"):
+        with pytest.raises(PayPalError, match="governed transaction service"):
             await agent.approve_transaction(
                 transaction,
                 policy_engine,
@@ -132,6 +132,25 @@ async def test_pending_payment_waits_for_human_then_executes(
 
     assert transaction.status == "pending_approval"
     assert transaction.paypal_order_id is None
+
+
+def test_paypal_client_exposes_no_legacy_orders_execution() -> None:
+    assert not hasattr(PayPalClient, "create_order")
+    assert not hasattr(PayPalClient, "capture_order")
+
+
+def test_only_worker_orchestration_can_call_payout_submission() -> None:
+    backend_root = Path(__file__).resolve().parents[1]
+    callers = []
+    for source_path in backend_root.rglob("*.py"):
+        if "tests" in source_path.parts or source_path.name == "paypal_client.py":
+            continue
+        if ".create_payout(" in source_path.read_text(encoding="utf-8"):
+            callers.append(source_path.relative_to(backend_root).as_posix())
+    assert callers == ["services/paypal.py"]
+    assert "/v2/checkout/orders" not in (backend_root / "paypal_client.py").read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.asyncio
