@@ -4,7 +4,19 @@ Date: 2026-11-09
 
 Branch: `release/final-pre-demo-readiness`
 
-PR/branch commit: pending final commit and publication
+Pull request: <https://github.com/arinze116/Pactra/pull/17>
+
+Base main: `9c6c94b85b75d2ec20c8905aabd77700a7779238`
+
+Implementation commits:
+
+- `b8538fc` — safe operational diagnostics and request hardening;
+- `346f741` — reproducible isolated demo rehearsal and assets;
+- `a6dc1cf` — final pre-demo documentation and handover.
+
+The exact final PR head and required CI run are recorded by GitHub on PR #17;
+the final completion report must cite that immutable SHA and run after all
+checks finish.
 
 Production impact: **none**
 
