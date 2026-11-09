@@ -4,6 +4,11 @@ Pactra is a sandbox-only payment operations workspace for creating governed paym
 
 Current production application (runtime release `63f2583`): <https://pactra-nine.vercel.app>
 
+The frozen production identity, retained evidence and operational handover are
+in [QA/ACCEPTED-PRODUCTION-BASELINE.md](./QA/ACCEPTED-PRODUCTION-BASELINE.md),
+[QA/RELEASE-FREEZE-POLICY.md](./QA/RELEASE-FREEZE-POLICY.md), and
+[QA/PRODUCTION-OPERATIONS-RUNBOOK.md](./QA/PRODUCTION-OPERATIONS-RUNBOOK.md).
+
 > Pactra does not move real money. The in-app wallet is a simulated double-entry ledger. The optional PayPal integration uses PayPal Sandbox Payouts only.
 
 ## What Pactra does

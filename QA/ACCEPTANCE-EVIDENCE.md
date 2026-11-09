@@ -2,6 +2,11 @@
 
 Updated: 2026-11-09, Africa/Lagos
 
+Canonical frozen baseline:
+[`QA/ACCEPTED-PRODUCTION-BASELINE.md`](./ACCEPTED-PRODUCTION-BASELINE.md).
+This file is retained historical acceptance evidence; the freeze task did not
+re-execute provider or financial operations.
+
 This report separates verified engineering/deployment evidence from external
 provider acceptance. `PASS` never means more than the evidence stated.
 

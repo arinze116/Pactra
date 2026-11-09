@@ -2,6 +2,10 @@
 
 Updated: 2026-11-09, Africa/Lagos
 
+Canonical frozen baseline:
+[`QA/ACCEPTED-PRODUCTION-BASELINE.md`](./ACCEPTED-PRODUCTION-BASELINE.md).
+This file retains the acceptance gate evidence that led to that baseline.
+
 Production runtime: `63f25839a6b645a8ca404846ecd82d16c1994b7c`
 at `/opt/pactra/releases/63f2583`, database revision `20261107_0005`.
 

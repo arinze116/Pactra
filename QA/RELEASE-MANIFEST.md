@@ -2,12 +2,17 @@
 
 Updated: 2026-11-09, Africa/Lagos
 
+The canonical frozen baseline and artefact inventory is
+[`QA/ACCEPTED-PRODUCTION-BASELINE.md`](./ACCEPTED-PRODUCTION-BASELINE.md).
+This manifest remains the point-in-time release record.
+
 ## Release identity
 
 | Item | Value |
 |---|---|
 | Repository | `arinze116/Pactra` |
 | Runtime release commit | `63f25839a6b645a8ca404846ecd82d16c1994b7c` |
+| Accepted GitHub main baseline | `06d9181eca8d383a79003ac4559ea9c0084b3831` (documentation-only descendant of runtime) |
 | Runtime release directory | `/opt/pactra/releases/63f2583` |
 | Embedded release SHA | `63f25839a6b645a8ca404846ecd82d16c1994b7c` |
 | Source archive | `/opt/pactra/releases/63f2583/.release-metadata/pactra-63f2583.tar` |
@@ -15,9 +20,10 @@ Updated: 2026-11-09, Africa/Lagos
 | Database revision | `20261107_0005` |
 | PostgreSQL | `16.15` |
 | Public URL | https://pactra-nine.vercel.app |
-| Vercel deployment | `dpl_DjHTW75MnGQN11rcNZrY89NkrN9c` (`Ready`, production alias) |
-| Vercel runtime source | Frontend runtime files are unchanged from `4534d136...`; no Vercel redeploy was required |
-| Main CI | [42674909231](https://github.com/arinze116/Pactra/actions/runs/42674909231), all four jobs passed on exact SHA `63f25839...` |
+| Vercel deployment | `dpl_DjHTW75MnGQN11rcNZrY89NkrN9c` (`READY`, production alias) |
+| Vercel deployment metadata | Commit `73fdfb692...`; live asset hashes match the accepted frontend build |
+| Runtime CI | [42674909231](https://github.com/arinze116/Pactra/actions/runs/42674909231), all four jobs passed on exact SHA `63f25839...` |
+| Accepted-main CI | [42678033819](https://github.com/arinze116/Pactra/actions/runs/42678033819), all four jobs passed on exact SHA `06d9181...` |
 | Deployment start | `2026-11-09T18:42:05Z` |
 | Previous production release | `/opt/pactra/releases/73fdfb6`, schema-compatible at `0005` |
 | Legacy rollback release | `/opt/pactra/releases/0e3e905`, requires stopped-service downgrade to `0004` |
@@ -34,6 +40,7 @@ Updated: 2026-11-09, Africa/Lagos
 | [#12](https://github.com/arinze116/Pactra/pull/12) | `73fdfb692f6daea69ba5f44bc37d9afa1814419a` | Final release-evidence closure | PASS |
 | [#13](https://github.com/arinze116/Pactra/pull/13) | `60c0843f48351aa1fc611d25dcca14c539f8e843` | PayPal Sandbox acceptance evidence | PASS |
 | [#14](https://github.com/arinze116/Pactra/pull/14) | `63f25839a6b645a8ca404846ecd82d16c1994b7c` | Gemini compatibility, failover and model selection | PASS |
+| [#15](https://github.com/arinze116/Pactra/pull/15) | `06d9181eca8d383a79003ac4559ea9c0084b3831` | Gemini production acceptance evidence | PASS |
 
 ## Verified contents
 
@@ -51,6 +58,10 @@ Updated: 2026-11-09, Africa/Lagos
   audit, receipt and tenant-isolation regressions passed.
 - Frontend `dist`, resolved Python/npm manifests and build hashes are present
   in the immutable release.
+- The API process runs from `63f2583`. The intentionally retained worker
+  process has cwd `73fdfb6`; all worker, PayPal, transaction, ledger, database
+  and model modules are byte-identical between the two releases, and its
+  advisory lease remains held.
 
 ## Backup and migration evidence
 
