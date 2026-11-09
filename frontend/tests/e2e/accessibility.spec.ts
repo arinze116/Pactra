@@ -44,6 +44,7 @@ test("public and authenticated judge surfaces meet automated WCAG 2.1 AA checks"
 
   for (const [route, label] of publicRoutes) {
     await page.goto(route);
+    await expect(page.locator("main"), `${label} main landmark`).toHaveCount(1);
     await expectWcag21AA(page, label);
   }
 
