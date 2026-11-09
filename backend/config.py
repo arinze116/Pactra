@@ -12,6 +12,11 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SECRET_KEY = "development-only-change-me-32-bytes"
+GEMINI_PRODUCTION_MODEL = "gemini-3.5-flash-lite"
+GEMINI_ROLLBACK_MODEL = "gemini-3.8-flash"
+APPROVED_GEMINI_MODELS = frozenset(
+    {GEMINI_PRODUCTION_MODEL, GEMINI_ROLLBACK_MODEL}
+)
 
 
 class Settings(BaseSettings):
@@ -37,8 +42,9 @@ class Settings(BaseSettings):
 
     ai_enabled: bool = False
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = GEMINI_PRODUCTION_MODEL
     gemini_request_timeout_seconds: float = Field(default=12.0, gt=0, le=60)
+    gemini_request_attempts: int = Field(default=2, ge=1, le=2)
     max_chat_history: int = Field(default=20, ge=1, le=100)
 
     paypal_payouts_enabled: bool = False
@@ -176,8 +182,9 @@ class Settings(BaseSettings):
                 )
         if self.ai_enabled and not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is required when AI_ENABLED is true")
-        if self.ai_enabled and self.gemini_model != "gemini-3.8-flash":
-            raise ValueError("AI_ENABLED requires the configured gemini-3.8-flash model")
+        if self.gemini_model not in APPROVED_GEMINI_MODELS:
+            approved = ", ".join(sorted(APPROVED_GEMINI_MODELS))
+            raise ValueError(f"GEMINI_MODEL must be an approved model: {approved}")
         return self
 
     @property

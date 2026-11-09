@@ -16,11 +16,12 @@ at `/opt/pactra/releases/73fdfb6`, database revision `20261107_0005`.
 | Failure and compensation | PASS | Terminal failure release and exactly-once reversal/refund tests |
 | Authentication/authorisation/CSRF | PASS | Backend suites and public CSRF/session acceptance |
 | Policy, audit and receipt | PASS | Backend suites plus production completed/rejected/blocked receipts |
-| SQLite suite | PASS | 118 passed, 10 PostgreSQL-only skipped |
-| PostgreSQL suite | PASS | 128 passed, including concurrency and migration coverage |
+| SQLite suite | PASS | 121 passed, 10 PostgreSQL-only skipped on the Gemini candidate |
+| PostgreSQL suite | PASS | 131 passed after one non-reproducing concurrency rerun; isolated test and second full run passed |
 | Frontend lint/type/build | PASS | ESLint, TypeScript and Vite production build |
 | Dependency audits | PASS | `pip check`, `pip-audit`, production npm audit and full npm audit |
 | CI on runtime SHA | PASS | [42659603721](https://github.com/arinze116/Pactra/actions/runs/42659603721), four jobs passed on `73fdfb69...` |
+| CI on Gemini candidate | NOT TESTED | Dedicated branch has not yet been published |
 
 ## Release and production gate
 
@@ -43,9 +44,12 @@ at `/opt/pactra/releases/73fdfb6`, database revision `20261107_0005`.
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Gemini configured | PASS | Production model `gemini-3.8-flash`; key present and aligned with the validated project key |
-| Genuine Gemini function call | BLOCKED | Model lookup passed; Pactra generation returned provider `503`/timeout and no function call |
-| Deterministic Gemini fallback | PASS | Governed $20 internal payment completed once; provider errors did not break the application |
+| Gemini production configuration | PASS | Production still uses `gemini-3.8-flash`; key present and aligned with the project key |
+| Candidate discovery | PASS | Account exposes stable `gemini-3.5-flash-lite` with `generateContent`; Google documents function calling and a free tier |
+| Genuine candidate function call | PASS | Two genuine calls and two full function-response round trips passed with validated arguments |
+| Full candidate Pactra workflow | PASS | Completed internal payout, approval reservation, missing-data rejection, receipt and audit checks passed in isolation |
+| Genuine production function call | NOT TESTED | Do not switch production until candidate CI and release checks pass |
+| Deterministic Gemini fallback | PASS | Timeout, 503, malformed/empty response and post-tool failure regressions preserve governance |
 | PayPal Sandbox configuration/OAuth | PASS | Sandbox host, Payouts scope, mock disabled, credentials present; OAuth completed in 737 ms |
 | PayPal payout submission | PASS | Exact transaction `bfe1e158-...` approved once; worker issued one payout POST and persisted one batch |
 | PayPal item-level `SUCCESS` | PASS | PayPal lookup of the persisted batch returned one item with `transaction_status=SUCCESS` |
@@ -66,7 +70,8 @@ Desktop-profile production reports are stored under
 
 - Production deployment: **PASS**.
 - Engineering and public acceptance: **PASS**.
-- Genuine Gemini function-call acceptance: **BLOCKED**.
+- Gemini candidate compatibility and isolated workflow: **PASS**.
+- Genuine production Gemini function-call acceptance: **NOT TESTED**.
 - PayPal payout, item-success and exactly-once capture acceptance: **PASS**.
-- Overall product acceptance: **BLOCKED**. A successful deployment does not
-  override the remaining Gemini provider limitation.
+- Overall product acceptance: **BLOCKED** pending exact-SHA CI, deployment and
+  a genuine non-financial production function-call acceptance test.

@@ -5,16 +5,25 @@ Updated: 2026-11-09
 | Integration | Implemented | Production configured | Genuine success evidence | Status |
 |---|---|---|---|---|
 | Internal Pactra sandbox | Yes | Yes | Persisted ledger journeys | PASS |
-| Gemini `gemini-3.8-flash` | Yes | Yes | Latest live generation returned `429 RESOURCE_EXHAUSTED`; no tool call | BLOCKED |
-| PayPal Sandbox OAuth | Yes | Yes | Prior OAuth succeeded | PASS for authentication only |
-| PayPal Sandbox Payouts | Yes | Yes | Prior payout ended `DENIED`/`FAILED`; no item `SUCCESS` | BLOCKED |
-| PayPal reconciliation | Yes | Yes | Deterministic state tests only; no successful real item | BLOCKED for live acceptance |
+| Gemini `gemini-3.5-flash-lite` | Yes | Candidate validated; production switch pending | Two genuine calls and two complete round trips; full isolated governed workflow passed | PASS candidate / NOT TESTED production |
+| PayPal Sandbox OAuth | Yes | Yes | Authenticated Sandbox OAuth with Payouts scope | PASS |
+| PayPal Sandbox Payouts | Yes | Yes | Authorised $25 item reached item-level `SUCCESS` | PASS |
+| PayPal reconciliation | Yes | Yes | Persisted identifiers reconciled once; one ledger capture | PASS |
 
 ## Gemini
 
-The active assistant uses typed tools, bounded requests, tenant-owned services,
-and deterministic fallback. Fallback is labelled and audited. It is not live
-Gemini acceptance. The exact model remains `gemini-3.8-flash`.
+The assistant uses typed tools, bounded requests, tenant-owned services and a
+deterministic fallback. The configured account exposes the tested stable Flash
+models. `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.1-flash-lite` and
+`gemini-3.5-flash` failed bounded compatibility requests with HTTP 503 or
+timeouts. `gemini-3.5-flash-lite` returned genuine, schema-valid function calls
+and passed full isolated Pactra workflow acceptance.
+
+The integration also corrected two application defects: function responses now
+use the API-supported `user` role, and the payment declaration identifies the
+recipient as a payout-only email. Deterministic fallback remains labelled and
+audited. Production still runs `gemini-3.8-flash` until the merged release and
+targeted environment update are verified.
 
 ## PayPal
 

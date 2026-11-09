@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -44,6 +45,10 @@ Ask one short clarification when required payment fields are missing.
 
 logger = logging.getLogger(__name__)
 
+GEMINI_MAX_TOOL_ROUNDS = 8
+GEMINI_MAX_OUTPUT_TOKENS = 2000
+GEMINI_RETRYABLE_HTTP_CODES = frozenset({429, 500, 502, 503, 504})
+
 _EXPLICIT_AMOUNT = re.compile(
     r"(?:\$\s*(?P<dollar>\d+(?:\.\d{1,2})?)|"
     r"(?P<named>\d+(?:\.\d{1,2})?)\s*(?:usd|dollars?))",
@@ -65,7 +70,14 @@ TOOLS = [
                             "enum": ["vendor_payment", "payout", "sandbox_transfer"],
                         },
                         "vendor": {"type": "string"},
-                        "recipient": {"type": ["string", "null"]},
+                        "recipient": {
+                            "type": ["string", "null"],
+                            "format": "email",
+                            "description": (
+                                "Payout recipient email. Use null for vendor_payment "
+                                "and sandbox_transfer."
+                            ),
+                        },
                         "amount_cents": {"type": "integer", "minimum": 1},
                         "currency": {"type": "string", "enum": ["USD"]},
                         "category": {"type": "string"},
@@ -127,6 +139,10 @@ class ConversationArchived(RuntimeError):
     """Archived conversations must be restored before adding messages."""
 
 
+class GeminiProtocolError(RuntimeError):
+    """Gemini returned no usable text or declared function call."""
+
+
 class GeminiRunFailed(RuntimeError):
     """Preserve committed tool results when a later Gemini turn fails."""
 
@@ -136,11 +152,21 @@ class GeminiRunFailed(RuntimeError):
         tool_log: list[dict[str, Any]],
         transaction_ids: list[str],
         cause_type: str,
+        classification: str,
+        http_status: int | None,
+        provider_status: str | None,
+        provider_calls: int,
+        latency_ms: int,
     ) -> None:
         super().__init__("Gemini request failed")
         self.tool_log = tool_log
         self.transaction_ids = transaction_ids
         self.cause_type = cause_type
+        self.classification = classification
+        self.http_status = http_status
+        self.provider_status = provider_status
+        self.provider_calls = provider_calls
+        self.latency_ms = latency_ms
 
 
 @dataclass(frozen=True)
@@ -149,6 +175,13 @@ class AssistantResult:
     reply: str
     tool_calls: list[dict[str, Any]]
     transaction_ids: list[str]
+
+
+@dataclass(frozen=True)
+class GeminiRunMetadata:
+    provider_calls: int
+    latency_ms: int
+    finish_reason: str | None
 
 
 @dataclass(frozen=True)
@@ -505,6 +538,7 @@ def _create_from_args(
         if not recipient or recipient.casefold() not in message_folded:
             raise ValueError("The payout recipient must be explicit in the current message")
     else:
+        proposed["recipient"] = None
         vendor = " ".join(str(proposed.get("vendor") or "").casefold().split())
         if not vendor or vendor not in message_folded:
             raise ValueError("The payment vendor must be explicit in the current message")
@@ -602,6 +636,47 @@ def _function_response_part(
     )
 
 
+def _normalise_provider_status(value: object) -> str | None:
+    if value is None:
+        return None
+    enum_value = getattr(value, "value", None)
+    return str(enum_value if enum_value is not None else value)
+
+
+def _classify_gemini_error(
+    exc: Exception,
+) -> tuple[str, int | None, str | None]:
+    code = getattr(exc, "code", None)
+    http_status = code if isinstance(code, int) else None
+    provider_status = _normalise_provider_status(getattr(exc, "status", None))
+    if isinstance(exc, TimeoutError):
+        return "timeout", http_status, provider_status
+    if http_status == 401:
+        return "authentication", http_status, provider_status
+    if http_status == 403:
+        return "permission", http_status, provider_status
+    if http_status == 404:
+        return "model_unavailable", http_status, provider_status
+    if http_status == 429:
+        return "rate_limit_or_quota", http_status, provider_status
+    if http_status in {500, 502, 503, 504}:
+        return "provider_capacity", http_status, provider_status
+    if http_status == 400:
+        return "request_or_schema_incompatibility", http_status, provider_status
+    if isinstance(exc, GeminiProtocolError):
+        return "malformed_response", http_status, provider_status
+    return "sdk_or_application_error", http_status, provider_status
+
+
+def _is_retryable_gemini_error(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    return isinstance(exc, TimeoutError) or code in GEMINI_RETRYABLE_HTTP_CODES
+
+
+def _finish_reason(candidate: object) -> str | None:
+    return _normalise_provider_status(getattr(candidate, "finish_reason", None))
+
+
 async def _run_gemini(
     session: Session,
     *,
@@ -610,7 +685,7 @@ async def _run_gemini(
     user_message: ConversationMessage,
     message: str,
     request_id: str,
-) -> tuple[str, list[dict[str, Any]], list[str]]:
+) -> tuple[str, list[dict[str, Any]], list[str], GeminiRunMetadata]:
     history = session.exec(
         select(ConversationMessage)
         .where(ConversationMessage.conversation_id == conversation.id)
@@ -626,46 +701,74 @@ async def _run_gemini(
         for item in history
         if item.role in {"user", "assistant"}
     ]
-    client = genai.Client(api_key=settings.gemini_api_key)
+    client = genai.Client(
+        api_key=settings.gemini_api_key,
+        http_options=types.HttpOptions(
+            retry_options=types.HttpRetryOptions(attempts=1)
+        ),
+    )
     tool_log: list[dict[str, Any]] = []
     transaction_ids: list[str] = []
+    provider_calls = 0
+    provider_latency_ms = 0.0
+    last_finish_reason: str | None = None
+    generation_config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        tools=TOOLS,
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        temperature=0.0,
+        max_output_tokens=GEMINI_MAX_OUTPUT_TOKENS,
+    )
     try:
-        for _ in range(8):
+        for _ in range(GEMINI_MAX_TOOL_ROUNDS):
             response = None
-            for attempt in range(3):
+            for attempt in range(settings.gemini_request_attempts):
+                provider_calls += 1
+                call_started = time.monotonic()
                 try:
                     response = await asyncio.wait_for(
                         client.aio.models.generate_content(
                             model=settings.gemini_model,
                             contents=contents,
-                            config=types.GenerateContentConfig(
-                                system_instruction=SYSTEM_PROMPT,
-                                tools=TOOLS,
-                                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                                    disable=True
-                                ),
-                                max_output_tokens=2000,
-                            ),
+                            config=generation_config,
                         ),
                         timeout=settings.gemini_request_timeout_seconds,
                     )
                     break
                 except Exception as exc:
-                    retryable = isinstance(exc, TimeoutError) or (
-                        getattr(exc, "code", None)
-                        in {429, 500, 502, 503, 504}
+                    is_last_attempt = (
+                        attempt + 1 == settings.gemini_request_attempts
                     )
-                    if not retryable or attempt == 2:
+                    if not _is_retryable_gemini_error(exc) or is_last_attempt:
                         raise
                     await asyncio.sleep(0.5 * (2**attempt))
-            assert response is not None
+                finally:
+                    provider_latency_ms += (
+                        time.monotonic() - call_started
+                    ) * 1000
+            if response is None:
+                raise GeminiProtocolError("Gemini returned no response")
             candidate = (response.candidates or [None])[0]
+            last_finish_reason = _finish_reason(candidate)
             content = getattr(candidate, "content", None)
             parts = getattr(content, "parts", None) or []
             calls = [part.function_call for part in parts if part.function_call]
             if not calls:
                 reply = (response.text or "").strip()
-                return reply or "I couldn't complete that request.", tool_log, transaction_ids
+                if not reply:
+                    raise GeminiProtocolError(
+                        "Gemini returned neither text nor a function call"
+                    )
+                return (
+                    reply,
+                    tool_log,
+                    transaction_ids,
+                    GeminiRunMetadata(
+                        provider_calls=provider_calls,
+                        latency_ms=round(provider_latency_ms),
+                        finish_reason=last_finish_reason,
+                    ),
+                )
             contents.append(content)
             tool_parts: list[types.Part] = []
             for call in calls:
@@ -710,17 +813,28 @@ async def _run_gemini(
                 tool_parts.append(
                     _function_response_part(call, name=name, response=result)
                 )
-            contents.append(types.Content(role="tool", parts=tool_parts))
+            contents.append(types.Content(role="user", parts=tool_parts))
         return (
             "I stopped because the request required too many consecutive actions.",
             tool_log,
             transaction_ids,
+            GeminiRunMetadata(
+                provider_calls=provider_calls,
+                latency_ms=round(provider_latency_ms),
+                finish_reason=last_finish_reason,
+            ),
         )
     except Exception as exc:
+        classification, http_status, provider_status = _classify_gemini_error(exc)
         raise GeminiRunFailed(
             tool_log=tool_log,
             transaction_ids=transaction_ids,
             cause_type=type(exc).__name__,
+            classification=classification,
+            http_status=http_status,
+            provider_status=provider_status,
+            provider_calls=provider_calls,
+            latency_ms=round(provider_latency_ms),
         ) from exc
     finally:
         try:
@@ -787,7 +901,7 @@ async def run_assistant(
     ai_failed = False
     if settings.ai_enabled and settings.gemini_api_key:
         try:
-            reply, tool_log, transaction_ids = await _run_gemini(
+            reply, tool_log, transaction_ids, metadata = await _run_gemini(
                 session,
                 user=user,
                 conversation=conversation,
@@ -795,12 +909,29 @@ async def run_assistant(
                 message=message,
                 request_id=request_id,
             )
+            record_audit_event(
+                session,
+                user_id=user.id,
+                actor_type="system",
+                actor_id=None,
+                entity_type="conversation",
+                entity_id=conversation.id,
+                event_type="assistant.provider_completed",
+                payload={
+                    "model": settings.gemini_model,
+                    "provider_calls": metadata.provider_calls,
+                    "latency_ms": metadata.latency_ms,
+                    "finish_reason": metadata.finish_reason,
+                    "tool_call_count": len(tool_log),
+                },
+            )
             reply = _authoritative_tool_reply(tool_log) or reply
         except GeminiRunFailed as exc:
             logger.warning(
-                "Gemini request failed for user %s (%s); using deterministic fallback",
+                "Gemini request failed for user %s (%s/%s); using deterministic fallback",
                 user.id,
                 exc.cause_type,
+                exc.classification,
             )
             session.rollback()
             tool_log = exc.tool_log
@@ -813,7 +944,15 @@ async def run_assistant(
                 entity_type="conversation",
                 entity_id=conversation.id,
                 event_type="assistant.error",
-                payload={"code": "AI_UNAVAILABLE", "model": settings.gemini_model},
+                payload={
+                    "code": "AI_UNAVAILABLE",
+                    "model": settings.gemini_model,
+                    "classification": exc.classification,
+                    "http_status": exc.http_status,
+                    "provider_status": exc.provider_status,
+                    "provider_calls": exc.provider_calls,
+                    "latency_ms": exc.latency_ms,
+                },
             )
             session.commit()
             ai_failed = True

@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from backend.config import Settings
+from backend.config import (
+    GEMINI_PRODUCTION_MODEL,
+    GEMINI_ROLLBACK_MODEL,
+    Settings,
+)
 
 
 def production_settings(**overrides: object) -> Settings:
@@ -65,12 +69,26 @@ def test_enabled_ai_requires_server_key() -> None:
     with pytest.raises(ValidationError, match="GEMINI_API_KEY"):
         production_settings(ai_enabled=True)
 
-    with pytest.raises(ValidationError, match="gemini-3.8-flash"):
+    for model in (GEMINI_PRODUCTION_MODEL, GEMINI_ROLLBACK_MODEL):
+        configured = production_settings(
+            ai_enabled=True,
+            gemini_api_key="test-key",
+            gemini_model=model,
+        )
+        assert configured.gemini_model == model
+
+    with pytest.raises(ValidationError, match="approved model"):
         production_settings(
             ai_enabled=True,
             gemini_api_key="test-key",
             gemini_model="gemini-2.0-flash",
         )
+
+
+def test_gemini_attempts_are_bounded() -> None:
+    assert Settings(_env_file=None).gemini_request_attempts == 2
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, gemini_request_attempts=3)
 
 
 def test_production_rejects_default_secret_and_unsafe_origins() -> None:
