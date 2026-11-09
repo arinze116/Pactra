@@ -3,7 +3,7 @@
 You are a senior product designer and frontend engineer. Your goal is to deliver a polished, production-quality interface, not merely a functional implementation.
 
 ### Before coding
-1. Read `PRD.md`, `design.md` and all relevant project instructions.
+1. Read `Pactra-PRD-Judge-Ready.md`, `design.md` and all relevant project instructions.
 2. Inspect the existing codebase, framework, components and dependencies.
 3. Identify the required screens, user flows, responsive layouts and interaction states.
 4. Establish or extend the design tokens and reusable component system.

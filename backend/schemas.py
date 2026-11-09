@@ -8,14 +8,21 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
 def validate_password_strength(value: str) -> str:
-    """Apply the PRD password length and character-class requirements."""
-    if not 12 <= len(value) <= 128:
-        raise ValueError("Password must be between 12 and 128 characters")
+    """Apply Pactra's password length and character-class requirements."""
+    if not PASSWORD_MIN_LENGTH <= len(value) <= PASSWORD_MAX_LENGTH:
+        raise ValueError(
+            f"Password must be between {PASSWORD_MIN_LENGTH} and "
+            f"{PASSWORD_MAX_LENGTH} characters"
+        )
     classes = (
         bool(re.search(r"[a-z]", value)),
         bool(re.search(r"[A-Z]", value)),

@@ -6,7 +6,7 @@ The verified Gemini release is deployed and publicly accepted. PayPal Sandbox
 acceptance is also complete. There is no active external or human release
 blocker.
 
-## 1. Gemini production acceptance — RESOLVED / PASS
+## 1. Gemini production acceptance - RESOLVED / PASS
 
 - Production is configured for `gemini-3.5-flash-lite`; the configured key is
   present and matches the project-local key without either value being shown.
@@ -28,7 +28,7 @@ blocker.
 
 No new credential, billing change or provider intervention is required.
 
-## 2. Exact PayPal Sandbox payout approval — RESOLVED / PASS
+## 2. Exact PayPal Sandbox payout approval - RESOLVED / PASS
 
 The prepared transaction is:
 
@@ -49,7 +49,7 @@ approval endpoint once at `2026-11-09 18:23:44 WAT`, recorded one approval
 action and created one attempt. This approval is consumed. Do not approve,
 retry or create a replacement payout for this transaction.
 
-## 3. PayPal item success and reconciliation — PASS
+## 3. PayPal item success and reconciliation - PASS
 
 The worker made one payout POST, persisted batch `ZMQQ…3Q8U`, then reconciled
 that same identifier. PayPal returned exactly one item, `E5KZ…KTYA`, with

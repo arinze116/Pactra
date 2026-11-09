@@ -6,7 +6,7 @@ Scope: repository code, isolated tests, dependency audits, retained production
 controls, and read-only production verification. No destructive production
 testing or provider request was performed.
 
-Status: **PASS — no unresolved known P0 or P1 finding**
+Status: **PASS - no unresolved known P0 or P1 finding**
 
 ## Findings and evidence
 
@@ -31,7 +31,7 @@ Status: **PASS — no unresolved known P0 or P1 finding**
 
 ## Fixes completed
 
-### P1 — raw operation paths in future structured logs
+### P1 - raw operation paths in future structured logs
 
 The initial branch implementation logged `request.url.path`, which could have
 included transaction or conversation UUIDs and created high-cardinality log
@@ -39,7 +39,7 @@ labels. It now resolves the FastAPI route template and uses
 `unmatched_route` when no route exists. Regression coverage proves the UUID is
 not emitted.
 
-### P1 — ambiguous payment type/rail combinations
+### P1 - ambiguous payment type/rail combinations
 
 The API now rejects:
 
@@ -49,7 +49,7 @@ The API now rejects:
 
 The backend remains authoritative even if a client bypasses frontend fields.
 
-### P2 — support correlation and bounded failures
+### P2 - support correlation and bounded failures
 
 Frontend requests now carry validated correlation IDs and bounded timeouts.
 Public errors expose only a stable code, friendly message, and request

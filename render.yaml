@@ -1,3 +1,5 @@
+# Legacy alternative deployment blueprint retained for reference only.
+# Accepted production uses Vercel plus the Oracle VPS; see deploy/README.md.
 databases:
   - name: pactra-sandbox-db
     plan: free

@@ -72,32 +72,31 @@ rewrite. Leave `VITE_API_URL` absent so browser requests remain same-origin.
 After deployment, verify registration, CSRF-protected mutations, cookies,
 receipts, persistence, and cross-user isolation through the public Vercel URL.
 
-## Release-candidate migration and rollback
+## Accepted baseline and future releases
 
-The current release candidate adds migration `20261107_0005`. It creates only
-the `rate_limit_buckets` table and its expiry index. It does not rewrite user,
-wallet, transaction, audit, or ledger rows. Test the migration on a restored
-database before production approval.
+The accepted backend runtime is `/opt/pactra/releases/63f2583` at exact SHA
+`63f25839a6b645a8ca404846ecd82d16c1994b7c`. PostgreSQL is at migration
+`20261107_0005`. The canonical, fully verified deployment and rollback record
+is [QA/DEPLOYMENT-AND-ROLLBACK.md](../QA/DEPLOYMENT-AND-ROLLBACK.md).
 
-For an approved release:
+For any future approved release:
 
 1. Create and verify `/opt/pactra/backups/pactra-pre-<release-sha>-<UTC>.dump`.
 2. Install the immutable release directory without changing `/opt/pactra/current`.
 3. Stop only `pactra-api` and `pactra-worker`, switch the symlink, and start the
-   API. Its pre-start migration advances PostgreSQL to `20261107_0005`.
+   API. Its pre-start migration applies only the reviewed release migrations.
 4. Verify `/api/ready`, registration/login rate limits, wallet, preview,
    payment, approval, receipt, reset, worker lease, Funnel and Vercel rewrite.
 5. Start the worker only after API and database readiness pass.
 
-Expected interruption is one API restart, normally under a minute. If the new
-release fails, stop both Pactra services before rollback. Release `0e3e905`
-cannot start while the database is stamped `20261107_0005` because its Alembic
-graph ends at `0004`. While services remain stopped, use the candidate release's
-migration code to downgrade to `20261107_0004`, verify the rate-limit table is
-absent, switch `/opt/pactra/current` back to `0e3e905`, then start the API and
-worker. The downgrade deletes stored rate-limit buckets but does not alter user,
-wallet, transaction, ledger, or audit rows. Use the verified backup only for a
-separately diagnosed database restore.
+The immediate schema-compatible rollback target is
+`/opt/pactra/releases/73fdfb6`; it understands migration `0005`, so that
+application-only rollback does not require a database downgrade. The legacy
+release `/opt/pactra/releases/0e3e905` ends at migration `0004` and must never
+start against a database stamped `0005`. Its separately documented emergency
+path requires both Pactra services stopped and a verified downgrade before the
+symlink changes.
 
 The exact backup, stopped-service downgrade, symlink, health-check, and recovery
-commands are maintained in `QA/DEPLOYMENT-AND-ROLLBACK.md`.
+commands are maintained in
+[QA/DEPLOYMENT-AND-ROLLBACK.md](../QA/DEPLOYMENT-AND-ROLLBACK.md).

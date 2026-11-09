@@ -130,7 +130,7 @@ account.
 This is the safe stopping point. A `pending_approval` transaction cannot be
 claimed by the worker. Do not click **Approve** during preparation.
 
-## Authorised transaction — pre-submission snapshot
+## Authorised transaction - pre-submission snapshot
 
 Immediately before the consumed approval, the isolated scenario was at the
 safe stopping point:
@@ -200,7 +200,7 @@ POST https://api-m.sandbox.paypal.com/v1/payments/payouts
 
 Do not execute either action without the separate authorisation.
 
-## Completed execution record — 2026-11-09
+## Completed execution record - 2026-11-09
 
 The user explicitly authorised only transaction
 `bfe1e158-863b-4ddf-93a0-e31146e7cbcb`, exactly `$25.00 USD`, to the recipient

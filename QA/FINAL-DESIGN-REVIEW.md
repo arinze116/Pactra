@@ -2,7 +2,7 @@
 
 Review date: 2026-11-09
 
-Status: **PASS — established identity preserved; no redesign required**
+Status: **PASS - established identity preserved; no redesign required**
 
 ## Assessment
 
@@ -18,16 +18,16 @@ the real isolated demo application and fictional data.
 
 | Area | Result |
 |---|---|
-| Typography and hierarchy | PASS — page titles, monetary values, labels, and metadata are distinct and consistent |
-| Spacing and alignment | PASS — cards, forms, grids, receipts, and navigation share consistent rhythm |
-| Colour and state meaning | PASS — completed, approval, blocked/rejected, and neutral states use text plus colour |
-| Navigation | PASS — desktop rail and mobile menu remain clear |
-| Forms and feedback | PASS — labels, previews, errors, confirmation, disabled/busy states are present |
-| Tables and mobile data | PASS — AG Grid is desktop-oriented; mobile uses readable cards without overflow |
-| Approval workflow | PASS — decision context precedes approve/reject controls |
-| Receipts and audit | PASS — policy trace, lifecycle, attempt, and balanced ledger evidence are scannable |
-| Responsive behavior | PASS — no automated horizontal overflow at tested widths |
-| Accessibility | PASS automated — Axe and Lighthouse; manual AT remains unverified |
+| Typography and hierarchy | PASS - page titles, monetary values, labels, and metadata are distinct and consistent |
+| Spacing and alignment | PASS - cards, forms, grids, receipts, and navigation share consistent rhythm |
+| Colour and state meaning | PASS - completed, approval, blocked/rejected, and neutral states use text plus colour |
+| Navigation | PASS - desktop rail and mobile menu remain clear |
+| Forms and feedback | PASS - labels, previews, errors, confirmation, disabled/busy states are present |
+| Tables and mobile data | PASS - AG Grid is desktop-oriented; mobile uses readable cards without overflow |
+| Approval workflow | PASS - decision context precedes approve/reject controls |
+| Receipts and audit | PASS - policy trace, lifecycle, attempt, and balanced ledger evidence are scannable |
+| Responsive behavior | PASS - no automated horizontal overflow at tested widths |
+| Accessibility | PASS automated - Axe and Lighthouse; manual AT remains unverified |
 
 ## Fix completed
 

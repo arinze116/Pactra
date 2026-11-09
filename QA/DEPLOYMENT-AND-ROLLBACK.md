@@ -443,7 +443,7 @@ into a new database first, validate it, and prepare an explicit controlled
 cutover. Never use `pg_restore --clean` against production as an exploratory
 step.
 
-## Verified deployment record — 2026-11-09
+## Verified deployment record - 2026-11-09
 
 | Field | Result |
 |---|---|

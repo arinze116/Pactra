@@ -68,10 +68,10 @@ and exact accepted-main run
 [42678033819](https://github.com/arinze116/Pactra/actions/runs/42678033819)
 both passed these four required jobs:
 
-- Backend — SQLite;
-- Backend — PostgreSQL;
-- Frontend — lint, build and audits;
-- E2E — journeys, WCAG and homepage Lighthouse.
+- Backend - SQLite;
+- Backend - PostgreSQL;
+- Frontend - lint, build and audits;
+- E2E - journeys, WCAG and homepage Lighthouse.
 
 All pre-existing remote and local feature branches inspected before creating
 this handover branch were ancestors of `main`; none was ahead of it. GitHub had
@@ -409,5 +409,5 @@ operational follow-ups, not fabricated commitments. Procedures are in
 | Gemini configuration and retained genuine-call audit | PASS |
 | PayPal/ledger accepted state and no duplicates | PASS |
 | Backup and rollback artefact inventory | PASS |
-| Historical E2E/accessibility/provider calls re-executed during freeze | NOT VERIFIED — intentionally not repeated |
-| Production mutations during freeze | PASS — none occurred |
+| Historical E2E/accessibility/provider calls re-executed during freeze | NOT VERIFIED - intentionally not repeated |
+| Production mutations during freeze | PASS - none occurred |

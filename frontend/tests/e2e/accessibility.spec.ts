@@ -39,6 +39,8 @@ test("public and authenticated judge surfaces meet automated WCAG 2.1 AA checks"
     ["/", "Landing page"],
     ["/sign-in", "Sign-in page"],
     ["/sign-up", "Registration page"],
+    ["/privacy", "Privacy policy page"],
+    ["/terms", "Terms of use page"],
     ["/missing-page", "Public not-found page"],
   ] as const;
 

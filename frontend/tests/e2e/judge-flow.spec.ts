@@ -78,7 +78,7 @@ test("authentication and the application shell are keyboard operable", async ({ 
   await page.goto("/sign-up");
 
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Pactra" })).toBeFocused();
+  await expect(page.getByRole("link", { name: "Pactra" }).first()).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByLabel("Email")).toBeFocused();
   await page.keyboard.type(email);
@@ -133,7 +133,7 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await expect(page).toHaveURL(/\/app\/transactions\//);
   await expect(page.getByText("Completed").first()).toBeVisible();
   await expect(page.getByText("Internal ledger capture")).toBeVisible();
-  await expect(page.getByText("Not applicable — internal ledger only")).toBeVisible();
+  await expect(page.getByText("Not applicable: internal ledger only")).toBeVisible();
   await expect(page.getByText("SUCCESS", { exact: true })).toHaveCount(0);
 
   await page.getByRole("link", { name: "New payment" }).first().click();

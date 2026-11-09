@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:e2e": "npm run test:e2e:journeys && npm run test:e2e:accessibility",
-    "test:e2e:journeys": "playwright test tests/e2e/judge-flow.spec.ts",
+    "test:e2e:journeys": "playwright test tests/e2e/judge-flow.spec.ts tests/e2e/public-experience.spec.ts",
     "test:e2e:accessibility": "playwright test tests/e2e/accessibility.spec.ts",
     "test:demo": "playwright test --config playwright.demo.config.ts",
     "test:e2e:public": "playwright test --config playwright.public.config.ts",

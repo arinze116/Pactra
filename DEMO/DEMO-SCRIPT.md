@@ -2,7 +2,7 @@
 
 Target duration: 3-5 minutes
 
-## Opening — first 30 seconds
+## Opening - first 30 seconds
 
 “Small teams can submit payments quickly, but proving who was allowed to spend,
 why it was approved, and whether the ledger is correct is still painfully
@@ -13,7 +13,7 @@ approve itself, or touch the ledger directly.”
 Show the dashboard: available, reserved, posted balance, mixed transaction
 states, and the visible “Sandbox funds only” disclosure.
 
-## Scenario A — governed payment
+## Scenario A - governed payment
 
 1. Open **New payment**.
 2. Enter vendor `Figma`, amount `$35.00`, category `software`, and reason
@@ -24,10 +24,10 @@ states, and the visible “Sandbox funds only” disclosure.
    lifecycle, one attempt, and `$35.00 debits = $35.00 credits`.
 
 Narration: “The preview is helpful, but the server recalculates policy at
-submission. Completion means the ledger actually posted—not merely that a
-request was accepted.”
+submission. Completion means the ledger actually posted. A request being
+accepted is not enough.”
 
-## Scenario B — AI with deterministic governance
+## Scenario B - AI with deterministic governance
 
 1. Open **Assistant**.
 2. Enter `Pay Notion $20 for our software subscription`.
@@ -44,7 +44,7 @@ authority.”
 
 Do not imply the fallback response is a live Gemini response.
 
-## Scenario C — accountability and auditability
+## Scenario C - accountability and auditability
 
 1. Open **Approvals**.
 2. Show `Ada Contractor`, `$125.00`, the current policy checks, reserved funds,

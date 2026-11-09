@@ -56,7 +56,7 @@ test("all production routes reload without layout or runtime failures", async ({
     });
     page.on("pageerror", (error) => runtimeErrors.push(error.message.slice(0, 500)));
 
-    for (const route of ["/", "/sign-in", "/sign-up", "/missing-page"]) {
+    for (const route of ["/", "/sign-in", "/sign-up", "/privacy", "/terms", "/missing-page"]) {
       await expectPageStable(page, route);
       await page.reload({ waitUntil: "domcontentloaded" });
       await expectPageStable(page, route);

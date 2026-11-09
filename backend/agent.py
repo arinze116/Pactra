@@ -5,10 +5,8 @@ transaction service. This module must never perform provider I/O.
 """
 
 import asyncio
-import logging
 from typing import Any, Literal
 
-from google import genai
 from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 from sqlmodel import Session
 
@@ -16,126 +14,6 @@ from .config import Settings, settings
 from .models import ChatMessage, ChatResponse, Transaction
 from .paypal_client import PayPalClient, PayPalError
 from .policy_engine import PolicyEngine
-
-
-logger = logging.getLogger(__name__)
-
-
-TOOLS = [
-    {
-        "name": "create_payment",
-        "description": (
-            "Create a payment to a vendor through PayPal. The policy engine will "
-            "evaluate and approve, block, or flag for approval. Use this for paying "
-            "invoices, subscriptions, or vendor services."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "vendor": {
-                    "type": "string",
-                    "description": "Vendor name or PayPal email of the recipient",
-                },
-                "amount": {
-                    "type": "number",
-                    "description": "Payment amount in USD",
-                },
-                "category": {
-                    "type": "string",
-                    "enum": ["ops", "software", "cloud", "freelance"],
-                    "description": "Spending category for budget tracking",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Business justification for this payment",
-                },
-            },
-            "required": ["vendor", "amount", "category", "reason"],
-        },
-    },
-    {
-        "name": "send_payout",
-        "description": (
-            "Send a payout to an individual via their PayPal email. Use for contractor "
-            "payments, freelancer fees, or team disbursements. The policy engine will "
-            "evaluate before sending."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "recipient_email": {
-                    "type": "string",
-                    "description": "PayPal email of the recipient",
-                },
-                "amount": {
-                    "type": "number",
-                    "description": "Payout amount in USD",
-                },
-                "category": {
-                    "type": "string",
-                    "enum": ["ops", "software", "cloud", "freelance"],
-                    "description": "Spending category for budget tracking",
-                },
-                "note": {
-                    "type": "string",
-                    "description": "Payment note or description shown to recipient",
-                },
-            },
-            "required": ["recipient_email", "amount", "category", "note"],
-        },
-    },
-    {
-        "name": "get_spend_summary",
-        "description": (
-            "Get current spending vs budget for all categories today. Use when asked "
-            "about budget, remaining funds, or spend status."
-        ),
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "check_balance",
-        "description": "Check remaining budget for a specific spending category.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "type": "string",
-                    "enum": ["ops", "software", "cloud", "freelance"],
-                    "description": "The category to check",
-                }
-            },
-            "required": ["category"],
-        },
-    },
-]
-
-
-SYSTEM_PROMPT = """
-You are the deprecated Pactra compatibility agent.
-
-You help businesses make vendor payments and payouts through PayPal,
-within pre-configured spending policies set by the business owner.
-
-Your capabilities:
-- Create payments to vendors via PayPal
-- Send payouts to contractors or team members
-- Check current budget status and remaining spend
-- Report on spending by category
-
-Your rules:
-- Always use a tool when a payment or budget action is requested
-- Before any payment, identify the correct category from: ops, software, cloud, freelance
-- If a payment is blocked by policy, explain clearly which rule was triggered
-- If a payment requires approval, say so and log it as pending
-- Always confirm the outcome: approved, blocked, or pending
-- Be concise and professional — you are a business tool, not a chatbot
-- Never fabricate PayPal transaction IDs or invent outcomes
-- If unsure of category, ask before proceeding
-
-This compatibility path cannot execute payments. Direct all active requests to
-the authenticated governed transaction service.
-When a payment is blocked, confirm: vendor, amount, and the exact rule that blocked it.
-""".strip()
 
 
 Category = Literal["ops", "software", "cloud", "freelance"]
@@ -174,21 +52,13 @@ class BalanceToolInput(BaseModel):
 
 
 class AgentConfigurationError(RuntimeError):
-    """Raised when the Gemini integration has not been configured."""
+    """Raised when the retired compatibility agent is invoked."""
 
 
 class PactraAgent:
     def __init__(self, app_settings: Settings = settings):
         self.settings = app_settings
         self._approval_lock = asyncio.Lock()
-        self.model: Any | None = None
-        if app_settings.gemini_api_key:
-            genai.configure(api_key=app_settings.gemini_api_key)
-            self.model = genai.GenerativeModel(
-                model_name=app_settings.gemini_model,
-                system_instruction=SYSTEM_PROMPT,
-                tools=[{"function_declarations": TOOLS}],
-            )
 
     async def run(
         self,
@@ -198,92 +68,10 @@ class PactraAgent:
         paypal_client: PayPalClient,
         db_session: Session,
     ) -> ChatResponse:
-        if self.model is None:
-            raise AgentConfigurationError(
-                "GEMINI_API_KEY is not configured. Add it to .env and restart the API."
-            )
-
-        trimmed_history = history[-self.settings.max_chat_history :]
-        gemini_history = [
-            {
-                "role": "user" if message.role == "user" else "model",
-                "parts": [message.content],
-            }
-            for message in trimmed_history
-        ]
-        chat = self.model.start_chat(history=gemini_history)
-        response = await asyncio.to_thread(chat.send_message, user_message)
-
-        tool_log: list[dict[str, Any]] = []
-        transaction_ids: list[str] = []
-
-        for _ in range(8):
-            function_calls = self._extract_function_calls(response)
-            if not function_calls:
-                reply = self._extract_text(response)
-                if not reply:
-                    reply = "The request completed, but Gemini returned no text response."
-                return ChatResponse(
-                    reply=reply,
-                    tool_calls=tool_log,
-                    transactions_created=transaction_ids,
-                )
-
-            function_parts = []
-            for name, arguments in function_calls:
-                result = await self._execute_tool(
-                    name,
-                    arguments,
-                    policy_engine,
-                    paypal_client,
-                    db_session,
-                )
-                tool_log.append(
-                    {"name": name, "arguments": arguments, "result": result}
-                )
-                transaction_id = result.get("transaction_id")
-                if transaction_id:
-                    transaction_ids.append(str(transaction_id))
-                function_parts.append(
-                    genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=name,
-                            response={"result": result},
-                        )
-                    )
-                )
-
-            response = await asyncio.to_thread(chat.send_message, function_parts)
-
-        logger.warning("Gemini exceeded Pactra's tool-call round limit")
-        return ChatResponse(
-            reply="I stopped because the request required too many consecutive actions.",
-            tool_calls=tool_log,
-            transactions_created=transaction_ids,
+        del user_message, history, policy_engine, paypal_client, db_session
+        raise AgentConfigurationError(
+            "Legacy PactraAgent is disabled; use backend.services.assistant"
         )
-
-    @staticmethod
-    def _extract_function_calls(response: Any) -> list[tuple[str, dict[str, Any]]]:
-        calls: list[tuple[str, dict[str, Any]]] = []
-        for candidate in getattr(response, "candidates", []) or []:
-            content = getattr(candidate, "content", None)
-            for part in getattr(content, "parts", []) or []:
-                call = getattr(part, "function_call", None)
-                name = getattr(call, "name", "") if call else ""
-                if name:
-                    calls.append((name, dict(call.args)))
-        return calls
-
-    @staticmethod
-    def _extract_text(response: Any) -> str:
-        text_parts: list[str] = []
-        for candidate in getattr(response, "candidates", []) or []:
-            content = getattr(candidate, "content", None)
-            for part in getattr(content, "parts", []) or []:
-                text = getattr(part, "text", None)
-                if text:
-                    text_parts.append(str(text))
-        return "\n".join(text_parts).strip()
 
     async def _execute_tool(
         self,
@@ -439,9 +227,9 @@ class PactraAgent:
         paypal_client: PayPalClient,
         db_session: Session,
     ) -> Transaction:
-        """Revalidate non-approval rules, then execute a human-approved request."""
-        # One process-level lock prevents duplicate execution from simultaneous
-        # approval clicks. Stable PayPal request IDs protect network retries.
+        """Revalidate a legacy request, then fail closed before provider I/O."""
+        # Retain the lock so simultaneous legacy calls cannot race before the
+        # compatibility path rejects execution.
         async with self._approval_lock:
             db_session.refresh(transaction)
             if transaction.status != "pending_approval":

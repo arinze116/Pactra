@@ -1,49 +1,69 @@
 # Pactra
 
-Pactra is a sandbox-only payment operations workspace for creating governed payment requests, applying spending policy, obtaining human approval, and tracing every ledger and provider transition.
+Pactra is an open-source, sandbox-only payment governance workspace for small teams. It lets a business define spending rules, create payment requests manually or through an AI assistant, require human approval, and inspect the receipt, audit trail, and ledger evidence for every outcome.
 
-Current production application (runtime release `63f2583`): <https://pactra-nine.vercel.app>
+[Open the production application](https://pactra-nine.vercel.app) · [Read the demo guide](./DEMO/DEMO-GUIDE.md) · [Review the accepted production baseline](./QA/ACCEPTED-PRODUCTION-BASELINE.md)
 
-The frozen production identity, retained evidence and operational handover are
-in [QA/ACCEPTED-PRODUCTION-BASELINE.md](./QA/ACCEPTED-PRODUCTION-BASELINE.md),
-[QA/RELEASE-FREEZE-POLICY.md](./QA/RELEASE-FREEZE-POLICY.md), and
-[QA/PRODUCTION-OPERATIONS-RUNBOOK.md](./QA/PRODUCTION-OPERATIONS-RUNBOOK.md).
+Current code, documentation, and UI reconciliation evidence is in
+[QA/CODEBASE-README-WEBAPP-RECONCILIATION.md](./QA/CODEBASE-README-WEBAPP-RECONCILIATION.md).
 
-> Pactra does not move real money. The in-app wallet is a simulated double-entry ledger. The optional PayPal integration uses PayPal Sandbox Payouts only.
+> **Sandbox boundary:** Pactra does not move real money. Its wallet is a simulated double-entry ledger. The optional PayPal integration is restricted to PayPal Sandbox Payouts.
 
-## What Pactra does
+The production link points to the accepted runtime release documented in the QA records. Repository branches can contain later reviewed changes that are not yet deployed. Do not infer deployment from a Git commit alone.
 
-Teams need more than a payment form when an AI assistant can propose spending. Pactra places an authenticated policy and ledger boundary between every request source and every execution rail. Manual requests and Gemini tool calls use the same transaction service; neither can bypass policy, approval, wallet, ownership, or idempotency checks.
+## The problem Pactra solves
+
+A normal payment form answers one question: where should money go? A governed payment system must answer several more:
+
+- Is this category permitted?
+- Is the vendor blocked?
+- Is there enough available budget and wallet balance?
+- Does the amount require a human decision?
+- Was the request submitted, completed, rejected, failed, or left awaiting reconciliation?
+- Can the business prove what happened without trusting an AI response or a provider acknowledgement?
+
+Pactra puts a deterministic policy, approval, ownership, and ledger boundary between every request source and every execution path. Manual forms and Gemini function calls use the same authenticated transaction service. AI can interpret intent, but it cannot approve a request, bypass policy, submit a payout directly, or alter the ledger.
+
+## What the product does
+
+| Stage | User experience | Authoritative control |
+|---|---|---|
+| Configure | Set daily, per-transaction, category, vendor, and approval rules | Versioned server-side policy |
+| Request | Create a payment manually or describe it to the assistant | Strict schemas, ownership, and idempotency |
+| Decide | Complete, block, or route the request for approval | Deterministic policy evaluation and available funds |
+| Execute | Use the internal sandbox or an authorised PayPal Sandbox worker | Worker-only provider submission and item-level truth |
+| Prove | Inspect status, receipt, policy checks, attempts, audit events, and ledger entries | Persisted evidence and balanced journals |
 
 Implemented capabilities include:
 
-- Email/password accounts with Argon2id, opaque server-side sessions, CSRF protection, and owner-scoped records.
-- A per-user, double-entry sandbox ledger with top-ups, reservations, captures, resets, retries, and compensating reversals.
-- Versioned limits for category, vendor, transaction, daily spend, budget, available funds, and human approval.
-- Manual and assistant-created payment requests using one server-authoritative transaction lifecycle.
-- Atomic approval and rejection with current-policy re-evaluation.
-- Internal sandbox execution available without provider credentials.
+- Email and password accounts with an 8 to 128 character password policy, Argon2id hashing, opaque server-side sessions, CSRF protection, and owner-scoped records.
+- A per-user double-entry sandbox ledger with issuance, top-ups, reservations, captures, releases, resets, and exactly-once compensating journals.
+- Versioned limits for category, vendor, transaction, daily spend, category budget, available funds, and human approval.
+- Manual and assistant-created requests that share one server-authoritative payment lifecycle.
+- Conditional approval and rejection with current-policy re-evaluation.
+- Internal sandbox execution that works without provider credentials.
 - Worker-owned PayPal Sandbox Payouts submission and item-level reconciliation.
-- Persisted transaction receipts, policy checks, provider attempts, audit events, and ledger entries.
-- A seven-step judge walkthrough covering the six payment outcomes plus reset/repeatability.
+- Persisted receipts, policy checks, provider attempts, lifecycle events, audit evidence, and ledger entries.
+- Public Privacy Policy and Terms of Use pages, plus a responsive footer and sandbox disclosure.
 
-## Product workflow
+## How a request becomes an outcome
 
-1. A user creates a sandbox account and receives $1,000.00 of simulated funds.
-2. The user reviews or edits a versioned spending policy.
-3. A manual form or Gemini tool call creates a payment request with an idempotency key.
-4. The backend evaluates policy in a deterministic order and persists the decision.
+1. A user creates an account and receives $1,000.00 in simulated funds.
+2. The user reviews or edits the versioned spending policy.
+3. A manual form or validated Gemini function call creates a request with an idempotency key.
+4. The backend evaluates policy in a fixed order and persists the decision.
 5. Eligible funds are reserved exactly once.
 6. The request is blocked, waits for approval, or becomes executable.
-7. Internal payments capture immediately. PayPal requests wait for the worker and provider item truth.
-8. The receipt exposes the policy, attempt, audit, provider, and balanced-ledger evidence owned by that user.
+7. Internal payments capture immediately. PayPal requests wait for the worker and the payout item's authoritative status.
+8. The owned receipt presents policy, attempt, audit, provider, and balanced-ledger evidence.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     Browser[React / Vite] -->|session + CSRF| API[FastAPI API]
-    Gemini[Gemini typed tools] --> API
+    API -->|bounded function-call request| Gemini[Gemini Developer API]
+    Gemini -->|typed function call or classified failure| API
     API --> Policy[Policy engine]
     Policy --> DB[(PostgreSQL)]
     API --> Ledger[Double-entry ledger]
@@ -67,7 +87,7 @@ Production uses Vercel for the static frontend and same-origin `/api/*` rewrite,
 | Database | PostgreSQL in production; SQLite for local/lightweight tests |
 | Migrations | Alembic |
 | Authentication | Argon2id, opaque database sessions, HttpOnly cookies, synchronizer CSRF token |
-| AI | Gemini REST integration with typed functions and deterministic fallback |
+| AI | `google-genai` SDK, Gemini Developer API typed functions, deterministic fallback |
 | Payments | PayPal Payouts REST API v1, Sandbox host only |
 | Testing | Pytest, Playwright, Axe, Lighthouse, pip-audit, npm audit |
 | Operations | systemd, Vercel, Tailscale Funnel |
@@ -78,6 +98,7 @@ Production uses Vercel for the static frontend and same-origin `/api/*` rewrite,
 |---|---|
 | `/` | Public product page |
 | `/sign-up`, `/sign-in` | Account and session entry |
+| `/privacy`, `/terms` | Public privacy and terms pages |
 | `/app` | Wallet, policy capacity, recent activity, and judge walkthrough |
 | `/app/payments/new` | Governed manual payment or payout request |
 | `/app/assistant/:conversationId?` | Persisted assistant conversation |
@@ -89,7 +110,7 @@ Production uses Vercel for the static frontend and same-origin `/api/*` rewrite,
 | `/app/settings` | Session and account controls |
 | `/app/settings/integrations/paypal` | PayPal Sandbox configuration and reconciliation status |
 
-QA captures genuine desktop, tablet, and mobile screenshots into the ignored `artifacts/` directory so stale binaries are not presented as permanent release evidence. The public application above is the current visual reference.
+QA captures branch-specific desktop, tablet, and mobile screenshots into the ignored `artifacts/` directory. The production link is the accepted deployed reference; it does not prove that later branch-only UI changes are live.
 
 ## Payment execution architecture
 
@@ -149,6 +170,10 @@ The exact threshold is auto-approved; the first cent above it requires approval.
 
 When `AI_ENABLED=true`, the backend sends bounded requests to an approved Gemini model and accepts only declared typed function calls. The selected model is `gemini-3.5-flash-lite`; `gemini-3.8-flash` is retained as the documented configuration rollback. SDK retries are disabled, Pactra makes at most two 12-second attempts per model turn, and sanitized audit evidence records latency, finish reason and provider error class. Tool arguments are validated again, and payment tools call the same authenticated transaction service as the manual form. Gemini never receives provider credentials and cannot select another tenant.
 
+The older `backend/agent.py` module is a retired, provider-free compatibility
+shim. No application route imports it, and invoking its chat entry point fails
+closed. The active implementation is `backend/services/assistant.py`.
+
 If AI is disabled, quota-exhausted, times out, or returns an invalid response, Pactra records sanitized evidence and uses its deterministic fallback for supported prompts. A fallback response is labelled and is never evidence that Gemini worked.
 
 Live compatibility, isolated governed-workflow acceptance and a genuine production `get_wallet_summary` function call passed for `gemini-3.5-flash-lite`. Production evidence is recorded in [QA/GEMINI-MODEL-COMPATIBILITY.md](./QA/GEMINI-MODEL-COMPATIBILITY.md).
@@ -177,6 +202,7 @@ The internal rail is always available to authenticated users. It moves only simu
 
 ## Security model
 
+- New passwords must contain 8 to 128 characters and at least three of four character classes: uppercase, lowercase, number, and symbol.
 - Argon2id password hashes and timing-balanced unknown-account verification.
 - Opaque, hashed, expiring database sessions with idle expiry and revocation.
 - Secure/HttpOnly/SameSite cookies in production plus same-origin and CSRF checks for mutations.
@@ -202,6 +228,7 @@ QA/                      Acceptance, security, test, deployment, and release evi
 scripts/                 Isolated test-data helpers
 .github/workflows/ci.yml Exact-SHA CI gates
 Pactra-PRD-Judge-Ready.md Product acceptance authority
+render.yaml              Legacy alternative blueprint; not active production
 ```
 
 ## Prerequisites
@@ -211,7 +238,7 @@ Pactra-PRD-Judge-Ready.md Product acceptance authority
 - PostgreSQL for production and concurrency tests
 - Chromium dependencies for Playwright and Lighthouse
 
-## Local installation
+## Quick start: local development
 
 ```bash
 cp .env.example .env
@@ -251,6 +278,7 @@ The canonical secret-free template is [`.env.example`](./.env.example). The appl
 | `PAYPAL_TEST_RECIPIENT_EMAIL` | Configured Sandbox recipient |
 | `PAYPAL_MOCK_MODE` | Must be `false` in production and provider acceptance |
 | `PAYPAL_REQUEST_TIMEOUT_SECONDS` | Provider request timeout |
+| `POLICY_CONFIG_PATH` | Optional path to the default policy JSON file |
 | `VITE_API_URL` | Optional browser API origin; blank for same-origin rewrite |
 | `SEED_DEMO_ACCOUNT` | Legacy startup guard; keep `false`; isolated demo data uses `scripts.demo_environment` |
 
@@ -298,14 +326,14 @@ migration code to downgrade before the symlink changes. See
 
 The authoritative request/response schemas are generated from `backend/main.py` and `backend/schemas.py`. Main groups are:
 
-- `/api/auth/*` — register, login, session, password change, logout.
-- `/api/wallet*` — balance, top-up, ledger, reset.
-- `/api/policy`, `/api/policies`, `/api/spend-summary` — policy and capacity.
-- `/api/transactions*`, `/api/approvals*` — preview, create, history, receipt, approval, rejection, retry, reversal, reconciliation/recovery.
-- `/api/chat`, `/api/conversations*` — assistant and persisted history.
-- `/api/judge/*` — guided test instrumentation.
-- `/api/integrations/paypal/status` — sanitized configured state and owned provider evidence.
-- `/api/health`, `/api/ready` — liveness and database/configuration readiness.
+- `/api/auth/*` - register, login, session, password change, logout.
+- `/api/wallet*` - balance, top-up, ledger, reset.
+- `/api/policy`, `/api/policies`, `/api/spend-summary` - policy and capacity.
+- `/api/transactions*`, `/api/approvals*` - preview, create, history, receipt, approval, rejection, retry, reversal, reconciliation/recovery.
+- `/api/chat`, `/api/conversations*` - assistant and persisted history.
+- `/api/judge/*` - guided test instrumentation.
+- `/api/integrations/paypal/status` - sanitized configured state and owned provider evidence.
+- `/api/health`, `/api/ready` - liveness and database/configuration readiness.
 
 `POST /api/transactions/{id}/reconcile` never performs provider I/O in the API process. It queues either a read-only known-batch refresh or an explicit same-ID ambiguous-submission recovery for the worker.
 
@@ -348,7 +376,7 @@ Python dependency gates:
 .venv/bin/python -m pip_audit -r requirements.txt
 ```
 
-Playwright covers supported journeys and 14 automated WCAG surfaces with providers disabled. Lighthouse asserts only the homepage; it is not route-wide performance evidence.
+Playwright covers supported journeys and 16 automated WCAG surfaces with providers disabled. Lighthouse asserts only the homepage; it is not route-wide performance evidence.
 
 ## Isolated demo
 
@@ -380,7 +408,7 @@ Provider success is intentionally outside CI. CI mocks/fakes prove state-machine
 
 ## Deployment and monitoring
 
-Deployment assets are under `deploy/`. The API systemd unit runs `alembic upgrade head` before Uvicorn. The worker starts only after API readiness and holds a PostgreSQL advisory lease. The Vercel project serves `frontend/dist` and rewrites `/api/*` to the existing Funnel endpoint.
+Deployment assets are under `deploy/`. The API systemd unit runs `alembic upgrade head` before Uvicorn. The worker unit is ordered after and requires the API unit, then holds a PostgreSQL advisory lease so only one worker becomes the active submission authority. The Vercel project serves `frontend/dist` and rewrites `/api/*` to the existing Funnel endpoint.
 
 Operational checks:
 
