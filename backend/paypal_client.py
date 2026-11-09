@@ -359,48 +359,6 @@ class PayPalClient:
             currency=capture_amount.get("currency_code", "USD"),
         )
 
-    async def send_payout(
-        self,
-        recipient_email: str,
-        amount: float,
-        currency: str,
-        note: str,
-        request_id: str | None = None,
-    ) -> dict[str, str]:
-        if self.mock_mode:
-            raise PayPalConfigurationError(
-                "Mock PayPal mode cannot create sandbox payouts"
-            )
-
-        batch_id = (request_id or f"pactra-{uuid4()}")[:50]
-        payload = await self._request(
-            "POST",
-            "/v1/payments/payouts",
-            json={
-                "sender_batch_header": {
-                    "sender_batch_id": batch_id,
-                    "email_subject": "You have received a payment from Pactra",
-                },
-                "items": [
-                    {
-                        "recipient_type": "EMAIL",
-                        "amount": {
-                            "value": self._money(amount),
-                            "currency": currency,
-                        },
-                        "receiver": recipient_email,
-                        "note": note[:4000],
-                    }
-                ],
-            },
-            request_id=request_id or batch_id,
-        )
-        header = payload.get("batch_header", {})
-        return {
-            "batch_id": header.get("payout_batch_id", batch_id),
-            "batch_status": header.get("batch_status", "PENDING"),
-        }
-
     async def get_transaction_history(
         self, start_date: str, end_date: str
     ) -> list[dict[str, Any]]:

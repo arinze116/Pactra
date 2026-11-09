@@ -789,6 +789,56 @@ def get_active_paypal_attempt(
     return attempt
 
 
+def enqueue_paypal_reconciliation(
+    session: Session,
+    *,
+    user: User,
+    transaction_id: str,
+) -> PaymentTransaction:
+    """Queue a read-only provider refresh for a payout with a known batch ID."""
+    transaction = get_owned_transaction(
+        session,
+        user_id=user.id,
+        transaction_id=transaction_id,
+        for_update=True,
+    )
+    if transaction.rail != "paypal_sandbox_payouts" or transaction.status not in {
+        "executing",
+        "completed",
+    }:
+        raise AlreadyActioned("This transaction cannot be reconciled")
+    attempt = session.exec(
+        select(TransactionAttempt)
+        .where(TransactionAttempt.transaction_id == transaction.id)
+        .order_by(TransactionAttempt.attempt_number.desc())
+        .limit(1)
+        .with_for_update()
+    ).one_or_none()
+    if attempt is None or attempt.rail != "paypal_sandbox_payouts":
+        raise TransactionServiceError("PayPal payout attempt was not found")
+    if not attempt.provider_batch_id:
+        raise IntegrationUnavailable(
+            "Provider outcome is unresolved and has no batch reference to reconcile"
+        )
+    if attempt.status != "processing":
+        attempt.status = "processing"
+        attempt.finished_at = None
+        transaction.updated_at = utc_now()
+        session.add_all([attempt, transaction])
+        record_audit_event(
+            session,
+            user_id=transaction.user_id,
+            actor_type="user",
+            actor_id=user.id,
+            entity_type="transaction",
+            entity_id=transaction.id,
+            event_type="paypal.reconciliation_queued",
+            payload={"attempt": attempt.attempt_number},
+        )
+    session.flush()
+    return transaction
+
+
 def record_paypal_submission(
     session: Session,
     *,
@@ -929,10 +979,11 @@ def apply_paypal_reconciliation(
             transaction.failure_code = None
             transaction.completed_at = utc_now()
             transaction.updated_at = transaction.completed_at
-            attempt.status = "completed"
-            attempt.response_code = "PAYPAL_ITEM_SUCCESS"
-            attempt.finished_at = utc_now()
             _record_state(session, transaction=transaction, previous=previous)
+        attempt.status = "completed"
+        attempt.response_code = "PAYPAL_ITEM_SUCCESS"
+        attempt.finished_at = utc_now()
+        session.add_all([attempt, transaction])
         session.flush()
         return
 

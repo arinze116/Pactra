@@ -2,7 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
@@ -22,6 +22,7 @@ from backend.models import (
     LedgerEntry,
     LedgerJournal,
     PaymentTransaction,
+    TransactionAttempt,
     User,
     Wallet,
 )
@@ -35,7 +36,7 @@ from backend.services.transactions import (
     create_payment_request,
     reject_transaction,
 )
-from backend.worker import reconciliation_lease
+from backend.worker import claim_paypal_transaction, reconciliation_lease
 
 
 pytestmark = pytest.mark.skipif(
@@ -91,6 +92,70 @@ def test_reconciliation_worker_lease_allows_only_one_authority() -> None:
         assert first_acquired is True
         with reconciliation_lease() as second_acquired:
             assert second_acquired is False
+
+
+def test_concurrent_worker_claims_have_one_winner() -> None:
+    user_id = create_postgres_account()
+    with Session(engine, expire_on_commit=False) as session:
+        transaction = PaymentTransaction(
+            user_id=user_id,
+            idempotency_key=f"postgres-paypal-claim-{uuid4()}",
+            type="payout",
+            vendor="Sandbox claim test",
+            recipient="claim-test@example.com",
+            amount_cents=100,
+            currency="USD",
+            category="freelance",
+            reason="Concurrent worker claim regression",
+            status="executing",
+            sandbox_generation=1,
+            policy_version=1,
+            policy_result={"decision": "approved"},
+            rail="paypal_sandbox_payouts",
+        )
+        session.add(transaction)
+        session.flush()
+        session.add(
+            TransactionAttempt(
+                transaction_id=transaction.id,
+                attempt_number=1,
+                rail="paypal_sandbox_payouts",
+                rail_request_id=f"pactra-{transaction.id}-a1",
+                status="submitting",
+            )
+        )
+        session.commit()
+        transaction_id = transaction.id
+
+    first_claimed = Event()
+    release_first = Event()
+
+    def hold_first_claim() -> bool:
+        with Session(engine, expire_on_commit=False) as session:
+            claimed = claim_paypal_transaction(
+                session,
+                transaction_id=transaction_id,
+            )
+            first_claimed.set()
+            assert release_first.wait(timeout=10)
+            session.rollback()
+            return claimed is not None
+
+    def competing_claim() -> bool:
+        assert first_claimed.wait(timeout=10)
+        with Session(engine, expire_on_commit=False) as session:
+            claimed = claim_paypal_transaction(
+                session,
+                transaction_id=transaction_id,
+            )
+            session.rollback()
+        release_first.set()
+        return claimed is not None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(hold_first_claim)
+        second = executor.submit(competing_claim)
+        assert [first.result(timeout=15), second.result(timeout=15)] == [True, False]
 
 
 def test_shared_rate_limit_is_atomic_across_independent_process_state() -> None:

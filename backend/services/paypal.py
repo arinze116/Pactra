@@ -29,9 +29,15 @@ async def submit_or_reconcile_payout(
     client: PayPalClient,
     transaction: PaymentTransaction,
 ) -> PaymentTransaction:
-    """Submit once using stable IDs, then reconcile the payout item when possible."""
+    """Run one worker-owned submission or reconciliation phase."""
     attempt = get_active_paypal_attempt(session, transaction_id=transaction.id)
     if attempt.provider_batch_id is None:
+        if attempt.status == "unknown":
+            raise ProviderUnavailable(
+                "PayPal submission outcome is unknown and requires a known batch reference"
+            )
+        if attempt.status != "claimed":
+            raise ProviderUnavailable("PayPal payout has not been claimed by the worker")
         try:
             submission = await client.create_payout(
                 transaction_id=transaction.id,
@@ -72,15 +78,12 @@ async def submit_or_reconcile_payout(
             batch_id=submission.batch_id,
             batch_status=submission.batch_status,
         )
-        # Preserve the accepted provider reference before local capture. If a
-        # later commit fails, reconciliation can query this exact batch rather
-        # than submitting a second payout.
-        session.commit()
-        session.refresh(transaction)
-        session.refresh(attempt)
+        # Submission and item-level capture are deliberately separate worker
+        # cycles so the provider reference commits before reconciliation.
+        return transaction
 
     try:
-        status = await client.get_payout(attempt.provider_batch_id or transaction.provider_batch_id or "")
+        status = await client.get_payout(attempt.provider_batch_id)
     except PayPalError as exc:
         raise ProviderUnavailable(str(exc)) from exc
     apply_paypal_reconciliation(

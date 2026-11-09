@@ -120,7 +120,7 @@ async def test_pending_payment_waits_for_human_then_executes(
         assert transaction.status == "pending_approval"
         assert transaction.paypal_order_id is None
 
-        with pytest.raises(PayPalError, match="Mock PayPal mode"):
+        with pytest.raises(PayPalError, match="governed worker queue"):
             await agent.approve_transaction(
                 transaction,
                 policy_engine,

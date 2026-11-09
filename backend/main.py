@@ -35,7 +35,6 @@ from .database import get_session, session_scope
 from .defaults import INITIAL_SANDBOX_CENTS
 from .errors import ApiError
 from .models import AuthSession, PaymentTransaction, TransactionAttempt, User
-from .paypal_client import PayPalClient
 from .schemas import (
     ApprovalItemResponse,
     ApprovalListResponse,
@@ -111,7 +110,6 @@ from .services.policies import (
     save_policy,
     spend_summary as build_spend_summary,
 )
-from .services.paypal import ProviderUnavailable, submit_or_reconcile_payout
 from .services.sandbox import ResetRateLimited, reset_sandbox
 from .services.transactions import (
     AlreadyActioned,
@@ -125,7 +123,7 @@ from .services.transactions import (
     TransactionServiceError,
     approve_transaction as approve_payment,
     create_payment_request,
-    get_owned_transaction,
+    enqueue_paypal_reconciliation,
     list_pending_approvals,
     list_transactions as query_transactions,
     reject_transaction as reject_payment,
@@ -146,12 +144,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     with session_scope() as session:
         session.exec(text("SELECT 1 FROM users LIMIT 1")).all()
-    app.state.paypal_client = PayPalClient()
     logger.info("Pactra sandbox API started")
-    try:
-        yield
-    finally:
-        await app.state.paypal_client.close()
+    yield
 
 
 app = FastAPI(
@@ -602,24 +596,6 @@ async def chat(
     except ConversationArchived as exc:
         raise ApiError(409, "CONVERSATION_ARCHIVED", str(exc)) from exc
 
-    client = getattr(request.app.state, "paypal_client", None)
-    for transaction_id in result.transaction_ids:
-        transaction = get_owned_transaction(
-            db_session,
-            user_id=context.user.id,
-            transaction_id=transaction_id,
-        )
-        if transaction.rail != "paypal_sandbox_payouts" or transaction.status != "executing":
-            continue
-        if client is None:
-            continue
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            db_session.commit()
     result = refresh_assistant_payment_state(
         db_session,
         user_id=context.user.id,
@@ -957,40 +933,6 @@ async def create_transaction(
     except LedgerError as exc:
         db_session.rollback()
         raise ApiError(409, "INSUFFICIENT_FUNDS", str(exc)) from exc
-    if (
-        result.transaction.rail == "paypal_sandbox_payouts"
-        and result.transaction.status == "executing"
-    ):
-        client = getattr(request.app.state, "paypal_client", None)
-        if client is None:
-            raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=result.transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            # Unknown outcomes stay executing with their reservation. Definite
-            # pre-submission failures are persisted as failed by the service.
-            db_session.commit()
-        if result.transaction.status == "failed":
-            raise ApiError(
-                502,
-                "PROVIDER_UNAVAILABLE",
-                "PayPal Sandbox payout failed.",
-                details={
-                    "transaction": _transaction_response(
-                        result.transaction
-                    ).model_dump(mode="json")
-                },
-            )
-        wallet = get_wallet_for_user(db_session, context.user.id)
-        result = type(result)(
-            transaction=result.transaction,
-            policy_result=result.transaction.policy_result,
-            balance=wallet_balance(db_session, wallet),
-            replayed=False,
-        )
     return PaymentResponse(
         transaction=_transaction_response(result.transaction),
         policy_result=result.policy_result,
@@ -1118,10 +1060,9 @@ def reverse_completed_transaction(
 
 
 @app.post("/api/transactions/{transaction_id}/retry", status_code=status.HTTP_202_ACCEPTED)
-async def retry_failed_transaction(
+def retry_failed_transaction(
     transaction_id: UUID,
     payload: ApprovalRequest,
-    request: Request,
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> dict[str, Any]:
@@ -1145,17 +1086,6 @@ async def retry_failed_transaction(
     except LedgerError as exc:
         db_session.rollback()
         raise ApiError(409, "INSUFFICIENT_FUNDS", str(exc)) from exc
-    if transaction.rail == "paypal_sandbox_payouts" and transaction.status == "executing":
-        client = getattr(request.app.state, "paypal_client", None)
-        if client is None:
-            raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            db_session.commit()
     return {
         "transaction": _transaction_response(transaction).model_dump(mode="json"),
         "attempt": {
@@ -1189,10 +1119,9 @@ def get_approvals(
 
 
 @app.post("/api/approvals/{transaction_id}/approve", response_model=TransactionResponse)
-async def approve_pending_transaction(
+def approve_pending_transaction(
     transaction_id: UUID,
     payload: ApprovalRequest,
-    request: Request,
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> TransactionResponse:
@@ -1223,17 +1152,6 @@ async def approve_pending_transaction(
     except IntegrationUnavailable as exc:
         db_session.rollback()
         raise ApiError(409, exc.code, str(exc)) from exc
-    if transaction.rail == "paypal_sandbox_payouts" and transaction.status == "executing":
-        client = getattr(request.app.state, "paypal_client", None)
-        if client is None:
-            raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-        try:
-            await submit_or_reconcile_payout(
-                db_session, client=client, transaction=transaction
-            )
-            db_session.commit()
-        except ProviderUnavailable:
-            db_session.commit()
     return _transaction_response(transaction)
 
 
@@ -1289,37 +1207,27 @@ def paypal_integration_status(
 
 
 @app.post("/api/transactions/{transaction_id}/reconcile", response_model=TransactionResponse)
-async def reconcile_paypal_transaction(
+def reconcile_paypal_transaction(
     transaction_id: UUID,
-    request: Request,
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> TransactionResponse:
     try:
-        transaction = get_owned_transaction(
+        transaction = enqueue_paypal_reconciliation(
             db_session,
-            user_id=context.user.id,
+            user=context.user,
             transaction_id=str(transaction_id),
-            for_update=True,
         )
+        db_session.commit()
     except TransactionNotFound as exc:
+        db_session.rollback()
         raise ApiError(404, "NOT_FOUND", "Transaction not found") from exc
-    if transaction.rail != "paypal_sandbox_payouts" or transaction.status not in {
-        "executing",
-        "completed",
-    }:
-        raise ApiError(409, "NOT_RECONCILABLE", "This transaction cannot be reconciled")
-    client = getattr(request.app.state, "paypal_client", None)
-    if client is None:
-        raise ApiError(503, "PROVIDER_UNAVAILABLE", "PayPal client is unavailable")
-    try:
-        await submit_or_reconcile_payout(
-            db_session, client=client, transaction=transaction
-        )
-        db_session.commit()
-    except ProviderUnavailable as exc:
-        db_session.commit()
-        raise ApiError(502, "PROVIDER_UNAVAILABLE", str(exc)) from exc
+    except AlreadyActioned as exc:
+        db_session.rollback()
+        raise ApiError(409, "NOT_RECONCILABLE", str(exc)) from exc
+    except IntegrationUnavailable as exc:
+        db_session.rollback()
+        raise ApiError(409, "PROVIDER_OUTCOME_UNKNOWN", str(exc)) from exc
     return _transaction_response(transaction)
 
 

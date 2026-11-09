@@ -420,15 +420,9 @@ class PactraAgent:
         """Execute one policy-approved transaction and atomically record its spend."""
         try:
             if transaction.transaction_type == "payout":
-                payout = await paypal_client.send_payout(
-                    transaction.vendor,
-                    transaction.amount,
-                    transaction.currency,
-                    transaction.reason,
-                    request_id=transaction.id,
+                raise PayPalError(
+                    "Legacy payout execution is disabled; use the governed worker queue"
                 )
-                transaction.paypal_order_id = payout["batch_id"]
-                transaction.paypal_status = payout["batch_status"]
             else:
                 order = await paypal_client.create_order(
                     transaction.amount,

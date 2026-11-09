@@ -11,8 +11,10 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from backend.auth import CSRF_COOKIE, CSRF_HEADER, auth_rate_limiter
+from backend.config import settings
 from backend.database import get_session
 from backend.main import app
+from backend.paypal_client import PayPalClient
 
 
 ORIGIN = "http://testserver"
@@ -73,6 +75,20 @@ def payment(
         "category": category,
         "reason": "Monthly subscription",
         "rail": "internal_sandbox",
+        "idempotency_key": key,
+    }
+
+
+def paypal_payout(*, key: str, amount_cents: int = 100) -> dict[str, object]:
+    return {
+        "type": "payout",
+        "vendor": "US Personal Sandbox recipient",
+        "recipient": "sandbox-recipient@example.com",
+        "amount_cents": amount_cents,
+        "currency": "USD",
+        "category": "freelance",
+        "reason": "Worker-only payout regression",
+        "rail": "paypal_sandbox_payouts",
         "idempotency_key": key,
     }
 
@@ -190,6 +206,80 @@ def test_pending_approval_and_rejection_flows(api: TestClient) -> None:
     assert rejected.status_code == 200
     assert rejected.json()["status"] == "rejected"
     assert api.get("/api/wallet").json()["reserved_cents"] == 0
+
+
+def test_paypal_api_requires_approval_and_never_submits_directly(
+    api: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "paypal_payouts_enabled", True)
+    monkeypatch.setattr(settings, "paypal_client_id", "sandbox-client")
+    monkeypatch.setattr(settings, "paypal_client_secret", "sandbox-secret")
+    monkeypatch.setattr(settings, "paypal_mock_mode", False)
+    monkeypatch.setattr(
+        settings,
+        "paypal_base_url",
+        "https://api-m.sandbox.paypal.com",
+    )
+
+    provider_calls = 0
+
+    async def forbidden_submission(_client, **_kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
+        raise AssertionError("The transaction API must not call PayPal")
+
+    monkeypatch.setattr(PayPalClient, "create_payout", forbidden_submission)
+
+    current = api.get("/api/policy").json()["policy"]
+    current["approval_threshold_cents"] = 99
+    assert api.put(
+        "/api/policy",
+        headers=mutation_headers(api),
+        json=current,
+    ).status_code == 200
+
+    payload = paypal_payout(key="api-paypal-worker-only-0001")
+    created = api.post(
+        "/api/transactions",
+        headers=mutation_headers(api),
+        json=payload,
+    )
+    assert created.status_code == 201
+    transaction = created.json()["transaction"]
+    assert transaction["status"] == "pending_approval"
+    assert provider_calls == 0
+
+    approved = api.post(
+        f"/api/approvals/{transaction['id']}/approve",
+        headers=mutation_headers(api),
+        json={"idempotency_key": "api-paypal-worker-only-approval-0001"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "executing"
+    assert provider_calls == 0
+
+    replay = api.post(
+        "/api/transactions",
+        headers=mutation_headers(api),
+        json=payload,
+    )
+    assert replay.status_code == 201
+    assert replay.json()["transaction"]["id"] == transaction["id"]
+    assert provider_calls == 0
+
+    receipt = api.get(f"/api/transactions/{transaction['id']}").json()
+    assert len(receipt["attempts"]) == 1
+    assert receipt["attempts"][0]["status"] == "submitting"
+    assert receipt["transaction"]["provider_batch_id"] is None
+
+    reconcile = api.post(
+        f"/api/transactions/{transaction['id']}/reconcile",
+        headers=mutation_headers(api),
+    )
+    assert reconcile.status_code == 409
+    assert reconcile.json()["error"]["code"] == "PROVIDER_OUTCOME_UNKNOWN"
+    assert provider_calls == 0
 
 
 def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
