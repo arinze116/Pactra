@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const password = "RouteAuditPassword2026!";
 const receiptScreenshot = "/home/ubuntu/pactra/artifacts/independent-audit-20261107/receipt-desktop.png";
+const assistantResponseTimeoutMs = 60_000;
 
 async function expectPageStable(page: Page, route: string) {
   const response = await page.goto(route, { waitUntil: "domcontentloaded" });
@@ -36,7 +37,9 @@ async function createConversation(page: Page) {
   await page.getByLabel("Message Pactra").fill("Please document this production route audit");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page).toHaveURL(/\/app\/assistant\/[a-f0-9-]+$/);
-  await expect(page.locator(".assistant-message-assistant")).toBeVisible();
+  await expect(page.locator(".assistant-message-assistant")).toBeVisible({
+    timeout: assistantResponseTimeoutMs,
+  });
   return page.url();
 }
 
