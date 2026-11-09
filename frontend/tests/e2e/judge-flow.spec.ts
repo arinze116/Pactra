@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 
 const password = "JudgePassword2026!";
+const apiOrigin = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "8000"}`;
+const frontendOrigin = `http://127.0.0.1:${process.env.E2E_FRONTEND_PORT ?? "5173"}`;
 
 async function register(page: Page, prefix: string) {
   const email = `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
@@ -68,6 +70,33 @@ test("password reveal remains accessible through sign-up and sign-in", async ({ 
   await page.goto("/app/settings");
   await page.getByRole("button", { name: "Sign out of this session" }).click();
   await exercisePasswordReveal(page, { width: 390, height: 844 }, "judge-reveal-mobile");
+});
+
+test("authentication and the application shell are keyboard operable", async ({ page }) => {
+  const email = `judge-keyboard-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
+  await page.goto("/sign-up");
+
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Pactra" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Email")).toBeFocused();
+  await page.keyboard.type(email);
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Password", { exact: true })).toBeFocused();
+  await page.keyboard.type(password);
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Show password" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Create sandbox account" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.goto("/app");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
 });
 
 test("fresh judge completes the core sandbox journey", async ({ page }) => {
@@ -201,11 +230,12 @@ test("overview and wallet sections recover independently", async ({ page }) => {
 
   await page.goto("/app/wallet");
   for (const recoveryCase of [
-    { pattern: "**/api/wallet", retry: "Retry wallet" },
-    { pattern: "**/api/wallet/ledger?limit=100", retry: "Retry ledger" },
+    { path: "/api/wallet", retry: "Retry wallet" },
+    { path: "/api/wallet/ledger", retry: "Retry ledger" },
   ] as const) {
     let shouldFail = true;
-    await page.route(recoveryCase.pattern, async (route) => {
+    const matcher = (url: URL) => url.pathname === recoveryCase.path;
+    await page.route(matcher, async (route) => {
       if (shouldFail && route.request().method() === "GET") {
         shouldFail = false;
         await route.abort("failed");
@@ -217,7 +247,7 @@ test("overview and wallet sections recover independently", async ({ page }) => {
     await expect(page.getByRole("button", { name: recoveryCase.retry })).toBeVisible();
     await page.getByRole("button", { name: recoveryCase.retry }).click();
     await expect(page.getByRole("button", { name: recoveryCase.retry })).toHaveCount(0);
-    await page.unroute(recoveryCase.pattern);
+    await page.unroute(matcher);
   }
 });
 
@@ -242,8 +272,8 @@ test("guided insufficient-funds outcome and internal reversal remain auditable",
 
   const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "pactra_csrf")?.value;
   expect(csrf).toBeTruthy();
-  const second = await page.request.post(`http://127.0.0.1:8000/api/transactions/${transactionId}/reverse`, {
-    headers: { Origin: "http://127.0.0.1:5173", "X-CSRF-Token": csrf ?? "" },
+  const second = await page.request.post(`${apiOrigin}/api/transactions/${transactionId}/reverse`, {
+    headers: { Origin: frontendOrigin, "X-CSRF-Token": csrf ?? "" },
     data: { idempotency_key: "browser-second-reversal-0001", reason: "Must fail" },
   });
   expect(second.status()).toBe(409);
@@ -284,8 +314,8 @@ test("failed internal retry is idempotent through the browser path", async ({ pa
   expect(retryKey).toMatch(/^retry-/);
 
   const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "pactra_csrf")?.value;
-  const replay = await page.request.post(`http://127.0.0.1:8000/api/transactions/${transactionId}/retry`, {
-    headers: { Origin: "http://127.0.0.1:5173", "X-CSRF-Token": csrf ?? "" },
+  const replay = await page.request.post(`${apiOrigin}/api/transactions/${transactionId}/retry`, {
+    headers: { Origin: frontendOrigin, "X-CSRF-Token": csrf ?? "" },
     data: { idempotency_key: retryKey },
   });
   expect(replay.status()).toBe(202);
@@ -522,6 +552,92 @@ test("policy editor rejects invalid state and only confirms persisted saves", as
   await expect(daily).toHaveValue("600.00");
   await expect(page.getByText("Version 2")).toBeVisible();
   await expect(save).toBeDisabled();
+});
+
+test("ambiguous PayPal recovery is explicit and reuses the existing attempt", async ({ page }) => {
+  await register(page, "judge-paypal-recovery");
+  await page.goto("/app/payments/new?scenario=auto");
+  await submitPayment(page);
+  await expect(page).toHaveURL(/\/app\/transactions\//);
+  const transactionId = page.url().split("/").pop() ?? "";
+  let recoveryRequests = 0;
+  const receiptResponse = await page.request.get(`${apiOrigin}/api/transactions/${transactionId}`);
+  expect(receiptResponse.status()).toBe(200);
+  const receipt = await receiptResponse.json() as {
+    transaction: Record<string, unknown>;
+    attempts: Array<Record<string, unknown>>;
+  };
+  receipt.transaction = {
+    ...receipt.transaction,
+    type: "payout",
+    vendor: "PayPal recovery fixture",
+    recipient: "masked-recipient@example.com",
+    amount_cents: 100,
+    status: "executing",
+    rail: "paypal_sandbox_payouts",
+    rail_reference: null,
+    provider_batch_id: null,
+    provider_item_id: null,
+    provider_status: "UNKNOWN",
+    failure_code: "PAYPAL_OUTCOME_UNKNOWN",
+    completed_at: null,
+  };
+  receipt.attempts = [{
+    id: "11111111-1111-4111-8111-111111111111",
+    attempt_number: 1,
+    rail: "paypal_sandbox_payouts",
+    rail_request_id: `pactra-${transactionId}-a1`,
+    status: "unknown",
+    response_code: "PAYPAL_OUTCOME_UNKNOWN",
+    provider_batch_id: null,
+    provider_item_id: null,
+    provider_status: "UNKNOWN",
+  }];
+
+  await page.route(`**/api/transactions/${transactionId}/reconcile`, async (route) => {
+    recoveryRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: transactionId,
+        type: "payout",
+        vendor: "PayPal recovery fixture",
+        recipient: "masked-recipient@example.com",
+        amount_cents: 100,
+        currency: "USD",
+        category: "freelance",
+        reason: "Ambiguous recovery UI fixture",
+        status: "executing",
+        sandbox_generation: 1,
+        policy_version: 1,
+        rail: "paypal_sandbox_payouts",
+        rail_reference: null,
+        provider_batch_id: null,
+        provider_item_id: null,
+        provider_status: "UNKNOWN",
+        failure_code: "PAYPAL_OUTCOME_UNKNOWN",
+        created_at: "2026-11-09T00:00:00Z",
+        updated_at: "2026-11-09T00:00:00Z",
+        completed_at: null,
+      }),
+    });
+  });
+
+  await page.route(`**/api/transactions/${transactionId}`, async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", json: receipt });
+  });
+
+  await page.reload();
+  await expect(page.getByText(/Provider outcome unknown/)).toBeVisible();
+  const recover = page.getByRole("button", { name: "Recover submission" });
+  await expect(recover).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("reuse the original stable PayPal request identifiers");
+    await dialog.accept();
+  });
+  await recover.click();
+  expect(recoveryRequests).toBe(1);
 });
 
 test.describe("mobile judge navigation", () => {

@@ -1,5 +1,9 @@
 # Pactra Coverage Report
 
+> Historical coverage snapshot. Current worker-only candidate totals are 118
+> SQLite tests with 10 expected PostgreSQL skips and 128 PostgreSQL tests.
+> Final browser/WCAG and CI results are recorded in current acceptance evidence.
+
 Audit date: 2026-11-07  
 Release: `0e3e905`
 

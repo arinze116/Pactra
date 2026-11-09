@@ -1,5 +1,11 @@
 # Pactra 72-Hour Release Execution Log
 
+> Continuation, 2026-11-09: the worker-only PayPal correction is now on
+> `codex/paypal-worker-single-authority`. Production provider configuration is
+> present, but Gemini still lacks a successful function call and PayPal still
+> lacks item-level `SUCCESS`. Current engineering evidence is in
+> `QA/ACCEPTANCE-EVIDENCE.md`.
+
 Started: 2026-11-09, Africa/Lagos  
 Branch: codex/prd-gap-closure-20261107  
 Decision at this checkpoint: **NO-GO**

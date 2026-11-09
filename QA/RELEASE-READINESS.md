@@ -1,138 +1,64 @@
 # Pactra Release Readiness
 
-Assessment updated: 2026-11-09 04:43 WAT
+Updated: 2026-11-09
 
-Application release-candidate commit:
-`b50117757347efd86d13bc43838654c5da2bcf0a`
+Candidate branch: `codex/paypal-worker-single-authority`
 
-Release-candidate migration: `20261107_0005`
+Production: `0e3e905` / `20261107_0004`
 
-Production database migration (read-only verification): `20261107_0004`
+## Engineering merge gate
 
-## Recommendation
-
-# NO-GO
-
-**Verified.** The application candidate has successful exact-SHA CI and passes
-every locally executable backend, PostgreSQL, frontend, browser, automated
-accessibility, homepage Lighthouse and dependency gate. Migration `0005` also
-upgrades a clone of the current production database successfully.
-
-Release/deployment remains NO-GO because live Gemini acceptance is unverified
-after a provider `429`, and no real PayPal Sandbox payout item
-has reached item-level `SUCCESS` with exactly-once reconciliation. The PayPal
-guided scenario consequently remains blocked. Nothing was deployed and no
-production data, service or configuration was changed.
-
-## Release-candidate identity and CI
-
-- Application SHA: `b50117757347efd86d13bc43838654c5da2bcf0a`.
-- Branch: `codex/prd-gap-closure-20261107`.
-- CI run: `42557687655`.
-- URL: https://github.com/arinze116/Pactra/actions/runs/42557687655
-- GitHub `headSha`: exact match.
-- Conclusion: `success` at 2026-11-09 04:42:54 WAT.
-- All four mandatory jobs passed; none was skipped.
-
-## Actual gate results
-
-| Gate | Exact-SHA result | CI result |
+| Gate | Status | Evidence |
 |---|---|---|
-| SQLite backend | PASS — local 94 passed, 9 skipped | PASS — Backend SQLite job |
-| PostgreSQL backend | PASS — local 103 passed | PASS — Backend PostgreSQL job |
-| Frontend install/lint/build | PASS — Vite 8.3.6 | PASS — frontend job |
-| E2E journeys | PASS — 13 passed | PASS — E2E job |
-| WCAG 2.1 AA automation | PASS — 14 public/authenticated surfaces | PASS — E2E job |
-| Python dependency checks | PASS — consistent; no known vulnerabilities | PASS — PostgreSQL job |
-| npm production/full audits | PASS — 0 vulnerabilities | PASS — frontend job |
-| Lighthouse | PASS — homepage only; last recorded scores 0.97 / 1.00 / 0.96 | PASS — homepage-only CI assertion |
+| Worker-only provider authority | PASS | Source trace and API no-provider-call regressions |
+| Idempotency and duplicate delivery | PASS | Stable identifiers and one-attempt tests |
+| PostgreSQL concurrency | PASS | Row-lock/conditional-claim one-winner test |
+| Unknown outcome recovery | PASS | Reserved unknown state plus explicit same-ID recovery |
+| Approval and rejection | PASS | Threshold, duplicate, race, policy-change, expired/revoked session tests |
+| Financial invariants | PASS | Reservation/capture/release/compensation suites |
+| SQLite | PASS | 118 passed, 10 expected skips |
+| PostgreSQL | PASS | 128 passed |
+| Frontend lint/build | PASS | ESLint and TypeScript/Vite production build |
+| Browser/WCAG | PASS locally | 15 journeys; Axe passed across 14 configured surfaces |
+| Dependencies | PASS locally | Python and npm audits clean |
+| Migration | PASS for preparation | Isolated upgrade/failure/recovery/downgrade drill |
+| Documentation truth audit | PASS with stated limitations | README matrix and current QA evidence |
+| Final exact-SHA CI | PENDING | Required before merge |
+| Pull request/merge | PENDING | Required checks may not be bypassed |
 
-The WCAG result is an automated Axe scan, not a manual screen-reader or
-assistive-technology certification.
+## Production release gate
+
+| Gate | Status |
+|---|---|
+| Gemini configured in production | PASS for configuration only |
+| Live Gemini typed function call | BLOCKED — latest result was `429 RESOURCE_EXHAUSTED` |
+| PayPal Sandbox configured/OAuth | PASS for configuration and prior OAuth only |
+| PayPal payout-item `SUCCESS` | BLOCKED |
+| Exactly-once real provider capture | BLOCKED |
+| Six guided scenarios | BLOCKED on PayPal scenario |
+| Production migration/deployment | NOT AUTHORIZED / NOT RUN |
+| Public candidate smoke | NOT RUN |
 
 ## Lighthouse scope
 
-Lighthouse was run only against the local preview homepage `/`. It did not
-cover sign-in, sign-up, authenticated pages, not-found pages or every route.
-Do not describe the Lighthouse evidence as route-wide. Separate Playwright/Axe
-coverage scanned 14 public and authenticated surfaces.
+Lighthouse covers only the local preview homepage `/`. It is not route-wide
+performance evidence. Route-wide functional and accessibility evidence comes
+from Playwright and Axe.
 
-## Migration `20261107_0005`
+## Migration and rollback
 
-**Upgrade safety: PASS on an isolated clone of the current production
-database.** Production PostgreSQL 16.15 was inspected read-only at migration
-`0004`; the target table/index did not exist. The clone upgraded to `0005` and
-created only `rate_limit_buckets` plus its expiry index.
+`20261107_0005` creates an empty shared rate-limit table and expiry index. It
+does not rewrite financial or user data. Downgrade deletes limiter windows.
+The old release's Alembic graph cannot recognize `0005`, so rollback requires
+both Pactra services stopped and the candidate code used to downgrade to
+`0004` before switching the release symlink.
 
-**Locking: low-risk, not lock-free.** The migration uses transactional DDL and
-does not alter or rewrite an existing application table. With an active
-`ACCESS SHARE` reader on `transactions` and a two-second migration lock
-timeout, the upgrade completed in 0.88 seconds. It still takes short
-catalog/namespace locks and locks on the new relation, so concurrent schema DDL
-must be avoided and the controlled restart window remains appropriate.
+## Recommendation
 
-**Forward compatibility: PASS.** Existing production table names do not
-collide. The new application requires `0005` before serving requests.
+The branch is eligible for engineering merge only after the final exact-SHA CI
+run passes. Production release remains **NO-GO** because genuine Gemini
+function calling, PayPal item-level success, the guided PayPal scenario,
+deployment, and public post-deployment smoke remain incomplete.
 
-**Downgrade: destructive to limiter state.** The tested downgrade drops the
-index and table, deleting all active rate-limit buckets. The prior `0e3e905`
-application code ignores the table, but its systemd pre-start Alembic graph
-ends at `0004` and cannot start against a database stamped at `0005`. Until a
-rollback-compatible old artefact exists, rollback must stop both services, use
-the candidate release to downgrade to `0004`, verify the table is absent,
-switch the symlink and then start the old services.
-
-The migration was not run against production.
-
-## Original backlog disposition
-
-All 14 original backlog rows are mapped to code and acceptance evidence in
-`QA/ACCEPTANCE-EVIDENCE.md`, including the separately tracked PayPal guided
-scenario.
-
-| Disposition | Rows |
-|---|---:|
-| PASS for implementation and available acceptance scope | 11 |
-| BLOCKED on genuine provider acceptance | 3 — Gemini, PayPal, PayPal guided scenario |
-
-The internal reset/retry/reversal row is passed only for internal and
-provider-state-fixture behaviour. It is not evidence of a real PayPal outcome;
-live PayPal reconciliation remains within the blocked provider row.
-
-## Provider claims
-
-One isolated Gemini request reached the exact model and returned
-`429 RESOURCE_EXHAUSTED`; it produced no tool call and fell back safely. PayPal
-state-machine results came from `FakePayPalClient`; no PayPal provider request
-was sent. The E2E environment disabled both providers. Synthetic `SUCCESS`
-fixture values are not treated as provider acceptance.
-
-## Remaining blockers
-
-1. Resolve Gemini quota/entitlement and verify all required tools through
-   genuine function calls on the exact model. Production enablement remains a
-   deployment/configuration approval action.
-2. After separate PayPal capability, credential, recipient and payout-test
-   authorization, verify a real Sandbox payout item reaches `SUCCESS` and is
-   reconciled exactly once.
-3. Re-run the PayPal guided scenario against that persisted real provider
-   result.
-4. Only after the preceding gates pass, obtain explicit deployment approval,
-   deploy the release candidate and run
-   the public smoke suite.
-
-## Non-blocking maintenance findings
-
-- FastAPI TestClient emitted one Starlette/httpx deprecation warning.
-- `npm ci` reported ESLint 9.39.5 as no longer supported despite clean audits.
-- Lighthouse remains homepage-only.
-- The local candidate has a strong, distinctive control-room hierarchy and no
-  responsive overflow after the touch-target correction. Public deployed
-  visual review remains unrun.
-- No rendered demo video artefact was found, so video quality is not verified.
-
-## Prohibited actions respected
-
-No deployment, service restart, production configuration change, credential
-provisioning, PayPal call or production-data mutation was performed. The only
-external provider operation was the isolated Gemini request that returned 429.
+Production services, configuration, database, and release were unchanged. No
+payout was submitted.

@@ -3,16 +3,13 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 import re
 from typing import Any
 from urllib.parse import urlsplit
-from uuid import uuid4
 
 import httpx
 
 from .config import Settings, settings
-from .models import PayPalOrderResult
 
 
 class PayPalError(RuntimeError):
@@ -119,12 +116,8 @@ class PayPalClient:
         return headers
 
     @staticmethod
-    def _money(amount: float) -> str:
-        return f"{Decimal(str(amount)).quantize(Decimal('0.01')):.2f}"
-
-    @staticmethod
     def _money_cents(amount_cents: int) -> str:
-        return f"{Decimal(amount_cents) / Decimal(100):.2f}"
+        return f"{amount_cents // 100}.{amount_cents % 100:02d}"
 
     def _duplicate_batch_submission(
         self, payload: dict[str, Any]
@@ -202,7 +195,7 @@ class PayPalClient:
             raise PayPalUnknownOutcome(
                 "PayPal submission outcome is unknown; reconcile this attempt"
             ) from exc
-        if response.status_code >= 500:
+        if response.status_code in {408, 425, 429} or response.status_code >= 500:
             raise PayPalUnknownOutcome(
                 "PayPal submission outcome is unknown; reconcile this attempt"
             )
@@ -262,116 +255,3 @@ class PayPalClient:
             )
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             raise PayPalError("PayPal payout status is currently unavailable") from exc
-
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        *,
-        json: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
-        request_id: str | None = None,
-    ) -> dict[str, Any]:
-        try:
-            response = await self._client.request(
-                method,
-                path,
-                json=json,
-                params=params,
-                headers=await self._headers(request_id),
-            )
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as exc:
-            debug_id = exc.response.headers.get("paypal-debug-id")
-            suffix = f" (debug ID: {debug_id})" if debug_id else ""
-            raise PayPalError(f"PayPal rejected the request{suffix}") from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise PayPalError("PayPal is currently unavailable") from exc
-
-    async def create_order(
-        self,
-        amount: float,
-        currency: str,
-        vendor: str,
-        description: str,
-        request_id: str | None = None,
-    ) -> PayPalOrderResult:
-        if self.mock_mode:
-            raise PayPalConfigurationError(
-                "Mock PayPal mode cannot create sandbox orders"
-            )
-
-        payload = await self._request(
-            "POST",
-            "/v2/checkout/orders",
-            json={
-                "intent": "CAPTURE",
-                "purchase_units": [
-                    {
-                        "amount": {
-                            "currency_code": currency,
-                            "value": self._money(amount),
-                        },
-                        "description": f"{vendor}: {description}"[:127],
-                    }
-                ],
-            },
-            request_id=request_id or f"pactra-order-{uuid4()}",
-        )
-        approve_link = next(
-            (
-                link.get("href")
-                for link in payload.get("links", [])
-                if link.get("rel") == "approve"
-            ),
-            None,
-        )
-        return PayPalOrderResult(
-            order_id=payload["id"],
-            status=payload.get("status", "CREATED"),
-            amount=amount,
-            currency=currency,
-            approve_link=approve_link,
-        )
-
-    async def capture_order(
-        self, order_id: str, request_id: str | None = None
-    ) -> PayPalOrderResult:
-        if self.mock_mode:
-            raise PayPalConfigurationError(
-                "Mock PayPal mode cannot capture sandbox orders"
-            )
-
-        payload = await self._request(
-            "POST",
-            f"/v2/checkout/orders/{order_id}/capture",
-            json={},
-            request_id=request_id or f"pactra-capture-{order_id}",
-        )
-        purchase_unit = (payload.get("purchase_units") or [{}])[0]
-        captures = purchase_unit.get("payments", {}).get("captures", [])
-        capture_amount = captures[0].get("amount", {}) if captures else {}
-        return PayPalOrderResult(
-            order_id=payload.get("id", order_id),
-            status=payload.get("status", "FAILED"),
-            amount=float(capture_amount.get("value", 0)),
-            currency=capture_amount.get("currency_code", "USD"),
-        )
-
-    async def get_transaction_history(
-        self, start_date: str, end_date: str
-    ) -> list[dict[str, Any]]:
-        if self.mock_mode:
-            return []
-        payload = await self._request(
-            "GET",
-            "/v1/reporting/transactions",
-            params={
-                "start_date": start_date,
-                "end_date": end_date,
-                "fields": "all",
-                "page_size": 100,
-            },
-        )
-        return payload.get("transaction_details", [])

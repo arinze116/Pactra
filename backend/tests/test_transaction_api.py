@@ -282,6 +282,32 @@ def test_paypal_api_requires_approval_and_never_submits_directly(
     assert provider_calls == 0
 
 
+def test_paypal_status_masks_the_global_sandbox_recipient(
+    api: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "paypal_payouts_enabled", True)
+    monkeypatch.setattr(settings, "paypal_client_id", "sandbox-client")
+    monkeypatch.setattr(settings, "paypal_client_secret", "sandbox-secret")
+    monkeypatch.setattr(settings, "paypal_mock_mode", False)
+    monkeypatch.setattr(
+        settings,
+        "paypal_base_url",
+        "https://api-m.sandbox.paypal.com",
+    )
+    monkeypatch.setattr(
+        settings,
+        "paypal_test_recipient_email",
+        "recipient@example.com",
+    )
+
+    response = api.get("/api/integrations/paypal/status")
+
+    assert response.status_code == 200
+    assert response.json()["test_recipient_email"] == "r***@e***.com"
+    assert "recipient@example.com" not in response.text
+
+
 def test_policy_update_changes_decision_and_blocked_transaction_is_persisted(
     api: TestClient,
 ) -> None:

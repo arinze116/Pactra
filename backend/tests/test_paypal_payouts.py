@@ -13,6 +13,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.config import Settings, settings
 from backend.models import (
+    AuditEvent,
     FundReservation,
     LedgerJournal,
     PaymentTransaction,
@@ -20,6 +21,7 @@ from backend.models import (
 )
 from backend.paypal_client import (
     PayPalClient,
+    PayPalError,
     PayPalRejected,
     PayPalUnknownOutcome,
     PayoutStatus,
@@ -217,6 +219,97 @@ async def test_duplicate_batch_rejects_malformed_or_untrusted_links(
                 currency="USD",
                 note="Sandbox test",
             )
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["timeout", "reset", "http-408", "http-429", "http-500", "malformed-201"])
+async def test_ambiguous_submission_failures_require_same_id_recovery(
+    outcome: str,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if outcome == "timeout":
+            raise httpx.ReadTimeout("timed out", request=request)
+        if outcome == "reset":
+            raise httpx.ReadError("connection reset", request=request)
+        if outcome == "malformed-201":
+            return httpx.Response(201, json={})
+        return httpx.Response(int(outcome.removeprefix("http-")), json={})
+
+    client = PayPalClient(paypal_settings())
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url=client.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    client._token = "test-token"
+    client._token_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    try:
+        with pytest.raises(PayPalUnknownOutcome):
+            await client.create_payout(
+                transaction_id="550e8400-e29b-41d4-a716-446655440000",
+                attempt_number=1,
+                recipient_email="recipient@example.com",
+                amount_cents=2_500,
+                currency="USD",
+                note="Sandbox test",
+            )
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [400, 401, 403, 422])
+async def test_definitive_submission_rejection_is_not_ambiguous(
+    status_code: int,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, json={"name": "REQUEST_REJECTED"})
+
+    client = PayPalClient(paypal_settings())
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url=client.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    client._token = "test-token"
+    client._token_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    try:
+        with pytest.raises(PayPalRejected):
+            await client.create_payout(
+                transaction_id="550e8400-e29b-41d4-a716-446655440000",
+                attempt_number=1,
+                recipient_email="recipient@example.com",
+                amount_cents=2_500,
+                currency="USD",
+                note="Sandbox test",
+            )
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["http-429", "http-503", "malformed-200"])
+async def test_reconciliation_provider_errors_do_not_invent_item_truth(
+    outcome: str,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        if outcome == "malformed-200":
+            return httpx.Response(200, json={})
+        return httpx.Response(int(outcome.removeprefix("http-")), json={})
+
+    client = PayPalClient(paypal_settings())
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url=client.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    client._token = "test-token"
+    client._token_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    try:
+        with pytest.raises(PayPalError):
+            await client.get_payout("BATCH-123")
     finally:
         await client.close()
 
@@ -492,6 +585,69 @@ async def test_unknown_submission_is_not_blindly_retried(payout_db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_unknown_submission_recovery_reuses_the_same_stable_attempt(
+    payout_db,
+) -> None:
+    session, user = payout_db
+    result = create_payment_request(
+        session, user=user, payload=payout_payload("paypal-unknown-recovery-0001")
+    )
+    session.commit()
+    client = FakePayPalClient(
+        [PayoutStatus("BATCH-123", "PENDING", "ITEM-1", "ONHOLD")],
+        submission_error=PayPalUnknownOutcome("timeout"),
+    )
+
+    assert await run_worker_cycles(session, client, 1) == [1]
+    attempt = session.exec(select(TransactionAttempt)).one()
+    stable_request_id = attempt.rail_request_id
+    assert attempt.status == "unknown"
+
+    assert await run_worker_cycles(session, client, 1) == [0]
+    enqueue_paypal_reconciliation(
+        session,
+        user=user,
+        transaction_id=result.transaction.id,
+    )
+    session.commit()
+
+    attempt = session.get(TransactionAttempt, attempt.id)
+    assert attempt is not None
+    assert attempt.status == "submitting"
+    assert attempt.attempt_number == 1
+    assert attempt.rail_request_id == stable_request_id
+
+    assert await run_worker_cycles(session, client, 1) == [1]
+    session.expire_all()
+    attempt = session.exec(select(TransactionAttempt)).one()
+    transaction = session.get(PaymentTransaction, result.transaction.id)
+    assert transaction is not None
+    assert attempt.status == "processing"
+    assert attempt.provider_batch_id == "BATCH-123"
+    assert attempt.response_code is None
+    assert transaction.provider_batch_id == "BATCH-123"
+    assert transaction.failure_code is None
+    assert client.create_calls == [
+        (result.transaction.id, 1),
+        (result.transaction.id, 1),
+    ]
+    assert len(session.exec(select(TransactionAttempt)).all()) == 1
+    recovery_event = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.event_type
+            == "paypal.ambiguous_submission_recovery_queued"
+        )
+    ).one()
+    assert recovery_event.payload == {
+        "attempt": 1,
+        "rail_request_id": stable_request_id,
+    }
+    assert wallet_balance(
+        session, get_wallet_for_user(session, user.id)
+    ).reserved_cents == 4_900
+
+
+@pytest.mark.asyncio
 async def test_provider_batch_survives_local_capture_rollback(payout_db) -> None:
     session, user = payout_db
     result = create_payment_request(
@@ -539,6 +695,74 @@ async def test_provider_batch_survives_local_capture_rollback(payout_db) -> None
         )
     ).all()
     assert len(captures) == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_crash_after_provider_acceptance_reuses_stable_attempt(
+    payout_db,
+) -> None:
+    session, user = payout_db
+    result = create_payment_request(
+        session,
+        user=user,
+        payload=payout_payload("paypal-crash-after-acceptance-0001"),
+    )
+    session.commit()
+    client = FakePayPalClient([])
+
+    with Session(session.get_bind(), expire_on_commit=False) as worker_db:
+        claimed = claim_paypal_transaction(
+            worker_db,
+            transaction_id=result.transaction.id,
+        )
+        assert claimed is not None
+        await submit_or_reconcile_payout(
+            worker_db,
+            client=client,
+            transaction=claimed,
+        )
+        worker_db.rollback()
+
+    session.expire_all()
+    attempt = session.exec(select(TransactionAttempt)).one()
+    assert attempt.status == "submitting"
+    assert attempt.provider_batch_id is None
+
+    assert await run_worker_cycles(session, client, 1) == [1]
+    session.expire_all()
+    attempt = session.exec(select(TransactionAttempt)).one()
+    assert attempt.provider_batch_id == "BATCH-123"
+    assert client.create_calls == [
+        (result.transaction.id, 1),
+        (result.transaction.id, 1),
+    ]
+    assert len(session.exec(select(TransactionAttempt)).all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_crash_before_submission_leaves_one_claimable_attempt(
+    payout_db,
+) -> None:
+    session, user = payout_db
+    result = create_payment_request(
+        session,
+        user=user,
+        payload=payout_payload("paypal-crash-before-submission-0001"),
+    )
+    session.commit()
+
+    with Session(session.get_bind(), expire_on_commit=False) as worker_db:
+        claimed = claim_paypal_transaction(
+            worker_db,
+            transaction_id=result.transaction.id,
+        )
+        assert claimed is not None
+        worker_db.rollback()
+
+    client = FakePayPalClient([])
+    assert await run_worker_cycles(session, client, 1) == [1]
+    assert client.create_calls == [(result.transaction.id, 1)]
+    assert len(session.exec(select(TransactionAttempt)).all()) == 1
 
 
 @pytest.mark.asyncio

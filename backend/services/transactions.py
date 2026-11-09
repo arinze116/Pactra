@@ -795,7 +795,13 @@ def enqueue_paypal_reconciliation(
     user: User,
     transaction_id: str,
 ) -> PaymentTransaction:
-    """Queue a read-only provider refresh for a payout with a known batch ID."""
+    """Queue provider recovery while preserving the original payout attempt.
+
+    Known batches are refreshed with a read-only provider lookup. An ambiguous
+    submission without a batch reference is replayed only after this explicit
+    user action, using the same attempt number and stable provider identifiers.
+    Automatic worker scans never make this transition.
+    """
     transaction = get_owned_transaction(
         session,
         user_id=user.id,
@@ -816,9 +822,29 @@ def enqueue_paypal_reconciliation(
     ).one_or_none()
     if attempt is None or attempt.rail != "paypal_sandbox_payouts":
         raise TransactionServiceError("PayPal payout attempt was not found")
+    if not attempt.provider_batch_id and attempt.status == "unknown":
+        attempt.status = "submitting"
+        attempt.finished_at = None
+        transaction.updated_at = utc_now()
+        session.add_all([attempt, transaction])
+        record_audit_event(
+            session,
+            user_id=transaction.user_id,
+            actor_type="user",
+            actor_id=user.id,
+            entity_type="transaction",
+            entity_id=transaction.id,
+            event_type="paypal.ambiguous_submission_recovery_queued",
+            payload={
+                "attempt": attempt.attempt_number,
+                "rail_request_id": attempt.rail_request_id,
+            },
+        )
+        session.flush()
+        return transaction
     if not attempt.provider_batch_id:
         raise IntegrationUnavailable(
-            "Provider outcome is unresolved and has no batch reference to reconcile"
+            "Provider submission has not reached an ambiguous state that can be recovered"
         )
     if attempt.status != "processing":
         attempt.status = "processing"
@@ -850,8 +876,10 @@ def record_paypal_submission(
     attempt.provider_batch_id = batch_id
     attempt.provider_status = batch_status
     attempt.status = "processing"
+    attempt.response_code = None
     transaction.provider_batch_id = batch_id
     transaction.provider_status = batch_status
+    transaction.failure_code = None
     transaction.updated_at = utc_now()
     session.add_all([attempt, transaction])
     record_audit_event(

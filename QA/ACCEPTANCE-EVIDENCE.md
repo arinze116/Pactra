@@ -1,299 +1,204 @@
-# Pactra Release-Candidate Acceptance Evidence
+# Pactra Acceptance Evidence
 
-Updated: 2026-11-09 04:43 WAT
+Updated: 2026-11-09, Africa/Lagos
 
-Current application candidate:
-`b50117757347efd86d13bc43838654c5da2bcf0a`
+Branch: `codex/paypal-worker-single-authority`
 
-Original candidate: `8c8798a0dd89608c22b4c986428af9d815219771`
+Implementation baseline: `82e1b75a2ab59a105fee2b59c2aa481f63c738a5`
 
-Branch: `codex/prd-gap-closure-20261107`
+Production: release `0e3e905`, migration `20261107_0004`
 
-Production URL (unchanged and not tested as this release candidate):
-`https://pactra-nine.vercel.app`
+This report separates deterministic implementation evidence from external
+provider acceptance. The final branch SHA and exact-SHA CI run are recorded in
+the pull request and final release report after the documentation commit.
 
-## Current exact-SHA CI association
+## GitHub CI association
 
-- Repository: `arinze116/Pactra`.
-- Branch: `codex/prd-gap-closure-20261107`.
-- Run ID: `42557687655`.
-- Run URL: https://github.com/arinze116/Pactra/actions/runs/42557687655
-- Exact `headSha`: `b50117757347efd86d13bc43838654c5da2bcf0a`.
-- Created: 2026-11-09 04:40:27 WAT.
-- Completed: 2026-11-09 04:42:54 WAT.
-- Overall conclusion: `success`.
+The latest completed remote run before the final documentation commit is:
 
-| Mandatory job | Actual result |
-|---|---|
-| Backend — SQLite | PASS — migration and full SQLite suite completed |
-| Backend — PostgreSQL | PASS — dependency checks/audit, migration and full PostgreSQL suite completed |
-| Frontend — lint, build and audits | PASS — install, ESLint, TypeScript/Vite build, production and full npm audits completed |
-| E2E — journeys, WCAG and homepage Lighthouse | PASS — Playwright journeys, automated WCAG and homepage-only Lighthouse completed |
+- Run ID: `42569969262`
+- URL: https://github.com/arinze116/Pactra/actions/runs/42569969262
+- Branch: `codex/paypal-worker-single-authority`
+- Exact SHA: `82e1b75a2ab59a105fee2b59c2aa481f63c738a5`
+- Result: `success`
 
-No mandatory job was skipped. Earlier successful runs `42556435101` on
-`6fddc94` and `42555130996` on `1a70569` are supporting history, not the
-current exact-SHA association.
+All four mandatory jobs passed: Backend SQLite, Backend PostgreSQL, Frontend
+lint/build/audits, and E2E journeys/WCAG/homepage Lighthouse. This run does not
+cover the subsequent documentation, recovery, recipient-masking, and keyboard
+regressions; those changes require a new exact-final-SHA run before merge.
 
 ## Current local verification
 
-- Provider regressions: 32 passed.
-- Full SQLite: 94 passed, 9 PostgreSQL-only skipped.
-- Full PostgreSQL: 103 passed.
-- Frontend lint and production build: PASS.
-- Playwright: 13 journeys passed.
-- Automated WCAG 2.1 AA: PASS across the configured 14 surfaces.
-- Local visual review: screenshots inspected at desktop, tablet and mobile;
-  viewport checks at 320, 375, 390, 768, 1024 and 1440 pixels found no
-  horizontal overflow, console errors or failed requests.
-- Touch-target correction: primary navigation, guided actions, payment type
-  controls and mobile menus now use a 44-pixel minimum.
-- Lighthouse remains homepage-only. There is no route-wide Lighthouse claim.
+All provider calls were disabled or replaced by deterministic fakes.
 
-Live Gemini acceptance remains BLOCKED: an isolated request reached the exact
-model but returned `429 RESOURCE_EXHAUSTED`; it produced zero live tool calls.
-Live PayPal remains BLOCKED: no credentials/capability/recipient are configured
-and no PayPal provider call occurred.
+| Gate | Command/evidence | Result |
+|---|---|---|
+| SQLite | Fresh migration plus full Pytest suite | PASS — 118 passed, 10 PostgreSQL-only skipped |
+| PostgreSQL | Fresh isolated database, migration plus full Pytest suite | PASS — 128 passed |
+| Frontend | `npm run lint`; `npm run build` | PASS |
+| Browser journeys | `npm run test:e2e:journeys` | PASS — 15 journeys |
+| Automated WCAG | `npm run test:e2e:accessibility` | PASS across 14 configured public/authenticated surfaces |
+| Keyboard journey | Keyboard-only registration plus application skip link | PASS |
+| Python dependencies | `pip check`; `pip-audit -r requirements.txt` | PASS — no broken requirements or known vulnerabilities |
+| Node dependencies | production and full `npm audit` | PASS — zero vulnerabilities |
+| Lighthouse | Local preview homepage `/` only | PASS — 0.97 performance, 1.00 accessibility, 0.96 best practices; no route-wide claim |
 
-## Original-candidate identity (historical baseline)
+The FastAPI suite emits one upstream Starlette/httpx deprecation warning. It
+does not change the test result and remains a maintenance item.
 
-**Verified.** Immediately before the release-candidate rerun and again after all
-test commands completed:
-
-```text
-git rev-parse HEAD
-8c8798a0dd89608c22b4c986428af9d815219771
-
-git status --porcelain=v1
-<no output>
-```
-
-Every result in this report was rerun while that exact commit was checked out
-and the tracked working tree was clean. The two requested QA documentation
-edits were made only after the rerun completed, so they are the expected local
-changes after this evidence was recorded.
-
-## Original-candidate CI association (historical baseline)
-
-**Verified: no valid CI run existed for the original `8c8798a` SHA at that
-checkpoint.**
-
-- GitHub's commit API returns `No commit found` for the exact SHA.
-- The Actions API returns `total_count: 0` for the exact SHA.
-- The feature branch has no remote/upstream branch.
-- Therefore there is no CI run ID, job log or GitHub check that can be
-  associated with this release candidate.
-
-The newest repository CI run is `42262019828`, associated with unrelated commit
-`1067e611f1405995736bab5221b2af5765db1d3d`. Its overall result is `success`,
-but it is not evidence for this release candidate and is not used below.
-
-| Gate | Valid CI run ID | Exact commit association | Actual CI result | Exact-commit fallback evidence |
-|---|---:|---|---|---|
-| Backend / SQLite | None | None | NOT RUN in CI | PASS — 87 passed, 9 PostgreSQL-only skipped |
-| PostgreSQL backend | None | None | NOT RUN in CI | PASS — migration to `0005`; 96 passed on PostgreSQL 16 |
-| Frontend | None | None | NOT RUN in CI | PASS — `npm ci`, lint and Vite 8.3.6 production build |
-| E2E | None | None | NOT RUN in CI | PASS — 13 PostgreSQL Playwright journeys |
-| WCAG | None | None | NOT RUN in CI | PASS — one automated suite scanned 14 public/authenticated surfaces |
-| Dependency audits | None | None | NOT RUN in CI | PASS — both npm audits, `pip check` and `pip-audit` |
-
-The workflow at `.github/workflows/ci.yml` contains PostgreSQL backend,
-frontend, E2E/WCAG, dependency-audit and homepage Lighthouse steps, but the
-workflow definition has not executed on this commit.
-
-## Exact-commit rerun results
-
-| Gate | Result |
-|---|---|
-| SQLite backend | PASS — 87 passed, 9 PostgreSQL-only skipped, 1 deprecation warning |
-| PostgreSQL backend | PASS — 96 passed, 1 deprecation warning |
-| PostgreSQL clean migration | PASS — clean upgrade through `20261107_0005` |
-| Frontend install/lint/build | PASS — 328 packages installed; lint clean; Vite 8.3.6 build complete |
-| PostgreSQL Playwright journeys | PASS — 13 passed in 1.4 minutes |
-| WCAG 2.1 AA automated suite | PASS — 1 test in 26.4 seconds across 14 surfaces |
-| Lighthouse | PASS — homepage only: performance 0.97, accessibility 1.00, best practices 0.96 |
-| Python dependency consistency/audit | PASS — no broken requirements; no known vulnerabilities |
-| npm production/full audits | PASS — 0 vulnerabilities in both audits |
-| Live Gemini | BLOCKED — no approved credential/configuration; no provider call made |
-| Live PayPal Sandbox | BLOCKED — no approved credentials/capability/recipient/test authorization; no provider call made |
-
-The FastAPI TestClient emitted one `StarletteDeprecationWarning`. `npm ci` also
-reported that ESLint 9.39.5 is no longer supported. Neither warning failed its
-gate, but both are maintenance follow-ups.
-
-## Commands executed at the exact SHA
+### Commands executed
 
 ```bash
-APP_ENV=test \
-DATABASE_URL=sqlite:////tmp/pactra-rc-8c8798a-backend-20261109-r2.db \
-PAYPAL_MOCK_MODE=true SESSION_COOKIE_SECURE=false \
-.venv-linux/bin/python -m pytest -o addopts='' -q
+APP_ENV=test +SECRET_KEY=final-verification-secret-key-at-least-32-bytes +DATABASE_URL=sqlite:////tmp/pactra-merge-verification-20261109-r3.db +AI_ENABLED=false PAYPAL_PAYOUTS_ENABLED=false PAYPAL_MOCK_MODE=true +PAYPAL_BASE_URL=https://api-m.sandbox.paypal.com +SESSION_COOKIE_SECURE=false +.venv-linux/bin/alembic upgrade head
+
+APP_ENV=test +SECRET_KEY=final-verification-secret-key-at-least-32-bytes +DATABASE_URL=sqlite:////tmp/pactra-merge-verification-20261109-r3.db +AI_ENABLED=false PAYPAL_PAYOUTS_ENABLED=false PAYPAL_MOCK_MODE=true +PAYPAL_BASE_URL=https://api-m.sandbox.paypal.com +SESSION_COOKIE_SECURE=false +.venv-linux/bin/python -m pytest -o addopts='' -q
 ```
 
-Result: `87 passed, 9 skipped, 1 warning` in 62.34 seconds. The skipped tests
-are explicitly PostgreSQL-only and passed in the PostgreSQL run.
+Result: 118 passed, 10 skipped.
 
 ```bash
-APP_ENV=test \
-DATABASE_URL=postgresql+psycopg:///pactra_rc_8c8798a_backend_20261109_r2 \
-PAYPAL_MOCK_MODE=true SESSION_COOKIE_SECURE=false \
-.venv-linux/bin/python -m alembic upgrade head
+sudo -u postgres createdb -O ubuntu pactra_merge_verification_20261109_r2
 
-APP_ENV=test \
-DATABASE_URL=postgresql+psycopg:///pactra_rc_8c8798a_backend_20261109_r2 \
-PAYPAL_MOCK_MODE=true SESSION_COOKIE_SECURE=false \
-.venv-linux/bin/python -m pytest -o addopts='' -q
+APP_ENV=test +SECRET_KEY=final-verification-secret-key-at-least-32-bytes +DATABASE_URL=postgresql+psycopg:///pactra_merge_verification_20261109_r2 +AI_ENABLED=false PAYPAL_PAYOUTS_ENABLED=false PAYPAL_MOCK_MODE=false +PAYPAL_BASE_URL=https://api-m.sandbox.paypal.com +SESSION_COOKIE_SECURE=false +.venv-linux/bin/alembic upgrade head
+
+APP_ENV=test +SECRET_KEY=final-verification-secret-key-at-least-32-bytes +DATABASE_URL=postgresql+psycopg:///pactra_merge_verification_20261109_r2 +AI_ENABLED=false PAYPAL_PAYOUTS_ENABLED=false PAYPAL_MOCK_MODE=false +PAYPAL_BASE_URL=https://api-m.sandbox.paypal.com +SESSION_COOKIE_SECURE=false +.venv-linux/bin/python -m pytest -o addopts='' -q
 ```
 
-Result: clean migration through `0005`; `96 passed, 1 warning` in 62.45
-seconds.
+Result: 128 passed.
 
 ```bash
 cd frontend
-npm ci
 npm run lint
 npm run build
+E2E_PYTHON=/home/ubuntu/pactra/.venv-linux/bin/python +E2E_FRONTEND_PORT=5189 E2E_API_PORT=8019 +npm run test:e2e
+```
+
+Result: 15 journeys passed; one Axe suite passed across 14 configured surfaces.
+
+```bash
+.venv-linux/bin/python -m compileall -q backend
+.venv-linux/bin/python -m pip check
+.venv-linux/bin/python -m pip_audit -r requirements.txt
+cd frontend
 npm audit --omit=dev --audit-level=high
 npm audit --audit-level=moderate
-../.venv-linux/bin/python -m pip check
-../.venv-linux/bin/python -m pip_audit -r ../requirements.txt
 ```
 
-Result: all passed; both npm audits reported `found 0 vulnerabilities`, Python
-reported `No broken requirements found` and `No known vulnerabilities found`.
+Result: compile and dependency consistency passed; both ecosystems reported no
+known vulnerabilities.
 
 ```bash
-cd frontend
-E2E_PYTHON=/home/ubuntu/pactra/.venv-linux/bin/python \
-E2E_DATABASE_URL=postgresql+psycopg:///pactra_rc_8c8798a_e2e_20261109 \
-npm run test:e2e
+npx lighthouse http://127.0.0.1:4174/ +  --chrome-flags="--headless --no-sandbox" +  --only-categories=performance,accessibility,best-practices +  --output=json --output-path=/tmp/pactra-final-lighthouse.json --quiet
+npm run test:lighthouse:assert -- /tmp/pactra-final-lighthouse.json
 ```
 
-Result: 13 journey tests passed in 1.4 minutes; the separate automated WCAG
-suite passed in 26.4 seconds. The WCAG suite scanned the landing, sign-in,
-sign-up, public not-found, overview, wallet, policy, new-payment, approvals,
-transactions, assistant, settings, PayPal integration and authenticated
-not-found surfaces.
+Result: performance 0.97, accessibility 1.00, best practices 0.96. Scope was
+the homepage only.
 
-## Lighthouse scope
+## Payment execution evidence
 
-**Verified scope: homepage only.**
+- No active API route calls PayPal submission.
+- `backend/services/paypal.py` is the only non-test caller of
+  `PayPalClient.create_payout`.
+- The worker locks the transaction and attempt with PostgreSQL
+  `FOR UPDATE SKIP LOCKED`, then conditionally changes `submitting` to
+  `claimed`.
+- Submission and reconciliation are separate commits/cycles, so a stored
+  provider batch reference survives a later capture failure.
+- Sender batch/request IDs are stable for transaction plus attempt number.
+- Duplicate queue delivery and concurrent claims have one local winner.
+- Timeout, connection reset, HTTP 408/425/429/5xx, and malformed 201 responses
+  become `unknown`; the reservation remains held.
+- Automatic scans exclude `unknown` attempts without a batch ID.
+- Explicit authenticated recovery reuses the same attempt and identifiers.
+- Batch acceptance never captures funds. Only payout-item `SUCCESS` does.
+- Terminal failure releases the reservation once. Returned, reversed, and
+  refunded states post at most one compensating journal.
 
-```bash
-CHROME_PATH=/home/ubuntu/.cache/ms-playwright/chromium-1194/chrome-linux/chrome \
-npx lighthouse http://127.0.0.1:4173/ \
-  --chrome-flags='--headless --no-sandbox' \
-  --only-categories=performance,accessibility,best-practices \
-  --output=json \
-  --output-path=/tmp/pactra-lighthouse-8c8798a-20261109.json \
-  --quiet
-npm run test:lighthouse:assert -- \
-  /tmp/pactra-lighthouse-8c8798a-20261109.json
-```
+These are deterministic implementation results. They are not proof that the
+current PayPal Sandbox account can complete a payout.
 
-Result: performance `0.97`, accessibility `1.00`, best practices `0.96`.
-No authenticated route, secondary public route or route-wide Lighthouse crawl
-was run. Route-wide accessibility evidence comes from Axe/Playwright, not
-Lighthouse.
+## Approval and policy evidence
+
+- A one-dollar isolated policy requires approval only when the amount is above
+  the configured threshold; the exact threshold remains auto-approved.
+- Pending approval cannot be claimed by the worker because no PayPal attempt is
+  executable until approval changes the transaction to `executing`.
+- Rejection releases the reservation and creates zero provider submissions.
+- Duplicate and concurrent approval/rejection actions are conditional and
+  single-use.
+- Policy changes are re-evaluated before approval and are audited.
+- Expired or revoked sessions cannot approve or reject.
 
 ## Migration `20261107_0005`
 
-### Existing production compatibility
+The migration creates only `rate_limit_buckets` and an expiry index. It has no
+backfill, foreign key, default expression, or rewrite of an existing table.
 
-**Verified by read-only production inspection and an isolated live-data clone.**
+Verified on an isolated PostgreSQL clone:
 
-- Production is PostgreSQL 16.15 at migration `20261107_0004`.
-- Production has 15 public base tables and no existing
-  `rate_limit_buckets` table or `ix_rate_limit_buckets_expires` index.
-- A separate database was populated from the live database without writing to
-  production, then upgraded from `0004` to `0005` successfully.
-- After upgrade, the new table and index existed and the table was empty.
-- No user, wallet, policy, transaction, audit or ledger table is altered or
-  rewritten by the migration.
+- A forced migration conflict rolled back transactionally and left revision
+  `20261107_0004`.
+- Recovery upgraded successfully to `20261107_0005`.
+- Upgrade completed in approximately 905 ms while an existing-table reader
+  remained active.
+- Downgrade removed the table and therefore destroyed only stored rate-limit
+  windows.
+- Release `0e3e905` can run at `0004`, but its Alembic graph cannot recognize a
+  database stamped at `0005`.
 
-### Upgrade safety and locking
+Rollback therefore requires both Pactra services stopped, candidate code used
+to downgrade to `0004`, verification that the limiter table is absent, then a
+symlink switch to `0e3e905`. Production was not migrated.
 
-**Verified/strongly supported.** The migration uses PostgreSQL transactional
-DDL to create one new table and one ordinary index on that new empty table. It
-does not acquire a table-rewrite lock on an existing application relation.
+## Original 14-row PRD gap traceability
 
-On the production-data clone, an `ACCESS SHARE` lock was held on the existing
-`transactions` table while the migration ran with `lock_timeout=2s`. Upgrade
-completed in 0.88 seconds and the concurrent reader completed normally. Short
-catalog/namespace locks and locks on the newly created relation still occur,
-so the controlled service-restart window remains appropriate. Concurrent
-schema DDL should not be scheduled during the release.
+| # | Original gap | Implementation and acceptance evidence | Status |
+|---:|---|---|---|
+| 1 | AI-006 / INT-005 live Gemini | Exact model/tool path and fallback tests pass; latest live request returned `429 RESOURCE_EXHAUSTED` with no function call | BLOCKED |
+| 2 | PAY-010 / INT-002 / INT-003 PayPal | Worker-only state machine, idempotency, failure and reconciliation tests pass; no payout item `SUCCESS` exists | BLOCKED |
+| 3 | PLT-006 PayPal guided scenario | Checklist requires persisted provider `SUCCESS`; mocks cannot complete it | BLOCKED |
+| 4 | PAY-003 blocked HTTP contract | Persisted 422/402 outcomes and idempotent replay tests | PASS |
+| 5 | PLT-006 insufficient funds and analytics | Persisted insufficient-funds scenario and generation-scoped events | PASS |
+| 6 | PAY-005 / BUG-007 approval context | Requester, policy checks, balance, age, and action evidence in API/UI tests | PASS |
+| 7 | Reset/retry/reversal | Internal reversal, retry idempotency, reset preservation, unresolved-provider safeguards | PASS for deterministic scope |
+| 8 | POL-007 policy preview | Server evaluator with no mutation plus API/browser assertions | PASS |
+| 9 | PLT-004 recovery states | Independent overview/wallet loaders and targeted retry journeys | PASS |
+| 10 | REC-003 lifecycle context | Owned audit actors and allow-listed event summaries | PASS |
+| 11 | REC-004 ledger labels | Safe account labels and balanced debit/credit receipt totals | PASS |
+| 12 | AUTH-008 password reveal | Accessible controls plus desktop/mobile and keyboard browser coverage | PASS |
+| 13 | INF-005 dependencies/CI | Required audits and quality jobs exist; final exact-SHA run remains the merge gate | PASS locally / CI pending final SHA |
+| 14 | SEC-005 distributed limiter | PostgreSQL atomic bucket tests and migration drill | PASS candidate; not deployed |
 
-### Downgrade behaviour
+The separately tracked PayPal guided scenario remains row 3 and is not hidden
+inside another backlog item.
 
-**Verified on the isolated clone.** Downgrade to `20261107_0004` drops the
-expiry index and the entire `rate_limit_buckets` table. A seeded test bucket
-was destroyed, and re-upgrade recreated an empty table. Downgrade therefore
-discards active rate-limit window state.
+## Provider evidence boundary
 
-The prior `0e3e905` application code can ignore the additive table, but its
-systemd pre-start runs an Alembic graph that ends at `0004`; it cannot start
-against a database stamped at `0005`. Until a rollback-compatible old artefact
-exists, the safe reviewed rollback is to stop API and worker, use the candidate
-release's Alembic runner to downgrade to `0004`, verify the limiter table is
-absent, atomically switch to `0e3e905`, then start API and worker. This loses
-active limiter windows but does not alter financial, user, transaction, audit
-or ledger tables.
+Production readiness currently reports Gemini and PayPal configured/enabled.
+That is configuration evidence only.
 
-## Original 14-row backlog traceability
+- Gemini: the latest recorded live generation returned
+  `429 RESOURCE_EXHAUSTED`; no live tool call was produced.
+- PayPal: Sandbox OAuth succeeded in the prior authorized verification. One
+  prior authorized payout ended `DENIED`/`FAILED` with PayPal reporting that
+  the recipient could not accept the payment. Credentials and recipient were
+  subsequently changed, but no payout after that change was authorized in this
+  mandate.
+- Fake Gemini/PayPal clients and synthetic provider statuses prove only local
+  orchestration and financial invariants.
+- An OAuth token, HTTP 201, batch creation, deterministic fallback, fixture, or
+  mock `SUCCESS` is never counted as provider success.
 
-All 14 rows from `QA/FINAL-PRD-GAP-REVIEW.md` are mapped below. `PASS` means
-implementation and non-provider acceptance evidence passed. `BLOCKED` means
-the implementation exists but the PRD requires a genuine external-provider
-acceptance result that has not passed.
+## Remaining release blockers
 
-| # | Original backlog row | Implementation mapping | Acceptance evidence | Status |
-|---:|---|---|---|---|
-| 1 | AI-006 / INT-005 live Gemini | `backend/services/assistant.py`, `backend/config.py` retain the exact-model governed tool path and compatible function responses/audit events | Provider regressions pass; isolated live request returned 429 with zero tool calls | BLOCKED |
-| 2 | PAY-010 / INT-002 / INT-003 PayPal | `backend/services/paypal.py`, `backend/paypal_client.py`, `backend/worker.py` implement submission/reconciliation | `test_paypal_payouts.py` fake-client state tests pass; no real item result | BLOCKED |
-| 3 | PLT-006 PayPal guided scenario | `OverviewPage.tsx` requires completed PayPal rail plus persisted provider `SUCCESS`; `PaymentPages.tsx` gates the rail on configuration | Source assertion and internal browser no-`SUCCESS` assertion; provider prerequisite absent | BLOCKED |
-| 4 | PAY-003 blocked HTTP contract | `backend/main.py` and `frontend/src/api.ts` preserve exact 422/402 replay-safe outcomes | `test_policy_update_changes_decision_and_blocked_transaction_is_persisted`; `test_insufficient_funds_returns_persisted_402_without_ledger_movement` | PASS |
-| 5 | PLT-006 insufficient-funds + analytics | `backend/services/judge.py`, `backend/services/sandbox.py`, `OverviewPage.tsx`, `PaymentPages.tsx` | `test_guided_analytics_events_are_unique_per_generation`; guided insufficient-funds E2E | PASS |
-| 6 | PAY-005 / BUG-007 approval context | `backend/schemas.py`, `backend/services/transactions.py`, `TransactionPages.tsx` add requester, policy/checks, balance, time and age | `test_pending_approval_and_rejection_flows`; approval-context browser assertions | PASS |
-| 7 | Reset/retry/reversal acceptance | `backend/services/transactions.py`, `backend/services/sandbox.py`, `scripts/seed_e2e_failed_transaction.py` | backend reset/retry tests plus browser reversal and idempotent retry journeys | PASS for internal/state-fixture scope; live provider remains row 2 |
-| 8 | POL-007 policy preview | `backend/services/policies.py`, `backend/main.py`, `PaymentPages.tsx` use the production evaluator without mutation | `test_policy_preview_is_authoritative_and_side_effect_free`; browser likely-decision assertions | PASS |
-| 9 | PLT-004 recovery states | `OverviewPage.tsx` and `ControlPages.tsx` split loaders and targeted retries | `overview and wallet sections recover independently` | PASS |
-| 10 | REC-003 lifecycle context | `backend/services/transactions.py` and `TransactionPages.tsx` expose actor labels and allow-listed summaries | receipt API assertions for actor, summary, ordering and secret redaction | PASS |
-| 11 | REC-004 ledger labels | `backend/services/transactions.py` and `TransactionPages.tsx` expose safe labels and debit/credit totals | receipt API assertions for labels and balanced amounts; browser reversal totals | PASS |
-| 12 | AUTH-008 password reveal | `PublicPages.tsx` adds independent accessible sign-up/sign-in reveal controls | desktop/mobile keyboard and successful auth E2E | PASS |
-| 13 | INF-005 dependencies/CI | `frontend/package*.json`, `requirements-dev.txt`, `.github/workflows/ci.yml`, `assert-lighthouse.mjs` | Exact-SHA run `42557687655` passed backend, PostgreSQL, frontend/audits and E2E/WCAG/homepage-Lighthouse | PASS |
-| 14 | SEC-005 distributed limiter | `backend/auth.py`, `backend/models.py`, migration `0005` add atomic hashed database buckets and `Retry-After` | PostgreSQL 10-way independent-state concurrency test; migration/clone checks | PASS |
+1. Genuine `gemini-3.8-flash` function calling remains unverified because of
+   provider quota/entitlement.
+2. No real PayPal Sandbox payout item has reached `SUCCESS` and reconciled
+   through this candidate.
+3. The PayPal guided scenario is therefore incomplete.
+4. The candidate is not deployed; production remains at `0e3e905`/`0004`.
+5. Public post-deployment acceptance has not run.
 
-## Provider-evidence boundary
-
-**Verified: no provider success is inferred from mocks or fixtures.**
-
-- Gemini tests inject `FakeGeminiClient`; their results prove orchestration,
-  validation and fallback behaviour only.
-- PayPal tests inject `FakePayPalClient`; synthetic `SUCCESS` values prove
-  state-machine and exactly-once ledger behaviour only.
-- Legacy PayPal mock-mode tests explicitly require a failed outcome and no
-  provider identifier.
-- Playwright runs with `AI_ENABLED=false`, `PAYPAL_PAYOUTS_ENABLED=false`,
-  `PAYPAL_MOCK_MODE=false` and blank provider credentials.
-- The internal retry fixture is restricted to `APP_ENV=test`, uses the
-  `internal_sandbox` rail and contains no provider success.
-- The browser core journey explicitly asserts that an internal receipt does
-  not display provider `SUCCESS`.
-
-The original `8c8798a` verification sent no provider request. A later isolated
-Gemini request reached Google but returned `429 RESOURCE_EXHAUSTED`; it did not
-produce a function call and is not provider success. No PayPal request was
-sent. No provider success is inferred from these results.
-
-## Release-candidate blockers
-
-- No deployed live Gemini function call has been verified.
-- No real PayPal Sandbox payout item has reached verified `SUCCESS` and
-  exactly-once Pactra reconciliation.
-- The separately tracked PayPal guided scenario remains blocked by that same
-  real provider prerequisite.
-- No public release-candidate smoke test ran because deployment was correctly
-  withheld.
-- The existing old release cannot restart against migration `0005`; production
-  rollback must use the reviewed stopped-app downgrade or a tested
-  rollback-compatible old artefact.
+Production configuration, services, database, and provider accounts were not
+changed during this verification. No payout was submitted.

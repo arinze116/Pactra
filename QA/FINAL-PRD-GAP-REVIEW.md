@@ -1,5 +1,9 @@
 # Pactra Final PRD Gap Review
 
+> Historical baseline from the original gap audit. Provider-configuration and
+> test-count statements are superseded by `QA/ACCEPTANCE-EVIDENCE.md`,
+> `QA/INTEGRATION-STATUS.md`, and `QA/RELEASE-READINESS.md`.
+
 Review date: 2026-11-07 (Africa/Lagos)
 
 PRD baseline: `Pactra-PRD-Judge-Ready.md`

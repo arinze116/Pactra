@@ -1,5 +1,8 @@
 # Pactra Test Matrix
 
+> Historical matrix. Current command results and external-provider boundaries
+> are in `QA/ACCEPTANCE-EVIDENCE.md`.
+
 Audit date: 2026-11-07  
 Production: `https://pactra-nine.vercel.app`  
 Release under test: `0e3e905`  

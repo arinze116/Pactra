@@ -227,6 +227,16 @@ def _user_response(user: User) -> UserResponse:
     return UserResponse(id=user.id, email=user.email)
 
 
+def _masked_email(value: str) -> str:
+    """Return a stable display hint without exposing the configured address."""
+    local, separator, domain = value.partition("@")
+    if not separator:
+        return "***"
+    domain_name, dot, suffix = domain.rpartition(".")
+    masked_domain = f"{domain_name[:1]}***{dot}{suffix}" if dot else "***"
+    return f"{local[:1]}***@{masked_domain}"
+
+
 def _balance_response(balance: Any) -> WalletBalanceResponse:
     return WalletBalanceResponse(
         currency=balance.currency,
@@ -1200,7 +1210,11 @@ def paypal_integration_status(
         "configured": configured,
         "environment": "sandbox",
         "capabilities": ["payouts"],
-        "test_recipient_email": settings.paypal_test_recipient_email or None,
+        "test_recipient_email": (
+            _masked_email(settings.paypal_test_recipient_email)
+            if settings.paypal_test_recipient_email
+            else None
+        ),
         "last_success_at": latest_success,
         "last_error_code": latest_error,
     }

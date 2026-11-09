@@ -176,6 +176,45 @@ def test_approval_reserves_then_captures_and_is_single_use(transaction_db) -> No
         )
 
 
+def test_approval_threshold_boundaries_are_deterministic(transaction_db) -> None:
+    session, user = transaction_db
+    policy = default_policy()
+    policy["approval_threshold_cents"] = 100
+    save_policy(session, user_id=user.id, policy_json=policy)
+    session.commit()
+
+    below = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=99,
+            key="approval-threshold-below-0001",
+        ),
+    )
+    at_threshold = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=100,
+            key="approval-threshold-exact-0001",
+        ),
+    )
+    above = create_payment_request(
+        session,
+        user=user,
+        payload=payment_payload(
+            amount_cents=101,
+            key="approval-threshold-above-0001",
+        ),
+    )
+    session.commit()
+
+    assert below.transaction.status == "completed"
+    assert at_threshold.transaction.status == "completed"
+    assert above.transaction.status == "pending_approval"
+    assert above.transaction.policy_result["reason_code"] == "APPROVAL_REQUIRED"
+
+
 def test_rejection_releases_hold_without_posting(transaction_db) -> None:
     session, user = transaction_db
     result = create_payment_request(

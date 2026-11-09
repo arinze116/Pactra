@@ -13,7 +13,17 @@ from backend.auth import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, auth_rate_lim
 from backend.config import settings
 from backend.database import get_session
 from backend.main import app
-from backend.models import AuditEvent, AuthSession, LedgerJournal, PolicyVersion, User, Wallet, utc_now
+from backend.models import (
+    ApprovalAction,
+    AuditEvent,
+    AuthSession,
+    LedgerJournal,
+    PaymentTransaction,
+    PolicyVersion,
+    User,
+    Wallet,
+    utc_now,
+)
 
 
 ORIGIN_HEADERS = {"Origin": "http://testserver"}
@@ -261,6 +271,81 @@ def test_csrf_logout_and_expired_sessions_are_enforced(api) -> None:
     expired = client.get("/api/auth/me")
     assert expired.status_code == 401
     assert expired.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+def test_expired_or_revoked_session_cannot_authorise_pending_payment(api) -> None:
+    client, engine = api
+    assert register(client).status_code == 201
+    pending = client.post(
+        "/api/transactions",
+        headers=csrf_headers(client),
+        json={
+            "type": "vendor_payment",
+            "vendor": "Approval expiry test",
+            "recipient": None,
+            "amount_cents": 12_500,
+            "currency": "USD",
+            "category": "freelance",
+            "reason": "Verify expired and revoked authorisation",
+            "rail": "internal_sandbox",
+            "idempotency_key": "expired-approval-request-0001",
+        },
+    )
+    assert pending.status_code == 201
+    transaction_id = pending.json()["transaction"]["id"]
+    expired_headers = csrf_headers(client)
+
+    with Session(engine) as session:
+        auth_session = session.exec(
+            select(AuthSession).where(AuthSession.revoked_at.is_(None))
+        ).one()
+        auth_session.last_seen_at = utc_now() - timedelta(hours=25)
+        session.add(auth_session)
+        session.commit()
+
+    expired = client.post(
+        f"/api/approvals/{transaction_id}/approve",
+        headers=expired_headers,
+        json={"idempotency_key": "expired-approval-action-0001"},
+    )
+    assert expired.status_code == 401
+    assert expired.json()["error"]["code"] == "UNAUTHENTICATED"
+
+    login = client.post(
+        "/api/auth/login",
+        headers=ORIGIN_HEADERS,
+        json={"email": "judge@example.com", "password": "StrongPassword2026!"},
+    )
+    assert login.status_code == 200
+    revoked_headers = csrf_headers(client)
+    with Session(engine) as session:
+        active_session = session.exec(
+            select(AuthSession).where(AuthSession.revoked_at.is_(None))
+        ).one()
+        active_session.revoked_at = utc_now()
+        session.add(active_session)
+        session.commit()
+
+    revoked = client.post(
+        f"/api/approvals/{transaction_id}/reject",
+        headers=revoked_headers,
+        json={
+            "idempotency_key": "revoked-rejection-action-0001",
+            "reason": "This revoked session must not decide",
+        },
+    )
+    assert revoked.status_code == 401
+    assert revoked.json()["error"]["code"] == "UNAUTHENTICATED"
+
+    with Session(engine) as session:
+        transaction = session.get(PaymentTransaction, transaction_id)
+        assert transaction is not None
+        assert transaction.status == "pending_approval"
+        assert session.exec(
+            select(ApprovalAction).where(
+                ApprovalAction.transaction_id == transaction_id
+            )
+        ).all() == []
 
 
 def test_csrf_rejects_invalid_missing_and_cross_origin_tokens(api) -> None:

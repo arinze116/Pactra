@@ -90,8 +90,14 @@ For an approved release:
 5. Start the worker only after API and database readiness pass.
 
 Expected interruption is one API restart, normally under a minute. If the new
-release fails before accepting traffic, point `/opt/pactra/current` back to the
-previous release and restart the two Pactra services. The previous application
-can safely ignore the additive `rate_limit_buckets` table. Do not downgrade the
-migration during the immediate rollback; restore the verified backup only for
-a separately diagnosed database failure.
+release fails, stop both Pactra services before rollback. Release `0e3e905`
+cannot start while the database is stamped `20261107_0005` because its Alembic
+graph ends at `0004`. While services remain stopped, use the candidate release's
+migration code to downgrade to `20261107_0004`, verify the rate-limit table is
+absent, switch `/opt/pactra/current` back to `0e3e905`, then start the API and
+worker. The downgrade deletes stored rate-limit buckets but does not alter user,
+wallet, transaction, ledger, or audit rows. Use the verified backup only for a
+separately diagnosed database restore.
+
+The exact backup, stopped-service downgrade, symlink, health-check, and recovery
+commands are maintained in `QA/DEPLOYMENT-AND-ROLLBACK.md`.

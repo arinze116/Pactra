@@ -1,5 +1,29 @@
 # Pactra Security Review
 
+> The original review below is retained as historical evidence. Current
+> production reports provider configuration present. The candidate additionally
+> makes the worker the sole PayPal submitter and masks the configured recipient
+> in authenticated status responses. Provider success remains unverified.
+
+## 2026-11-09 candidate addendum
+
+- Full SQLite and PostgreSQL security/ownership regressions pass.
+- API routes do not call PayPal submission; source tracing restricts
+  `create_payout` to the worker orchestration service.
+- Ambiguous outcomes retain reservations and cannot be automatically replayed.
+- The PayPal configuration endpoint returns a masked recipient and no
+  credential material.
+- `pip check`, `pip-audit`, production npm audit, and full npm audit pass
+  with zero known vulnerabilities.
+- Added-line secret-pattern scanning, tracked-file review, and dangerous-source
+  pattern review found no credential or critical/high release finding.
+- Automated WCAG passes across 14 surfaces and a keyboard-only critical journey
+  passes. Manual NVDA/VoiceOver testing and external DAST remain unverified.
+
+Current candidate assessment: no unresolved known critical/high code or
+dependency finding. External provider success and production deployment are
+separate blocked gates.
+
 Audit date: 2026-11-07  
 Scope: application source, automated security regressions, isolated PostgreSQL tests, production-safe HTTP checks, deployment configuration and aggregate database invariants. No destructive penetration testing was performed against production.
 
@@ -28,13 +52,13 @@ The principal remaining security limitations are operational rather than active 
 | Security headers | Inspect production document headers | PASS | CSP, HSTS, `X-Content-Type-Options`, `X-Frame-Options`, Referrer and Permissions policies present |
 | API documentation exposure | `/api/docs`, `/api/redoc`, `/api/openapi.json` | PASS | All returned 404 in production |
 | Secret exposure | Tracked source scan, built bundle scan, log review, `.env` permissions | PASS | No detected credential patterns; root `.env` is untracked and mode 600 |
-| Rate limiting | Registration/login/payment/policy/assistant limiter tests and deployment topology | PARTIAL | Works in-process; production uses one worker. Not suitable for horizontal scaling without shared storage |
+| Rate limiting | Registration/login/payment/policy/assistant limiter tests and deployment topology | PASS candidate | Migration `0005` adds atomic database-backed buckets shared across processes |
 | Ledger manipulation | Duplicate/retry/concurrency tests; direct aggregate invariants | PASS | Zero unbalanced journals, journals with non-two entry count, duplicate captures or invalid holds |
 | Ledger immutability | PostgreSQL journal/entry mutation attempts | PASS | Database triggers reject journal mutation and extra entries |
 | Audit immutability | PostgreSQL audit update/delete attempts | PASS | Migration `20261107_0004`; trigger `trg_audit_events_immutable` active |
 | AI prompt/tool abuse | Prompt injection, hidden recipient, invalid argument and policy-bypass tests | PASS | Tool allowlist and unified transaction service prevent model authority escalation |
-| Provider safety | Non-sandbox/startup configuration validation; provider-state tests | PASS for safety; BLOCKED for live success | Production refuses live PayPal host/mock mode and reports providers disabled |
-| Dependency vulnerabilities | `pip-audit`; production-only and full `npm audit` | PARTIAL | Python and production npm clean; 9 dev-tool findings remain |
+| Provider safety | Non-sandbox/startup guards, worker-only authority, masked status, provider-state tests | PASS for safety; BLOCKED for live success | Production is configured, but no Gemini function call or PayPal item `SUCCESS` is claimed |
+| Dependency vulnerabilities | `pip-audit`; production-only and full `npm audit` | PASS | Python, production npm, and full npm audits report zero known vulnerabilities |
 | Network exposure | Service units, binds, Funnel and database listeners | PASS | API `127.0.0.1:8010`; PostgreSQL `127.0.0.1:5432`; Funnel terminates HTTPS |
 | Backup safety | Pre-migration private archive and isolated restore | PASS | Backup mode 0600; restore drill never targeted production DB |
 
@@ -86,10 +110,9 @@ active_hold_invalid_status=0
 
 ## Remaining risks
 
-- Rate limiting must move to Redis/database storage before multiple API workers or hosts are introduced.
+- Migration `0005` must be deployed before shared database-backed rate limiting is active in production.
 - CSP still permits inline styles because of the current frontend styling/runtime requirements; scripts remain self-only.
-- Live provider security/authentication was not tested because Gemini and PayPal credentials are absent.
-- Development-only dependency findings should be resolved through a tested toolchain upgrade.
+- Provider authentication/configuration was verified previously, but successful Gemini function calling and PayPal item-level success remain unverified.
 - Manual assistive-technology testing and external DAST were not completed; automated WCAG and safe application regressions passed.
 
 ## Safety limitations

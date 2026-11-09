@@ -1,5 +1,9 @@
 # Pactra Bug Report
 
+> Historical discovery report. Some defects below are closed or their external
+> prerequisites changed. Current disposition is in
+> `QA/IMPLEMENTATION-REPORT.md` and `QA/RELEASE-READINESS.md`.
+
 Audit date: 2026-11-07  
 Release deployed after remediation: `0e3e905`
 

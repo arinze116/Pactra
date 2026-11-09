@@ -1,4 +1,8 @@
-"""Gemini-powered payment agent and its guarded tool handlers."""
+"""Deprecated pre-account agent retained only as a fail-closed compatibility shim.
+
+The active product uses ``backend.services.assistant`` and the governed
+transaction service. This module must never perform provider I/O.
+"""
 
 import asyncio
 import logging
@@ -107,7 +111,7 @@ TOOLS = [
 
 
 SYSTEM_PROMPT = """
-You are Pactra, an AI payment agent for business expense management.
+You are the deprecated Pactra compatibility agent.
 
 You help businesses make vendor payments and payouts through PayPal,
 within pre-configured spending policies set by the business owner.
@@ -128,7 +132,8 @@ Your rules:
 - Never fabricate PayPal transaction IDs or invent outcomes
 - If unsure of category, ask before proceeding
 
-When a payment succeeds, confirm: vendor, amount, category, PayPal order ID.
+This compatibility path cannot execute payments. Direct all active requests to
+the authenticated governed transaction service.
 When a payment is blocked, confirm: vendor, amount, and the exact rule that blocked it.
 """.strip()
 
@@ -417,44 +422,15 @@ class PactraAgent:
         paypal_client: PayPalClient,
         db_session: Session,
     ) -> None:
-        """Execute one policy-approved transaction and atomically record its spend."""
-        try:
-            if transaction.transaction_type == "payout":
-                raise PayPalError(
-                    "Legacy payout execution is disabled; use the governed worker queue"
-                )
-            else:
-                order = await paypal_client.create_order(
-                    transaction.amount,
-                    transaction.currency,
-                    transaction.vendor,
-                    transaction.reason,
-                    request_id=transaction.id,
-                )
-                capture = await paypal_client.capture_order(
-                    order.order_id, request_id=f"{transaction.id}-capture"
-                )
-                transaction.paypal_order_id = order.order_id
-                transaction.paypal_status = capture.status
-                if capture.status != "COMPLETED":
-                    raise PayPalError(
-                        f"PayPal did not complete the order (status: {capture.status})"
-                    )
-
-            transaction.status = "approved"
-            transaction.block_reason = None
-            policy_engine.record_spend(
-                transaction.category, transaction.amount, db_session
-            )
-            db_session.add(transaction)
-            db_session.commit()
-            db_session.refresh(transaction)
-        except PayPalError:
-            db_session.rollback()
-            transaction.paypal_status = "FAILED"
-            db_session.add(transaction)
-            db_session.commit()
-            raise
+        """Fail closed; active execution belongs to the transaction service/worker."""
+        del policy_engine, paypal_client
+        db_session.rollback()
+        transaction.paypal_status = "FAILED"
+        db_session.add(transaction)
+        db_session.commit()
+        raise PayPalError(
+            "Legacy payment execution is disabled; use the governed transaction service"
+        )
 
     async def approve_transaction(
         self,

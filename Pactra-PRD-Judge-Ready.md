@@ -1975,16 +1975,22 @@ mutations. Rate limits are per authenticated user and IP.
     ID, secret, access token or raw provider error.
 -   `POST /api/transactions/{id}/reconcile` --- authenticated,
     owner-only; only for transactions with `rail=paypal_sandbox_payouts`
-    and `status=executing`. Returns `{transaction,provider_status}`. 404
-    if not owned; 409 `NOT_RECONCILABLE` for non-executing/non-PayPal
-    transaction; 502 `PROVIDER_UNAVAILABLE` if provider cannot be
-    queried. Read-only provider query; no second payout is created.
+    and a reconcilable state. The API performs no provider I/O. For a
+    known batch it queues a worker-owned read-only provider refresh. For
+    an explicitly confirmed ambiguous submission without a batch ID, it
+    requeues the same attempt and stable sender/request IDs so the worker
+    can recover PayPal's original batch or submit the previously
+    unaccepted request. It never creates a new attempt while the outcome
+    is unresolved. Returns the current transaction. 404 if not owned;
+    409 `NOT_RECONCILABLE` or `PROVIDER_OUTCOME_UNKNOWN` when the state
+    cannot be safely queued.
 
-PayPal provider calls are internal service operations, not public
-raw-proxy endpoints. Payout create uses the transaction's stable
-idempotency reference. The provider reconciliation worker updates status
-only through a conditional transaction-state transition and records an
-audit event for every provider state change.
+PayPal provider calls are worker-owned internal service operations, not
+public raw-proxy endpoints. Payout create uses the transaction's stable
+idempotency reference. The worker updates status only through conditional
+transaction-state transitions and records an audit event for provider
+submission, reconciliation, terminal failure, and explicit ambiguous
+recovery.
 
 ### System
 

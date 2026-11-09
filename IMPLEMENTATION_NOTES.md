@@ -1,5 +1,10 @@
 # Pactra judge-ready implementation notes
 
+> Historical development log. The current candidate is
+> `codex/paypal-worker-single-authority`; production provider configuration is
+> present, but genuine Gemini function calling and PayPal item-level `SUCCESS`
+> remain blocked. Current truth is in `README.md` and `QA/`.
+
 Source of truth: `Pactra-PRD-Judge-Ready.md` v1.1, dated 3 November 2026.
 
 Status legend: `[x]` complete and verified, `[~]` partially present, `[ ]` not implemented, `[B]` externally blocked.

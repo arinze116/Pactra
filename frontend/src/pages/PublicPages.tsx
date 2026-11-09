@@ -20,6 +20,7 @@ export function LandingPage() {
   const ActiveFeatureIcon = productFeatures[activeFeature].icon;
 
   return <div className="min-h-screen bg-canvas text-ink-950">
+    <a className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-pactra-600 focus:px-4 focus:py-2 focus:text-white" href="#public-main-content">Skip to content</a>
     <header className="relative z-30 border-b border-white/[0.06] bg-canvas/95 backdrop-blur">
       <div className="mx-auto flex h-[72px] max-w-[1500px] items-center justify-between px-5 sm:px-8">
         <Link className="flex min-h-11 items-center gap-3 text-lg font-medium" to="/"><BrandMark />Pactra</Link>
@@ -38,7 +39,7 @@ export function LandingPage() {
       </div>
       {mobileOpen ? <div className="mobile-nav-panel border-t border-line bg-canvas-deep px-5 py-5 md:hidden"><p className="text-xs text-ink-400">Product</p><div className="mt-3 grid gap-2 sm:grid-cols-2">{productFeatures.map((feature) => <div className="rounded-xl border border-line bg-surface p-4" key={feature.label}><feature.icon className="h-4 w-4 text-pactra-300" strokeWidth={1.5} /><p className="mt-3 text-sm font-medium">{feature.label}</p><p className="mt-1 text-xs leading-5 text-ink-500">{feature.detail}</p></div>)}</div><div className="mt-4 grid grid-cols-2 gap-2"><Link className="action-secondary" onClick={() => setMobileOpen(false)} to="/sign-in">Sign in</Link><Link className="action-primary" onClick={() => setMobileOpen(false)} to="/sign-up">Create sandbox</Link></div></div> : null}
     </header>
-    <main>
+    <main id="public-main-content" tabIndex={-1}>
       <section className="relative mx-auto grid min-h-[calc(100vh-72px)] max-w-[1500px] items-center overflow-hidden px-5 py-16 sm:px-8 lg:grid-cols-[1.03fr_0.97fr] lg:gap-14 lg:py-24">
         <div className="pointer-events-none absolute inset-y-0 left-[38%] hidden w-px bg-white/[0.04] lg:block" />
         <div className="hero-copy relative z-10 max-w-4xl"><div className="flex items-center gap-3 text-xs text-ink-500"><span className="h-px w-8 bg-pactra-600" />Governed payment operations</div><h1 className="mt-7 max-w-[900px] text-[clamp(3.25rem,7.4vw,7.5rem)] font-medium leading-[0.9] tracking-[-0.055em] text-white">Control the spend.<br /><span className="text-pactra-600">Prove every move.</span></h1><p className="mt-8 max-w-xl text-base leading-7 text-ink-600 sm:text-lg sm:leading-8">Set policy before a request reaches the ledger. Pactra gives teams enforceable limits, human approvals, immutable receipts, and an honest sandbox payout path.</p><div className="mt-9 flex flex-wrap gap-3"><Link className="action-primary h-12 px-5" to="/sign-up">Open a sandbox <ArrowRight className="h-4 w-4" /></Link><Link className="action-secondary h-12 px-5" to="/sign-in">Sign in</Link></div><div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 border-t border-white/[0.06] pt-5 text-xs text-ink-400"><span>Test funds only</span><span>Atomic policy checks</span><span>Auditable ledger</span></div></div>

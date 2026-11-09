@@ -89,7 +89,7 @@ export function AppShell() {
         {mobileMenuOpen ? <div className="mobile-nav-panel border-t border-line bg-canvas-deep px-4 py-5"><WorkspaceNavigation onNavigate={() => setMobileMenuOpen(false)} /><div className="mt-5 border-t border-line pt-4"><p className="truncate px-3 text-xs text-ink-500">{user?.email}</p><button className="mt-2 flex h-11 w-full items-center gap-3 rounded-lg px-3 text-sm text-ink-500" onClick={() => void logout()} type="button"><LogOut className="h-4 w-4" />Sign out</button></div></div> : null}
       </header>
       <div className="border-b border-line bg-canvas-deep px-4 py-2 text-center text-xs text-warning-dark sm:px-6">Sandbox funds only · No real money moves</div>
-      <main className="pactra-enter mx-auto max-w-[1560px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8" id="main-content"><Outlet /></main>
+      <main className="pactra-enter mx-auto max-w-[1560px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8" id="main-content" tabIndex={-1}><Outlet /></main>
     </div>
   </div>;
 }
