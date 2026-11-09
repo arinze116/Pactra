@@ -50,6 +50,11 @@ test("public and authenticated judge surfaces meet automated WCAG 2.1 AA checks"
   await register(page);
   await expectAuthenticatedPageAccessible(page, "Overview page");
 
+  await page.goto("/app/assistant");
+  await page.getByLabel("Message Pactra").fill("Please document this accessibility check");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.locator(".assistant-message-assistant")).toBeVisible();
+
   const routes = [
     ["/app/wallet", "Wallet page"],
     ["/app/policies", "Policy page"],
