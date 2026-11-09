@@ -93,6 +93,38 @@ def paypal_payout(*, key: str, amount_cents: int = 100) -> dict[str, object]:
     }
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            **payment(amount_cents=100, key="api-invalid-paypal-vendor-0001"),
+            "rail": "paypal_sandbox_payouts",
+        },
+        {
+            **payment(amount_cents=100, key="api-invalid-internal-payout-0001"),
+            "type": "payout",
+        },
+        {
+            **payment(amount_cents=100, key="api-invalid-sandbox-rail-0001"),
+            "type": "sandbox_transfer",
+            "rail": "paypal_sandbox_payouts",
+        },
+    ],
+)
+def test_invalid_payment_type_and_rail_combinations_are_rejected(
+    api: TestClient,
+    payload: dict[str, object],
+) -> None:
+    response = api.post(
+        "/api/transactions",
+        headers=mutation_headers(api),
+        json=payload,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_auto_payment_receipt_and_reversal(api: TestClient) -> None:
     created = api.post(
         "/api/transactions",

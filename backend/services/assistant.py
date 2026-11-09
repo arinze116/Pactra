@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 
 from backend.config import settings
 from backend.models import Conversation, ConversationMessage, PaymentTransaction, User, utc_now
+from backend.observability import log_event
 from backend.schemas import PaymentRequest
 from backend.services.ledger import get_wallet_for_user, wallet_balance
 from backend.services.audit import record_audit_event
@@ -840,7 +841,14 @@ async def _run_gemini(
         try:
             await client.aio.aclose()
         except Exception:
-            logger.warning("Gemini client cleanup failed", exc_info=False)
+            log_event(
+                logger,
+                "gemini_client_cleanup_failed",
+                service="api",
+                level=logging.WARNING,
+                operation="assistant.cleanup",
+                outcome="error",
+            )
 
 
 async def run_assistant(
@@ -927,11 +935,20 @@ async def run_assistant(
             )
             reply = _authoritative_tool_reply(tool_log) or reply
         except GeminiRunFailed as exc:
-            logger.warning(
-                "Gemini request failed for user %s (%s/%s); using deterministic fallback",
-                user.id,
-                exc.cause_type,
-                exc.classification,
+            log_event(
+                logger,
+                "gemini_fallback",
+                service="api",
+                level=logging.WARNING,
+                request_id=request_id,
+                operation="assistant.generate",
+                outcome="fallback",
+                error_class=exc.cause_type,
+                classification=exc.classification,
+                http_status=exc.http_status,
+                provider_status_code=exc.provider_status,
+                provider_calls=exc.provider_calls,
+                duration_ms=exc.latency_ms,
             )
             session.rollback()
             tool_log = exc.tool_log

@@ -3,8 +3,9 @@
 import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
+from time import perf_counter
 from typing import Annotated, Any, Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -35,6 +36,7 @@ from .database import get_session, session_scope
 from .defaults import INITIAL_SANDBOX_CENTS
 from .errors import ApiError
 from .models import AuthSession, PaymentTransaction, TransactionAttempt, User
+from .observability import log_event, operation_from_scope, safe_request_id
 from .schemas import (
     ApprovalItemResponse,
     ApprovalListResponse,
@@ -144,7 +146,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     with session_scope() as session:
         session.exec(text("SELECT 1 FROM users LIMIT 1")).all()
-    logger.info("Pactra sandbox API started")
+    log_event(logger, "service_started", service="api", outcome="ready")
     yield
 
 
@@ -168,7 +170,8 @@ app.add_middleware(
 
 @app.middleware("http")
 async def request_context_and_security_headers(request: Request, call_next):
-    request.state.request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    request.state.request_id = safe_request_id(request.headers.get("X-Request-ID"))
+    request.state.request_started = perf_counter()
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -180,11 +183,40 @@ async def request_context_and_security_headers(request: Request, call_next):
     )
     if settings.is_production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    if (
+        response.status_code < 500
+        and request.method != "OPTIONS"
+        and settings.app_env != "test"
+    ):
+        log_event(
+            logger,
+            "http_request_completed",
+            service="api",
+            level=(logging.WARNING if response.status_code >= 400 else logging.INFO),
+            request_id=request.state.request_id,
+            operation=operation_from_scope(request.scope),
+            method=request.method,
+            status_code=response.status_code,
+            duration_ms=round((perf_counter() - request.state.request_started) * 1000),
+            outcome="client_error" if response.status_code >= 400 else "success",
+        )
     return response
 
 
 @app.exception_handler(ApiError)
 async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
+    if exc.status_code >= 500:
+        log_event(
+            logger,
+            "api_error",
+            service="api",
+            level=logging.ERROR,
+            request_id=request.state.request_id,
+            operation=operation_from_scope(request.scope),
+            outcome="error",
+            status_code=exc.status_code,
+            error_code=exc.code,
+        )
     error = {
         "code": exc.code,
         "message": exc.message,
@@ -201,6 +233,36 @@ async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
         if isinstance(retry_after, int) and retry_after > 0:
             response.headers["Retry-After"] = str(retry_after)
     return response
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Return a stable public error without exposing exception details."""
+    log_event(
+        logger,
+        "unhandled_api_error",
+        service="api",
+        level=logging.ERROR,
+        request_id=request.state.request_id,
+        operation=operation_from_scope(request.scope),
+        outcome="error",
+        status_code=500,
+        error_class=type(exc).__name__,
+        duration_ms=round(
+            (perf_counter() - getattr(request.state, "request_started", perf_counter()))
+            * 1000
+        ),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "The request could not be completed.",
+                "request_id": request.state.request_id,
+            }
+        },
+    )
 
 
 @app.exception_handler(RequestValidationError)

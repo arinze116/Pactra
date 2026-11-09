@@ -214,6 +214,20 @@ class PaymentRequest(StrictModel):
     def normalise_category(cls, value: str) -> str:
         return value.strip().casefold()
 
+    @model_validator(mode="after")
+    def validate_payment_route(self) -> "PaymentRequest":
+        if self.rail == "paypal_sandbox_payouts" and self.type != "payout":
+            raise ValueError("PayPal Sandbox is available only for payouts")
+        if (
+            self.type == "payout"
+            and self.recipient is None
+            and self.rail != "paypal_sandbox_payouts"
+        ):
+            raise ValueError("A recipient email is required for payouts")
+        if self.type == "sandbox_transfer" and self.rail != "internal_sandbox":
+            raise ValueError("Sandbox transfers must use the internal sandbox rail")
+        return self
+
 
 class PaymentPreviewRequest(StrictModel):
     vendor: str = Field(min_length=1, max_length=100)

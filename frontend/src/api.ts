@@ -23,7 +23,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_URL?.trim() ?? "").replace(/\/$/,
 let csrfTokenValue: string | null = null;
 
 interface ErrorPayload {
-  error?: { code?: string; message?: string; details?: Record<string, unknown> };
+  error?: { code?: string; message?: string; request_id?: string; details?: Record<string, unknown> };
 }
 
 export class ApiError extends Error {
@@ -32,6 +32,7 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code = "REQUEST_FAILED",
     public readonly details?: Record<string, unknown>,
+    public readonly requestId?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -43,18 +44,43 @@ function cacheCsrfToken(response: Response) {
   if (token) csrfTokenValue = token;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+interface PactraRequestInit extends RequestInit {
+  timeoutMs?: number;
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+
+async function request<T>(path: string, init: PactraRequestInit = {}): Promise<T> {
+  const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, signal, ...requestInit } = init;
   const method = (init.method ?? "GET").toUpperCase();
   const token = method === "GET" || method === "HEAD" ? null : csrfTokenValue;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { "X-CSRF-Token": token } : {}),
-      ...init.headers,
-    },
-  });
+  const requestId = `web-${crypto.randomUUID().replace(/-/g, "")}`;
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = window.setTimeout(() => controller.abort("timeout"), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...requestInit,
+      credentials: "include",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-ID": requestId,
+        ...(token ? { "X-CSRF-Token": token } : {}),
+        ...requestInit.headers,
+      },
+    });
+  } catch (error) {
+    if (controller.signal.aborted && !signal?.aborted) {
+      throw new Error(`Request timed out. Reference ${requestId}.`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
   cacheCsrfToken(response);
   if (!response.ok) {
     let payload: ErrorPayload = {};
@@ -68,6 +94,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       response.status,
       payload.error?.code,
       payload.error?.details,
+      payload.error?.request_id ?? response.headers.get("X-Request-ID") ?? requestId,
     );
   }
   if (response.status === 204) return undefined as T;
@@ -113,7 +140,7 @@ export const api = {
   retry: (id: string, idempotency_key = createIdempotencyKey("retry")) => request<{ transaction: Transaction }>(`/api/transactions/${encodeURIComponent(id)}/retry`, { method: "POST", body: JSON.stringify({ idempotency_key }) }),
   reverse: (id: string, reason: string, idempotency_key = createIdempotencyKey("reverse")) => request<{ transaction: Transaction }>(`/api/transactions/${encodeURIComponent(id)}/reverse`, { method: "POST", body: JSON.stringify({ reason, idempotency_key }) }),
   reconcile: (id: string) => request<Transaction>(`/api/transactions/${encodeURIComponent(id)}/reconcile`, { method: "POST" }),
-  chat: (message: string, conversation_id: string | null, request_id: string) => request<AssistantResponse>("/api/chat", { method: "POST", body: JSON.stringify({ message, conversation_id, request_id }) }),
+  chat: (message: string, conversation_id: string | null, request_id: string) => request<AssistantResponse>("/api/chat", { method: "POST", body: JSON.stringify({ message, conversation_id, request_id }), timeoutMs: 35_000 }),
   conversations: (includeArchived = false) => request<{ items: ConversationSummary[] }>(`/api/conversations${includeArchived ? "?include_archived=true" : ""}`),
   createConversation: (title?: string) => request<ConversationSummary>("/api/conversations", { method: "POST", body: JSON.stringify({ title }) }),
   updateConversation: (id: string, changes: { title?: string; archived?: boolean }) => request<ConversationSummary>(`/api/conversations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(changes) }),
