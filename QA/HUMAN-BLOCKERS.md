@@ -2,9 +2,11 @@
 
 Updated: 2026-11-09
 
-Independent engineering work is complete or in final CI. The remaining release
-gates require external provider state or separately authorized production
-operations.
+Independent engineering work and final `main` CI are complete. Run
+[42577769242](https://github.com/arinze116/Pactra/actions/runs/42577769242)
+passed all four mandatory jobs on exact SHA
+`4ac86897cf66f66df5d80d024f00e315999f7b95`. The remaining release gates
+require external provider state or separately authorized production operations.
 
 1. **Gemini quota or entitlement**
    - Production is configured for `gemini-3.8-flash`.
@@ -25,7 +27,8 @@ operations.
      ledger reconciles exactly once.
 
 4. **Deployment approval**
-   - The candidate is not deployed.
+   - The exact-SHA artifact is staged read-only at
+     `/opt/pactra/releases/4ac8689`, but it is not active or deployed.
    - Required action after provider gates: approve backup, service stop,
      migration `0005`, release switch, API/worker restart, and Vercel frontend
      deployment.
