@@ -2,8 +2,8 @@
 
 Updated: 2026-11-09, Africa/Lagos
 
-Production runtime: `73fdfb692f6daea69ba5f44bc37d9afa1814419a`
-at `/opt/pactra/releases/73fdfb6`, database revision `20261107_0005`.
+Production runtime: `63f25839a6b645a8ca404846ecd82d16c1994b7c`
+at `/opt/pactra/releases/63f2583`, database revision `20261107_0005`.
 
 ## Engineering gate
 
@@ -20,35 +20,35 @@ at `/opt/pactra/releases/73fdfb6`, database revision `20261107_0005`.
 | PostgreSQL suite | PASS | 131 passed after one non-reproducing concurrency rerun; isolated test and second full run passed |
 | Frontend lint/type/build | PASS | ESLint, TypeScript and Vite production build |
 | Dependency audits | PASS | `pip check`, `pip-audit`, production npm audit and full npm audit |
-| CI on runtime SHA | PASS | [42659603721](https://github.com/arinze116/Pactra/actions/runs/42659603721), four jobs passed on `73fdfb69...` |
-| CI on Gemini candidate | NOT TESTED | Dedicated branch has not yet been published |
+| CI on runtime SHA | PASS | [42674909231](https://github.com/arinze116/Pactra/actions/runs/42674909231), four jobs passed on exact SHA `63f25839...` |
+| Gemini integration PR | PASS | PR #14 merged as `63f25839...`; branch CI [42673351498](https://github.com/arinze116/Pactra/actions/runs/42673351498) passed all four jobs |
 
 ## Release and production gate
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Immutable artifact | PASS | Archive-built release, 139 tracked members matched, archive SHA-256 `6c16fbcd...92c4` |
+| Immutable artifact | PASS | Archive-built release; 142 tracked files matched byte-for-byte; archive SHA-256 `6ba14264...5369` |
 | Frontend artifacts | PASS | `frontend/dist` present; all recorded build hashes verified |
-| Backup and restore | PASS | Verified custom dump and isolated restore at `0005` |
-| Upgrade/downgrade | PASS | Exact artifact passed `0005 → 0004 → 0005`; old release ready at `0004` |
-| Production deployment | PASS | Symlink switched at `2026-11-09T17:00:40Z`; API and worker active with zero restarts |
-| Worker lease | PASS | Lease acquired at `2026-11-09 18:00:44 WAT` |
+| Backup and restore | PASS | Private environment backup plus verified custom dump; `pg_restore --list` passed at `0005` |
+| Upgrade/downgrade | PASS | Release `63f2583` changes no migration file; the identical migration tree passed `0005 → 0004 → 0005`, with the legacy release ready at `0004` |
+| Production deployment | PASS | Symlink switched and API restarted at `2026-11-09T18:42:05Z`; worker process remained unchanged |
+| Worker lease | PASS | Original worker PID `785136` remained active and retained the advisory lease |
 | Health/readiness | PASS | Local and public `/api/health` and `/api/ready` returned 200 |
 | Public workflow smoke | PASS | Registration, login, wallet, policy, manual payment, AI fallback, rejection, block, receipts, audit, session and isolation |
 | Accessibility/responsive | PASS | Axe on authenticated surfaces; inspected 1440×1000, 1024×768 and 390×844 screenshots; no overflow |
 | Public Lighthouse | PASS | `/`, `/sign-in`, `/sign-up`: 1.00 performance, accessibility and best practices |
 | Security headers | PASS | CSP, HSTS, frame denial, MIME sniffing prevention, referrer and permissions policies |
-| Rollback readiness | PASS | Immediate `0005` rollback to `4534d13`; tested legacy downgrade for `0e3e905` |
+| Rollback readiness | PASS | Immediate same-schema rollback to `73fdfb6`; tested legacy downgrade for `0e3e905` |
 
 ## External provider acceptance
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Gemini production configuration | PASS | Production still uses `gemini-3.8-flash`; key present and aligned with the project key |
+| Gemini production configuration | PASS | Production uses `gemini-3.5-flash-lite`; key present and aligned with the project key without printing either value |
 | Candidate discovery | PASS | Account exposes stable `gemini-3.5-flash-lite` with `generateContent`; Google documents function calling and a free tier |
 | Genuine candidate function call | PASS | Two genuine calls and two full function-response round trips passed with validated arguments |
 | Full candidate Pactra workflow | PASS | Completed internal payout, approval reservation, missing-data rejection, receipt and audit checks passed in isolation |
-| Genuine production function call | NOT TESTED | Do not switch production until candidate CI and release checks pass |
+| Genuine production function call | PASS | Live public workflow returned one `get_wallet_summary` call; audit recorded model, two provider calls, 1,391 ms, `STOP`, and no fallback/error |
 | Deterministic Gemini fallback | PASS | Timeout, 503, malformed/empty response and post-tool failure regressions preserve governance |
 | PayPal Sandbox configuration/OAuth | PASS | Sandbox host, Payouts scope, mock disabled, credentials present; OAuth completed in 737 ms |
 | PayPal payout submission | PASS | Exact transaction `bfe1e158-...` approved once; worker issued one payout POST and persisted one batch |
@@ -71,7 +71,6 @@ Desktop-profile production reports are stored under
 - Production deployment: **PASS**.
 - Engineering and public acceptance: **PASS**.
 - Gemini candidate compatibility and isolated workflow: **PASS**.
-- Genuine production Gemini function-call acceptance: **NOT TESTED**.
+- Genuine production Gemini function-call acceptance: **PASS**.
 - PayPal payout, item-success and exactly-once capture acceptance: **PASS**.
-- Overall product acceptance: **BLOCKED** pending exact-SHA CI, deployment and
-  a genuine non-financial production function-call acceptance test.
+- Overall product acceptance: **PASS**.

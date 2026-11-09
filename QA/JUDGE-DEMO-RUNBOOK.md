@@ -18,9 +18,10 @@ Record without exposing credentials:
 - a fresh synthetic judge account;
 - browser console/network state.
 
-Current provider limitation: Gemini is configured but is using the tested
-fallback because genuine function-call acceptance is blocked by provider
-`503`/timeout. The separately authorised PayPal Sandbox payout completed with
+Gemini production acceptance is complete on `gemini-3.5-flash-lite`: the live
+public API returned a genuine `get_wallet_summary` call with persisted provider
+and tool audit evidence. Deterministic fallback remains available for provider
+failure. The separately authorised PayPal Sandbox payout completed with
 item-level `SUCCESS`; its one-time approval must not be replayed.
 
 ## Verified internal Sandbox demonstration
@@ -35,9 +36,10 @@ item-level `SUCCESS`; its one-time approval must not be replayed.
    zero posted entries and no provider request.
 6. Run the insufficient-funds scenario and show that no invalid debit or
    reservation was created.
-7. Open the assistant and explain the current evidence boundary. The tested
-   deterministic fallback uses the same policy/payment service and creates at
-   most one governed internal payment; it is not a genuine Gemini tool call.
+7. Open the assistant and request the wallet summary. Show the genuine
+   `get_wallet_summary` tool result and its `assistant.provider_completed`
+   audit event. Explain that deterministic fallback uses the same governed
+   services when the provider is unavailable, but is labelled separately.
 8. Open transactions, receipts and audit history. Reload the pages to prove
    server persistence.
 9. Show sign-out/session enforcement and tenant isolation using two synthetic
@@ -83,13 +85,12 @@ create a replacement payout for an ambiguous result.
 - synthetic account, transaction and policy identifiers;
 - receipts, ledger totals and audit-event identifiers;
 - responsive screenshots, Axe and Lighthouse reports;
-- redacted provider timestamps and identifiers if provider acceptance later
-  succeeds;
+- redacted provider timestamps and identifiers;
 - API/worker logs and confirmation that no unrelated VPS service changed.
 
 ## Honest closing statement
 
 The deployed application, deterministic financial controls and public flows
-are verified. PayPal item-level success and exactly-once capture are verified.
-Genuine Gemini function calling remains blocked by the documented provider
-`503`/timeout condition.
+are verified. Genuine Gemini function calling is verified on the selected
+production model. PayPal item-level success and exactly-once capture are also
+verified.

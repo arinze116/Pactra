@@ -2,28 +2,31 @@
 
 Updated: 2026-11-09, Africa/Lagos
 
-The existing release is deployed and publicly verified. PayPal Sandbox
-acceptance is complete. Gemini model compatibility is now resolved in an
-isolated environment; only the normal merge, deployment and production
-acceptance sequence remains.
+The verified Gemini release is deployed and publicly accepted. PayPal Sandbox
+acceptance is also complete. There is no active external or human release
+blocker.
 
-## 1. Gemini production acceptance — NOT TESTED
+## 1. Gemini production acceptance — RESOLVED / PASS
 
-- Production is configured for `gemini-3.8-flash` and the configured key is
-  present.
+- Production is configured for `gemini-3.5-flash-lite`; the configured key is
+  present and matches the project-local key without either value being shown.
 - The account exposes stable `gemini-3.5-flash-lite` with function calling.
 - Two genuine calls, two complete tool-result round trips and the full isolated
   Pactra workflow passed after correcting the function-response role and
   payout-recipient schema.
 - Timeout, 503, malformed response and deterministic fallback regressions pass.
-- The candidate branch has not yet completed GitHub CI, merge, immutable
-  release staging or the targeted production model switch.
+- PR #14 merged as `63f25839a6b645a8ca404846ecd82d16c1994b7c`.
+  Exact-main CI run `42674909231` passed all four jobs.
+- Immutable release `/opt/pactra/releases/63f2583` is active. Only
+  `GEMINI_MODEL` changed in production configuration.
+- The API restarted on the new release while the PayPal worker remained on
+  PID `785136` with its original start time and advisory lease.
+- A live public request returned one genuine `get_wallet_summary` function
+  call. Audit evidence recorded `gemini-3.5-flash-lite`, two provider calls,
+  1,391 ms provider latency, finish reason `STOP`, one tool call, no fallback
+  or provider error, and zero created transactions.
 
-Required action: follow the repository's normal PR/CI process, deploy the exact
-merged SHA, back up the environment, change only `GEMINI_MODEL` to
-`gemini-3.5-flash-lite`, restart only the API, and run one genuine non-PayPal
-production acceptance call. No new credential, billing change or external
-provider intervention is currently required.
+No new credential, billing change or provider intervention is required.
 
 ## 2. Exact PayPal Sandbox payout approval — RESOLVED / PASS
 
