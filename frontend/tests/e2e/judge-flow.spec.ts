@@ -18,12 +18,13 @@ async function register(page: Page, prefix: string) {
 async function submitPayment(page: Page) {
   const submit = page.getByRole("button", { name: /Review request|Create payment request/ });
   await expect(submit).toBeVisible();
-  if ((await submit.textContent())?.includes("Review")) {
-    await submit.click();
-    await page.getByRole("button", { name: "Confirm and create request" }).click();
-    return;
-  }
   await submit.click();
+  const confirmation = page.getByRole("button", { name: "Confirm and create request" });
+  const needsConfirmation = await confirmation
+    .waitFor({ state: "visible", timeout: 1_500 })
+    .then(() => true)
+    .catch(() => false);
+  if (needsConfirmation) await confirmation.click();
 }
 
 async function expectNoHorizontalOverflow(page: Page) {

@@ -60,7 +60,7 @@ export function ApprovalsPage() {
 }
 
 function ApprovalFact({ label, value }: { label: string; value: string }) {
-  return <div><dt className="text-ink-400">{label}</dt><dd className="mt-1 break-all font-medium capitalize text-ink-800">{value}</dd></div>;
+  return <div><dt className="text-ink-400">{label}</dt><dd className="mt-1 break-words font-medium text-ink-800">{value}</dd></div>;
 }
 
 function formatAge(createdAt: string) {
@@ -281,7 +281,7 @@ export function ReceiptPage() {
 }
 
 function Info({ label, value }: { label: string; value: string }) {
-  return <div><dt className="text-xs text-ink-400">{label}</dt><dd className="mt-1 break-all font-medium capitalize text-ink-800">{value}</dd></div>;
+  return <div><dt className="text-xs text-ink-400">{label}</dt><dd className="mt-1 break-words font-medium text-ink-800">{value}</dd></div>;
 }
 
 function executionEvidence(attempt: Record<string, unknown>) {
