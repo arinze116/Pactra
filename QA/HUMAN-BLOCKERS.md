@@ -2,11 +2,14 @@
 
 Updated: 2026-11-09
 
-Independent engineering work and final `main` CI are complete. Run
+The previous staged baseline passed `main` CI. Run
 [42577769242](https://github.com/arinze116/Pactra/actions/runs/42577769242)
 passed all four mandatory jobs on exact SHA
-`4ac86897cf66f66df5d80d024f00e315999f7b95`. The remaining release gates
-require external provider state or separately authorized production operations.
+`4ac86897cf66f66df5d80d024f00e315999f7b95`. PR #8 supersedes that candidate;
+its exact merge commit, successful final-main CI run, and new immutable
+`.release-sha` are the authority for the next release. The remaining release
+gates require external provider state or separately authorized production
+operations.
 
 1. **Gemini quota or entitlement**
    - Production is configured for `gemini-3.8-flash`.
@@ -27,8 +30,10 @@ require external provider state or separately authorized production operations.
      ledger reconciles exactly once.
 
 4. **Deployment approval**
-   - The exact-SHA artifact is staged read-only at
-     `/opt/pactra/releases/4ac8689`, but it is not active or deployed.
+   - `/opt/pactra/releases/4ac8689` is the inactive historical candidate and
+     must not be activated after PR #8.
+   - Deployment requires a new immutable release whose `.release-sha` matches
+     the successful integrated-main CI commit.
    - Required action after provider gates: approve backup, service stop,
      migration `0005`, release switch, API/worker restart, and Vercel frontend
      deployment.
