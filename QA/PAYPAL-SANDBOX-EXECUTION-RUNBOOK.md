@@ -13,19 +13,17 @@ These milestones are independent:
 
 | Milestone | Current status | Required evidence |
 |---|---|---|
-| Automated state-machine tests | Passed on the preparation branch | SQLite, PostgreSQL concurrency, mocked provider, browser, and accessibility results |
-| Sandbox OAuth | Previously verified for the configured production credentials | Sanitised HTTP result; this does not prove Payouts capability |
-| Payout submitted | Not performed for this candidate | One explicit authorisation followed by one worker-owned submission |
-| Individual item `SUCCESS` | Not verified | PayPal item response containing the item ID and `transaction_status=SUCCESS` |
-| Pactra ledger reconciliation | Not verified against PayPal for this candidate | One captured reservation, one `payment_capture` journal, balanced entries, receipt, and audit events |
+| Automated state-machine tests | PASS on integrated `main` | SQLite, PostgreSQL concurrency, mocked provider, browser, and accessibility results |
+| Sandbox OAuth and scope | PASS for the configured production credentials | OAuth completed in 737 ms and included Payouts scope; this is not payout success |
+| Payout prepared | PASS | Exact transaction below is `pending_approval`, reserved and has zero attempts |
+| Payout submitted | BLOCKED pending separate authorisation | One explicit authorisation followed by one worker-owned submission |
+| Individual item `SUCCESS` | NOT TESTED | PayPal item response containing the item ID and `transaction_status=SUCCESS` |
+| Pactra ledger reconciliation | NOT TESTED against PayPal for this transaction | One captured reservation, one `payment_capture` journal, balanced entries, receipt, and audit events |
 
-The merged baseline is
-`4ac86897cf66f66df5d80d024f00e315999f7b95`. The inactive staged directory is
-`/opt/pactra/releases/4ac8689`. The preparation branch also contains a fix that
-keeps the masked recipient out of the payout request and resolves the configured
-recipient server-side. Do not execute this runbook until that fix is merged,
-passes exact-SHA CI, is staged as the new immutable candidate, and is deployed
-under separate approval.
+The runtime release is `4534d136766a094aeeac4489a9e694111b9257ae` at
+`/opt/pactra/releases/4534d13`, with production at migration
+`20261107_0005`. The masked-recipient correction is deployed: UI masks are
+display-only and the API resolves the configured recipient server-side.
 
 ## Safety rules
 
@@ -49,9 +47,10 @@ under separate approval.
 
 Record each item as PASS before opening the guided payout form:
 
-1. The deployed backend, worker, and frontend identify the same approved SHA.
-2. The database is at the migration required by that SHA. The candidate expects
-   `20261107_0005`; production is currently `20261107_0004`.
+1. The deployed backend and worker identify the approved release SHA. The
+   Vercel runtime source may be an earlier commit only when the frontend runtime
+   tree and built asset hashes are proven identical.
+2. The database is at `20261107_0005`.
 3. Exact-SHA GitHub Actions is green.
 4. `pactra-api.service` and `pactra-worker.service` are active on the approved
    release, and the worker has acquired the PostgreSQL advisory lease.
@@ -77,7 +76,7 @@ Safe read-only host checks include:
 
 ```bash
 sudo readlink -f /opt/pactra/current
-sudo -u pactra cat /opt/pactra/current/.release-sha
+sudo -u pactra sed -n '1p' /opt/pactra/current/.release-sha
 sudo systemctl is-active pactra-api.service pactra-worker.service
 sudo journalctl -u pactra-worker.service --since '-5 minutes' --no-pager
 curl --fail --silent http://127.0.0.1:8010/api/health
@@ -131,10 +130,39 @@ account.
 This is the safe stopping point. A `pending_approval` transaction cannot be
 claimed by the worker. Do not click **Approve** during preparation.
 
+## Prepared transaction — current approval checkpoint
+
+The isolated scenario has already reached the safe stopping point:
+
+| Field | Exact value |
+|---|---|
+| Transaction | `bfe1e158-863b-4ddf-93a0-e31146e7cbcb` |
+| Amount/currency | `$25.00 USD` |
+| Recipient | `sb-4fqlt53808662@personal.example.com` |
+| Test account | `pactra-paypal-approval-20261109160306@example.com` |
+| Rail | `paypal_sandbox_payouts` |
+| Category/reason | `freelance` / `PayPal Sandbox payout test` |
+| Policy | version `2`; approval threshold `$1.00` |
+| Status | `pending_approval` |
+| Posted/reserved/available | `$1,000.00` / `$25.00` / `$975.00` |
+| Attempts | `0` |
+| Provider batch/item/status | none / none / none |
+| Ledger journals | `0` |
+
+The state remained unchanged through worker scans, deployment and public
+acceptance. The recipient is the persisted unmasked Sandbox address; the UI
+continues to show only a mask. The sender is the Business Sandbox account tied
+to the configured credentials, but its email is not independently exposed by
+the client-credentials API.
+
+Do not approve a different transaction, amount, currency or recipient. Do not
+create a second payout while this reservation exists.
+
 ## Manual authorisation checkpoint
 
-Immediately before **Approve**, a human must explicitly authorise exactly one
-$25.00 USD payout to the already configured US Personal Sandbox recipient.
+Immediately before **Approve**, the user must explicitly authorise transaction
+`bfe1e158-863b-4ddf-93a0-e31146e7cbcb`: exactly one $25.00 USD payout to
+`sb-4fqlt53808662@personal.example.com` in PayPal Sandbox.
 Record:
 
 - authoriser and timestamp;

@@ -1,46 +1,55 @@
-# Pactra External Blockers
+# Pactra External and Human Blockers
 
-Updated: 2026-11-09
+Updated: 2026-11-09, Africa/Lagos
 
-The previous staged baseline passed `main` CI. Run
-[42577769242](https://github.com/arinze116/Pactra/actions/runs/42577769242)
-passed all four mandatory jobs on exact SHA
-`4ac86897cf66f66df5d80d024f00e315999f7b95`. PR #8 supersedes that candidate;
-its exact merge commit, successful final-main CI run, and new immutable
-`.release-sha` are the authority for the next release. The remaining release
-gates require external provider state or separately authorized production
-operations.
+The release is deployed and publicly verified. The remaining blockers do not
+prevent the application from operating, but they prevent full provider and
+product acceptance.
 
-1. **Gemini quota or entitlement**
-   - Production is configured for `gemini-3.8-flash`.
-   - The latest live request returned `429 RESOURCE_EXHAUSTED`.
-   - Required action: restore quota/entitlement, then authorize one bounded
-     generation/function-call acceptance check.
+## 1. Gemini function-call acceptance — BLOCKED
 
-2. **PayPal Sandbox payout capability**
-   - Sandbox configuration and prior OAuth succeeded.
-   - The prior authorized payout was denied because the recipient could not
-     accept it. Credentials and recipient were subsequently updated.
-   - Required action: separately authorize exactly one bounded Sandbox payout
-     through the worker-only candidate after deployment or in an isolated
-     approved environment. Item-level `SUCCESS` is required.
+- Production is configured for `gemini-3.8-flash` and the configured key is
+  present.
+- The old production key was rejected with `400 INVALID_ARGUMENT` /
+  `API_KEY_INVALID` and was replaced by the validated project key after a
+  configuration backup.
+- Model lookup succeeded with the replacement key.
+- The genuine Pactra function-calling workflow did not return a function call:
+  one request received provider `503`; bounded requests then timed out after
+  approximately 38 seconds.
+- Pactra used its deterministic fallback safely and created the governed
+  internal transaction exactly once.
 
-3. **PayPal guided scenario**
-   - It cannot pass until a real payout item reaches `SUCCESS` and the Pactra
-     ledger reconciles exactly once.
+Required external change: Gemini must provide enough capacity for one bounded
+Pactra request to return a genuine function-call response. Do not rotate keys,
+change models silently, or keep retrying the unavailable provider.
 
-4. **Deployment approval**
-   - `/opt/pactra/releases/4ac8689` is the inactive historical candidate and
-     must not be activated after PR #8.
-   - Deployment requires a new immutable release whose `.release-sha` matches
-     the successful integrated-main CI commit.
-   - Required action after provider gates: approve backup, service stop,
-     migration `0005`, release switch, API/worker restart, and Vercel frontend
-     deployment.
+## 2. Exact PayPal Sandbox payout approval — BLOCKED
 
-5. **Public acceptance**
-   - Required only after deployment: fresh-account smoke, provider journeys,
-     responsive review, and production logs/database invariant checks.
+The prepared transaction is:
 
-Do not paste credentials into chat. No credential, restart, deployment,
-migration, payout, or production-data operation is authorized by this report.
+- transaction: `bfe1e158-863b-4ddf-93a0-e31146e7cbcb`;
+- amount: exactly `$25.00 USD`;
+- recipient: `sb-4fqlt53808662@personal.example.com`;
+- isolated account: `pactra-paypal-approval-20261109160306@example.com`;
+- rail: `paypal_sandbox_payouts`;
+- policy version: `2`, approval threshold `$1.00`;
+- state: `pending_approval`, active reservation `$25.00`;
+- posted / reserved / available: `$1,000.00` / `$25.00` / `$975.00`;
+- attempts, provider IDs and ledger journals: zero / none / zero.
+
+Separate explicit user authorisation is required for this exact transaction,
+amount, currency and recipient. Until then, do not call the approval endpoint,
+click **Approve**, invoke the worker submission path or create a replacement
+payout.
+
+## 3. PayPal item success and reconciliation — NOT TESTED
+
+OAuth authentication succeeded and the token includes Payouts scope, but no
+payout was submitted. The sender email cannot be independently read through
+the client-credentials API and remains unverified metadata. Full acceptance
+requires the separately authorised transaction to reach item-level `SUCCESS`,
+then exactly one internal capture, receipt and audit trail.
+
+Anything other than item-level `SUCCESS` remains **BLOCKED** or **FAIL**. HTTP
+200, OAuth success or batch acceptance is not payout success.
