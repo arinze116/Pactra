@@ -142,11 +142,11 @@ The exact threshold is auto-approved; the first cent above it requires approval.
 
 ## AI behaviour
 
-When `AI_ENABLED=true`, the backend sends bounded requests to the configured Gemini model and accepts only declared typed function calls. Tool arguments are validated again, and payment tools call the same authenticated transaction service as the manual form. Gemini never receives provider credentials and cannot select another tenant.
+When `AI_ENABLED=true`, the backend sends bounded requests to an approved Gemini model and accepts only declared typed function calls. The selected model is `gemini-3.5-flash-lite`; `gemini-3.8-flash` is retained as the documented configuration rollback. SDK retries are disabled, Pactra makes at most two 12-second attempts per model turn, and sanitized audit evidence records latency, finish reason and provider error class. Tool arguments are validated again, and payment tools call the same authenticated transaction service as the manual form. Gemini never receives provider credentials and cannot select another tenant.
 
 If AI is disabled, quota-exhausted, times out, or returns an invalid response, Pactra records sanitized evidence and uses its deterministic fallback for supported prompts. A fallback response is labelled and is never evidence that Gemini worked.
 
-The configured production readiness endpoint currently reports AI configured and enabled, but the latest recorded live generation returned `429 RESOURCE_EXHAUSTED`; genuine Gemini function calling remains unverified.
+Live compatibility and isolated governed-workflow acceptance passed for `gemini-3.5-flash-lite`. The currently deployed runtime remains on `gemini-3.8-flash` until the verified release and targeted configuration change complete; production acceptance is recorded separately in [QA/GEMINI-MODEL-COMPATIBILITY.md](./QA/GEMINI-MODEL-COMPATIBILITY.md).
 
 ## Provider integrations
 
@@ -235,7 +235,7 @@ The canonical secret-free template is [`.env.example`](./.env.example). The appl
 | `AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE` | Shared login ceiling |
 | `AI_ENABLED` | Enable the Gemini path only when a key is present |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Server-only Gemini credential and model |
-| `GEMINI_REQUEST_TIMEOUT_SECONDS`, `MAX_CHAT_HISTORY` | AI bounds |
+| `GEMINI_REQUEST_TIMEOUT_SECONDS`, `GEMINI_REQUEST_ATTEMPTS`, `MAX_CHAT_HISTORY` | AI bounds; attempts are limited to 1–2 |
 | `PAYPAL_PAYOUTS_ENABLED` | Enable the worker-owned PayPal rail |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal Sandbox business-app credentials |
 | `PAYPAL_BASE_URL` | Must be `https://api-m.sandbox.paypal.com` in production |
@@ -380,9 +380,9 @@ The full backup, deployment, health, migration, and rollback procedure is in [QA
 ## Known limitations
 
 - All balances and transfers are Sandbox-only.
-- Genuine Gemini function calling remains blocked by provider quota/entitlement evidence despite production configuration being present.
-- PayPal Sandbox OAuth/configuration is not item-level payout success. No current evidence shows a payout item reaching `SUCCESS` and reconciling through this candidate.
-- The worker-only correction on this branch is not deployed; production remains `0e3e905` at migration `0004`.
+- Gemini compatibility and isolated workflow acceptance pass for `gemini-3.5-flash-lite`; production remains on `gemini-3.8-flash` until the targeted rollout is verified.
+- PayPal Sandbox acceptance is proven for the separately authorised $25 payout; this Gemini change does not alter that integration or its records.
+- Production remains release `73fdfb6` at migration `20261107_0005` until this candidate is merged and deployed.
 - Provider webhooks are not implemented; reconciliation uses polling.
 - Approval uses the requesting account; separate approver roles and approval-request TTL are not implemented.
 - SQLite cannot prove PostgreSQL locking, triggers, or multi-process concurrency.

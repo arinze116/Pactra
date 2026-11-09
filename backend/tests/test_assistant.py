@@ -9,7 +9,13 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from backend.config import settings
-from backend.models import AuditEvent, ConversationMessage, PaymentTransaction
+from backend.models import (
+    AuditEvent,
+    ConversationMessage,
+    FundReservation,
+    PaymentTransaction,
+    TransactionAttempt,
+)
 from backend.services.accounts import create_account
 from backend.services import assistant
 from backend.services.assistant import (
@@ -190,8 +196,9 @@ async def test_gemini_tool_call_uses_governed_service_and_persists_tool_message(
     assert messages[1].tool_calls[0]["name"] == "create_payment_request"
     assert "completed after backend policy and ledger confirmation" in result.reply
     first_config = fake.requests[0]["config"]
-    assert first_config.temperature is None
+    assert first_config.temperature == 0.0
     second_contents = fake.requests[1]["contents"]
+    assert second_contents[-1].role == "user"
     function_response = second_contents[-1].parts[0].function_response
     assert function_response.id == "create-payment-call-1"
     assert function_response.name == "create_payment_request"
@@ -206,6 +213,68 @@ async def test_gemini_tool_call_uses_governed_service_and_persists_tool_message(
         "assistant.message_sent",
         "assistant.tool_called",
     }
+    provider_event = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.event_type == "assistant.provider_completed"
+        )
+    ).one()
+    assert provider_event.payload["model"] == settings.gemini_model
+    assert provider_event.payload["provider_calls"] == 2
+    assert provider_event.payload["tool_call_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_gemini_payment_cannot_bypass_approval_threshold(
+    assistant_db,
+    monkeypatch,
+) -> None:
+    session, user, _other = assistant_db
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-gemini-key")
+    fake = FakeGeminiClient(
+        [
+            gemini_tool_response(
+                "create_payment_request",
+                {
+                    "type": "vendor_payment",
+                    "vendor": "Ada Contractor",
+                    "recipient": "Ada Contractor",
+                    "amount_cents": 12_000,
+                    "currency": "USD",
+                    "category": "freelance",
+                    "reason": "Contract work",
+                    "rail": "internal_sandbox",
+                },
+            ),
+            gemini_text_response("The request is awaiting approval."),
+        ]
+    )
+    monkeypatch.setattr(assistant.genai, "Client", lambda **_kwargs: fake)
+
+    result = await run_assistant(
+        session,
+        user=user,
+        message="Pay Ada Contractor $120 for contract work in category freelance",
+        conversation_id=None,
+        request_id="assistant-gemini-approval-0001",
+    )
+
+    transaction = session.get(PaymentTransaction, result.transaction_ids[0])
+    assert transaction is not None
+    assert transaction.status == "pending_approval"
+    assert transaction.recipient is None
+    assert transaction.policy_result["decision"] == "approval_required"
+    reservation = session.exec(
+        select(FundReservation).where(
+            FundReservation.transaction_id == transaction.id
+        )
+    ).one()
+    assert reservation.status == "active"
+    assert session.exec(
+        select(TransactionAttempt).where(
+            TransactionAttempt.transaction_id == transaction.id
+        )
+    ).all() == []
 
 
 @pytest.mark.asyncio
@@ -235,10 +304,13 @@ async def test_gemini_failure_is_audited_and_disclosed_before_fallback(
     audit = session.exec(
         select(AuditEvent).where(AuditEvent.event_type == "assistant.error")
     ).one()
-    assert audit.payload == {
-        "code": "AI_UNAVAILABLE",
-        "model": settings.gemini_model,
-    }
+    assert audit.payload["code"] == "AI_UNAVAILABLE"
+    assert audit.payload["model"] == settings.gemini_model
+    assert audit.payload["classification"] == "sdk_or_application_error"
+    assert audit.payload["http_status"] is None
+    assert audit.payload["provider_status"] is None
+    assert audit.payload["provider_calls"] == 1
+    assert isinstance(audit.payload["latency_ms"], int)
     fallback_audit = session.exec(
         select(AuditEvent).where(AuditEvent.event_type == "assistant.fallback_used")
     ).one()
@@ -268,7 +340,7 @@ async def test_gemini_timeout_retries_then_uses_bounded_fallback(
         request_id="assistant-gemini-timeout-0001",
     )
 
-    assert fake.calls == 3
+    assert fake.calls == 2
     assert result.transaction_ids == []
     assert result.reply.startswith("AI is temporarily unavailable")
 
@@ -294,10 +366,44 @@ async def test_gemini_503_retries_without_leaking_provider_details(
         request_id="assistant-gemini-503-0001",
     )
 
-    assert fake.calls == 3
+    assert fake.calls == 2
     assert result.transaction_ids == []
     assert result.reply.startswith("AI is temporarily unavailable")
     assert "secret-sentinel-503" not in result.reply
+    audit = session.exec(
+        select(AuditEvent).where(AuditEvent.event_type == "assistant.error")
+    ).one()
+    assert audit.payload["classification"] == "provider_capacity"
+    assert audit.payload["http_status"] == 503
+    assert audit.payload["provider_calls"] == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_gemini_response_is_classified_and_falls_back(
+    assistant_db,
+    monkeypatch,
+) -> None:
+    session, user, _other = assistant_db
+    monkeypatch.setattr(settings, "ai_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-gemini-key")
+    fake = FakeGeminiClient([gemini_text_response("")])
+    monkeypatch.setattr(assistant.genai, "Client", lambda **_kwargs: fake)
+
+    result = await run_assistant(
+        session,
+        user=user,
+        message="What is my current sandbox wallet balance?",
+        conversation_id=None,
+        request_id="assistant-gemini-empty-0001",
+    )
+
+    assert result.transaction_ids == []
+    assert result.reply.startswith("AI is temporarily unavailable")
+    audit = session.exec(
+        select(AuditEvent).where(AuditEvent.event_type == "assistant.error")
+    ).one()
+    assert audit.payload["classification"] == "malformed_response"
+    assert audit.payload["provider_calls"] == 1
 
 
 @pytest.mark.asyncio

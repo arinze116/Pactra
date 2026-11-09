@@ -25,8 +25,8 @@ lint/build/audits, and E2E journeys/WCAG/homepage Lighthouse.
 
 | Gate | Result | Status |
 |---|---|---|
-| SQLite | 118 passed, 10 PostgreSQL-only skipped | PASS |
-| PostgreSQL | 128 passed, including payment, worker, auth, policy, migration and concurrency coverage | PASS |
+| SQLite | 121 passed, 10 PostgreSQL-only skipped on the Gemini candidate | PASS |
+| PostgreSQL | 131 passed after an isolated concurrency rerun and second full-suite pass | PASS |
 | Frontend lint/type/build | ESLint, TypeScript and Vite build completed | PASS |
 | Browser journeys | 16 configured E2E journeys | PASS |
 | Automated WCAG | Axe passed configured public and authenticated surfaces | PASS |
@@ -82,13 +82,17 @@ separately authorised live Sandbox payout and item-level provider evidence.
 | Check | Result | Status |
 |---|---|---|
 | Production model/key presence | `gemini-3.8-flash`; key present | PASS |
-| Old production key | `400 INVALID_ARGUMENT` / `API_KEY_INVALID` | FAIL |
-| Replacement key model lookup | Model metadata returned | PASS |
 | Production/project key alignment | Keys compare equal without printing either value | PASS |
-| Genuine Pactra function call | Provider `503` and bounded timeout; no function-call response | BLOCKED |
-| Function name/arguments validation | No genuine call returned to validate | NOT TESTED |
-| Deterministic fallback | Governed internal $20 payment completed once | PASS |
-| Error containment | Quota/timeout/provider failures left the UI and policy/ledger path operational | PASS |
+| Actual account discovery | Eight relevant Flash identifiers returned with `generateContent` | PASS |
+| Current model baseline | HTTP 503 at 6,312 ms, then timeout at 12,011 ms | FAIL |
+| `gemini-3.6-flash` | Two bounded 12-second timeouts | FAIL |
+| `gemini-3.1-flash-lite` | Two bounded 12-second timeouts | FAIL |
+| `gemini-3.5-flash` | Two bounded 12-second timeouts | FAIL |
+| `gemini-3.5-flash-lite` basic calls | Two genuine `create_payment_request` calls with validated arguments | PASS |
+| Function-response round trip | Two calls and final text replies; `STOP` finish reasons | PASS |
+| Full isolated Pactra workflow | Extraction, policy, approval, fallback boundary, receipt and audit checks | PASS |
+| Deterministic fallback | Timeout, 503 and malformed/empty response regressions | PASS |
+| Production candidate deployment | Current runtime is unchanged | NOT TESTED |
 
 The production environment file was backed up before the targeted key change:
 
@@ -97,7 +101,23 @@ The production environment file was backed up before the targeted key change:
 SHA-256:
 `41786f0daecc906dac785bb45d8ef38c25775151e358fcf488f8f188724cf86a`.
 
-No additional generation retry is justified until provider capacity changes.
+The selected model is `gemini-3.5-flash-lite`; `gemini-3.8-flash` remains the
+documented configuration rollback. Google documents the selected identifier as
+stable, function-calling capable and free-tier eligible. No billing, API key or
+Google project change was made.
+
+The complete workflow exposed and corrected two request-contract defects. A
+function response had been sent with role `tool`, which the API rejected with
+HTTP 400; the SDK contract uses role `user`. The tool declaration also failed
+to identify `recipient` as a payout-only email, causing intermittent invalid
+vendor-payment arguments. The corrected contract passed two exact final
+round trips at 539–972 ms for the call and 652–671 ms for the final response.
+
+The final isolated workflow used PayPal-disabled in-memory data. It completed
+one $49 internal payout with a balanced two-entry receipt, retained one $120
+request at `pending_approval` with one active reservation and zero attempts,
+and created no transaction for a missing-amount request. Full evidence and
+commands are in `QA/GEMINI-MODEL-COMPATIBILITY.md`.
 
 ## PayPal Sandbox execution evidence
 
@@ -266,10 +286,13 @@ permissions policy.
 | Backup, migration, downgrade and rollback readiness | PASS |
 | Production deployment and service health | PASS |
 | Public functional, responsive and accessibility acceptance | PASS |
-| Genuine Gemini function-call response | BLOCKED |
+| Genuine Gemini candidate function-call response | PASS |
+| Genuine production Gemini function-call response | NOT TESTED |
 | Exact $25 PayPal payout submission | PASS |
 | PayPal item-level `SUCCESS` and exactly-once provider capture | PASS |
 | Overall product acceptance | BLOCKED |
 
-The only remaining acceptance blocker is a genuine Gemini function-call
-response from the configured production workflow.
+The remaining Gemini gate is operational: merge and deploy the exact verified
+candidate, make the targeted model change, and receive a genuine function call
+from the production workflow. Candidate compatibility itself is no longer
+blocked by provider capacity.
