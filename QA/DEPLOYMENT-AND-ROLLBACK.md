@@ -2,20 +2,19 @@
 
 Last verified: 2026-11-09, Africa/Lagos
 
-This runbook prepares the Pactra release candidate for the existing Oracle VPS,
-PostgreSQL, systemd, Tailscale Funnel and Vercel architecture. It does not
-authorize a deployment. Obtain explicit owner approval before the production
-backup, service stop, symlink change, migration, restart or Vercel deployment.
+This runbook records the verified Pactra deployment procedure for the existing
+Oracle VPS, PostgreSQL, systemd, Tailscale Funnel and Vercel architecture. The
+2026-11-09 release instruction explicitly authorised the backup, release
+switch, migration verification and Pactra service restarts described here.
 
 ## Verified production baseline
 
-- Backend release: `/opt/pactra/releases/0e3e905`.
+- Backend release: `/opt/pactra/releases/4534d13`, exact SHA
+  `4534d136766a094aeeac4489a9e694111b9257ae`.
 - Active symlink: `/opt/pactra/current`.
-- Database: PostgreSQL 16.15, database `pactra`, approximately 9.8 MB.
-- Production migration: `20261107_0004`.
-- Candidate migration: `20261107_0005`.
-- Production does not contain `rate_limit_buckets` or
-  `ix_rate_limit_buckets_expires`.
+- Database: PostgreSQL 16.15, database `pactra`.
+- Production migration: `20261107_0005`.
+- `rate_limit_buckets` and `ix_rate_limit_buckets_expires` are present.
 - API unit: `pactra-api.service`.
 - Worker unit: `pactra-worker.service`.
 - Both units run as `pactra:pactra` with `/etc/pactra/pactra.env`.
@@ -26,8 +25,9 @@ backup, service stop, symlink change, migration, restart or Vercel deployment.
 
 ## Mandatory pre-deployment gates
 
-Do not begin the production operation until every gate below is recorded as
-PASS in the release evidence.
+Do not begin a production operation until the applicable deployment gates are
+recorded as PASS. External provider acceptance is reported separately and does
+not justify misreporting a healthy deployment as provider success.
 
 - The final feature-branch SHA is frozen and recorded in the release manifest.
 - GitHub Actions completed against that exact SHA with every mandatory job
@@ -37,25 +37,27 @@ PASS in the release evidence.
   checks pass.
 - Production and full dependency audits pass or have an explicitly approved
   PRD-compatible exception.
-- Genuine Gemini function calling and safe fallback acceptance pass.
-- One explicitly authorized PayPal Sandbox payout reaches item-level
-  `SUCCESS` and exactly-once Pactra reconciliation.
-- All six guided scenarios pass using persisted server state.
+- Safe deterministic Gemini fallback acceptance passes. Genuine function-call
+  acceptance may remain an explicitly reported external blocker.
+- No PayPal submission is required for deployment. Any prepared payout must
+  remain unapproved unless its exact transaction receives separate authority.
 - Migration `0005` passes on an isolated clone of the current production
   database.
 - The rollback procedure in this document is reviewed and accepted.
-- No unresolved PayPal provider transaction exists in production.
+- No executing, processing or unknown PayPal provider transaction exists in
+  production. A `pending_approval` transaction with zero attempts is safe.
 - The release directory and private virtual environment are complete and
   immutable.
 - The owner explicitly approves the production deployment, migration and
-  required Pactra service restarts.
+  required Pactra service restarts. This approval was present for the recorded
+  2026-11-09 deployment.
 
 Record the deployment inputs without printing secrets:
 
 ```bash
-pactra_release_sha=<FINAL_RELEASE_SHA>
-pactra_release_dir=/opt/pactra/releases/${pactra_release_sha}
-pactra_previous_release=/opt/pactra/releases/0e3e905
+pactra_release_sha=<FULL_FINAL_RELEASE_SHA>
+pactra_release_dir=/opt/pactra/releases/<SHORT_FINAL_RELEASE_SHA>
+pactra_previous_release=/opt/pactra/releases/4534d13
 
 git rev-parse HEAD
 git status --short
@@ -88,8 +90,13 @@ Avoid concurrent schema DDL during the release.
 
 An isolated production-data clone upgraded from `0004` to `0005` while an
 `ACCESS SHARE` reader held the existing `transactions` table. The migration
-completed within a two-second lock timeout. Production itself has not been
-migrated.
+completed within a two-second lock timeout. Production is now at `0005`.
+
+The exact release artifact also passed a fresh restored-clone drill on
+`pactra_restore_4534d13_20261109163956`: downgrade to `0004`, readiness of
+release `0e3e905`, and re-upgrade to `0005`. Counts for users, transactions,
+reservations, ledger entries and audit events were unchanged. The downgrade
+removed all rate-limit bucket rows as documented.
 
 Alembic version tracking makes `upgrade head` operationally repeatable after a
 successful migration. The raw `upgrade()` function is not re-entrant if called
@@ -123,6 +130,14 @@ sudo stat -c 'path=%n size=%s mode=%a owner=%U group=%G' "${pactra_backup}"
 Failure of `pg_dump`, the non-empty check or `pg_restore --list` stops the
 deployment. Do not continue with an incomplete archive.
 
+Verified 2026-11-09 backup:
+
+- `/opt/pactra/backups/pactra-pre-4534d136766a094aeeac4489a9e694111b9257ae-20261109T163956Z.dump`;
+- SHA-256
+  `e7c1ce7bac3891586d19c0165be42eda0dde21c3da93b2e1fa4178c1c50b7f1e`;
+- 170,547 bytes, mode `0600`, owner/group `pactra:pactra`;
+- `pg_restore --list` and isolated restore passed.
+
 ## Isolated restore drill
 
 Restore into a new database only. Never restore over `pactra` as a test.
@@ -151,9 +166,10 @@ runbook.
 
 ## Forward deployment sequence
 
-The API systemd unit is the only migration authority. Do not manually run
-`alembic upgrade head` and then start the API. Starting the API executes the
-candidate release's `ExecStartPre` and advances `0004` to `0005` once.
+The API systemd unit is the only production migration authority. Do not
+manually run `alembic upgrade head` and then start the API. Starting the API
+executes the selected release's `ExecStartPre`; it upgrades once when needed
+and is a verified no-op when production is already at `0005`.
 
 Record the start time and current state:
 
@@ -230,6 +246,33 @@ Deploy the Vercel frontend only through its existing linked project and record
 the resulting deployment ID and alias. Do not place provider secrets in Vercel
 or any `VITE_*` variable.
 
+## Immediate same-schema rollback
+
+The prior production release `/opt/pactra/releases/9b4bc77` understands
+`20261107_0005`. If a new documentation-closure or otherwise schema-identical
+release fails before writing incompatible data, stop both Pactra services,
+atomically switch `current` to `9b4bc77`, then start API and worker. Do not
+downgrade the database for this path.
+
+```bash
+sudo systemctl stop pactra-worker.service
+sudo systemctl stop pactra-api.service
+
+sudo test ! -e /opt/pactra/current.next
+sudo test ! -L /opt/pactra/current.next
+sudo ln -s /opt/pactra/releases/9b4bc77 /opt/pactra/current.next
+sudo mv -Tf /opt/pactra/current.next /opt/pactra/current
+sudo test "$(sudo readlink -f /opt/pactra/current)" = /opt/pactra/releases/9b4bc77
+
+sudo systemctl start pactra-api.service
+curl --fail --silent http://127.0.0.1:8010/api/ready
+sudo systemctl start pactra-worker.service
+sudo systemctl is-active pactra-api.service pactra-worker.service
+```
+
+Verify revision `20261107_0005`, the worker lease, public readiness and the
+prepared PayPal transaction before declaring rollback complete.
+
 ## Critical old-release Alembic incompatibility
 
 The old release contains migrations only through `20261107_0004`. Its Alembic
@@ -250,11 +293,14 @@ The preferred long-term rollback artefact is the old application plus a
 tested migration graph that recognizes `0005`. Until that artefact exists,
 use the stopped-application downgrade sequence below.
 
-## Safe stopped-application rollback
+## Safe stopped-application rollback to legacy `0e3e905`
 
 This rollback returns the schema to `0004` before the symlink is switched. It
 requires the candidate release directory and virtual environment to remain on
 disk.
+
+Set `pactra_legacy_release=/opt/pactra/releases/0e3e905`. Do not use the
+same-schema `pactra_previous_release` variable for this path.
 
 Consequences:
 
@@ -317,9 +363,9 @@ Switch back atomically and start the old API:
 ```bash
 sudo test ! -e /opt/pactra/current.next
 sudo test ! -L /opt/pactra/current.next
-sudo ln -s "${pactra_previous_release}" /opt/pactra/current.next
+sudo ln -s "${pactra_legacy_release}" /opt/pactra/current.next
 sudo mv -Tf /opt/pactra/current.next /opt/pactra/current
-sudo test "$(sudo readlink -f /opt/pactra/current)" = "${pactra_previous_release}"
+sudo test "$(sudo readlink -f /opt/pactra/current)" = "${pactra_legacy_release}"
 
 sudo systemctl start pactra-api.service
 sudo systemctl is-active pactra-api.service
@@ -346,6 +392,26 @@ into a new database first, validate it, and prepare an explicit controlled
 cutover. Never use `pg_restore --clean` against production as an exploratory
 step.
 
+## Verified deployment record — 2026-11-09
+
+| Field | Result |
+|---|---|
+| Deployment start | `2026-11-09T16:41:01Z` |
+| Release | `/opt/pactra/releases/4534d13` / `4534d136...` |
+| Previous release | `/opt/pactra/releases/9b4bc77` |
+| Database before/after | `20261107_0005` / `20261107_0005` |
+| API pre-start migration | Alembic context loaded; no upgrade was required |
+| API | active/running, zero restarts, local and public readiness 200 |
+| Worker | active/running, zero restarts, advisory lease acquired |
+| Public smoke | post-deploy recovery acceptance passed in 32.8 seconds |
+| PayPal checkpoint | `pending_approval`, one $25 hold, zero attempts/provider IDs/journals |
+| Rollback | not triggered |
+| Unrelated infrastructure | not changed |
+
+The final evidence-only merge may create a new immutable release with identical
+runtime code. Deploying that closure artifact uses the same-schema sequence and
+keeps `4534d13` as the immediate rollback target.
+
 ## Deployment evidence to retain
 
 - Final branch and SHA.
@@ -354,7 +420,8 @@ step.
 - Backup filename, size, ownership, checksum and `pg_restore --list` result.
 - Restore-drill database name, revision and invariant results.
 - Deployment and rollback timestamps.
-- API pre-start migration log showing `0004 -> 0005` exactly once.
+- API pre-start migration log showing either the expected `0004 -> 0005`
+  transition or a clean no-op at `0005`.
 - Database revision and new relation checks.
 - API and worker systemd status and logs.
 - Local, Funnel and public readiness responses.

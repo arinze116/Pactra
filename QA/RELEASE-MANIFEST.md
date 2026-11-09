@@ -1,67 +1,76 @@
 # Pactra Release Manifest
 
-Updated: 2026-11-09
+Updated: 2026-11-09, Africa/Lagos
+
+## Release identity
 
 | Item | Value |
 |---|---|
-| Feature branch | `codex/paypal-worker-single-authority` |
-| Branch baseline | `82e1b75a2ab59a105fee2b59c2aa481f63c738a5` |
-| Final feature SHA | `9138cbd7c91170a52c9cc1f0b469964c2cebe637` |
-| Pull request | [#5](https://github.com/arinze116/Pactra/pull/5), merged |
-| Merge commit | `3d6125bd62b4d202c83b28fcc5a03c752cba525a` |
-| Documentation pull requests | [#6](https://github.com/arinze116/Pactra/pull/6) and [#7](https://github.com/arinze116/Pactra/pull/7), merged |
-| Previous staged `main` SHA | `4ac86897cf66f66df5d80d024f00e315999f7b95` |
-| PayPal verification integration | [#8](https://github.com/arinze116/Pactra/pull/8); its merge commit supersedes the previous staged SHA |
-| Previous RC branch | `codex/prd-gap-closure-20261107` |
-| Production release | `0e3e905` |
-| Production migration | `20261107_0004` |
-| Candidate migration | `20261107_0005` |
-| Previous staged artifact | `/opt/pactra/releases/4ac8689`, exact SHA `4ac86897...`, read-only, inactive, and not eligible for activation after PR #8 |
-| Current staging authority | The full SHA in the new immutable release's `.release-sha`, matched to successful final-main CI |
+| Repository | `arinze116/Pactra` |
+| Runtime release commit | `4534d136766a094aeeac4489a9e694111b9257ae` |
+| Runtime release directory | `/opt/pactra/releases/4534d13` |
+| Canonical final commit after evidence merge | The full value in `/opt/pactra/current/.release-sha`; the evidence-only closure commit has identical runtime code |
+| Source archive | `/opt/pactra/releases/4534d13/.release-metadata/pactra-4534d13.tar` |
+| Source archive SHA-256 | `7b54f3923994af46e7aed7da3e3f60f2d19220d50a2ab0757613d8d1002d8610` |
+| Database revision | `20261107_0005` |
+| PostgreSQL | `16.15` |
 | Public URL | https://pactra-nine.vercel.app |
-| Final feature CI | Run [42576205916](https://github.com/arinze116/Pactra/actions/runs/42576205916), success on exact SHA `9138cbd7...` |
-| Implementation merge CI | Run [42576672051](https://github.com/arinze116/Pactra/actions/runs/42576672051), success on exact SHA `3d6125bd...` |
-| Previous staged `main` CI | Run [42577769242](https://github.com/arinze116/Pactra/actions/runs/42577769242), success on exact SHA `4ac86897...` |
-| Production status | API and worker active on `0e3e905`; current symlink and database unchanged |
+| Vercel deployment | `dpl_J8HgUXreUmJMdKhC4Eu8MZ3jdfbo` (`Ready`, production alias) |
+| Vercel runtime source | `c599f5ca0603c1cc66b25684358c3336227dd8c3`; runtime frontend files are unchanged through `4534d136...` |
+| Main CI | [42656025377](https://github.com/arinze116/Pactra/actions/runs/42656025377), all four jobs passed on exact SHA `4534d136...` |
+| Deployment start | `2026-11-09T16:41:01Z` |
+| Previous production release | `/opt/pactra/releases/9b4bc77`, schema-compatible at `0005` |
+| Legacy rollback release | `/opt/pactra/releases/0e3e905`, requires stopped-service downgrade to `0004` |
 
-## Candidate changes
+## Integrated pull requests
 
-- Worker-only PayPal submission and PostgreSQL atomic claims.
-- Stable provider identifiers and separate submission/reconciliation cycles.
-- Explicit same-attempt recovery for ambiguous no-batch outcomes.
-- Expanded provider failure, crash, concurrency, approval, and authorization
-  regressions.
-- Removal of legacy PayPal Orders execution.
-- Masked provider recipient status.
-- Receipt recovery UI and keyboard/skip-link accessibility coverage.
-- Server-side configured-recipient resolution with configuration-level email
-  validation; masked status values remain display-only.
-- PayPal Sandbox execution runbook with a manual authorization checkpoint.
-- README reconstruction, ADR, contribution guide, changelog, and QA truth
-  matrix.
+| PR | Merge commit | Purpose | Status |
+|---:|---|---|---|
+| [#7](https://github.com/arinze116/Pactra/pull/7) | `506108663ea6a535e54b3f834f95beaffee83ff6` | Release closure and evidence | PASS |
+| [#8](https://github.com/arinze116/Pactra/pull/8) | `2f97cf07e27d572d9f7ad3efdd49d2c485bae347` | Server-side PayPal recipient correction | PASS |
+| [#9](https://github.com/arinze116/Pactra/pull/9) | `9b4bc77cf65b5ac85be616f6c6afc4a7481de22b` | Public contrast/accessibility correction | PASS |
+| [#10](https://github.com/arinze116/Pactra/pull/10) | `c599f5ca0603c1cc66b25684358c3336227dd8c3` | Semantic `<main>` landmarks | PASS |
+| [#11](https://github.com/arinze116/Pactra/pull/11) | `4534d136766a094aeeac4489a9e694111b9257ae` | Bounded assistant/fallback wait in public crawl | PASS |
 
-## Local evidence timestamp
+## Verified contents
 
-2026-11-09, Africa/Lagos:
+- Worker-only PayPal submission with PostgreSQL atomic claims and one worker
+  lease.
+- Stable provider batch/item identifiers and separated submission and
+  reconciliation cycles.
+- Unknown outcomes remain reserved and cannot be blindly resubmitted.
+- Item-level `SUCCESS` is the only successful capture condition.
+- Terminal failure releases reservations once; return/reversal/refund
+  compensation is idempotent.
+- Masked PayPal recipients remain display-only. The API resolves and persists
+  the configured unmasked Sandbox recipient server-side.
+- Authentication, authorisation, CSRF, rate limiting, policy enforcement,
+  audit, receipt and tenant-isolation regressions passed.
+- Frontend `dist`, resolved Python/npm manifests and build hashes are present
+  in the immutable release.
 
-- SQLite: 118 passed, 10 skipped.
-- PostgreSQL: 128 passed.
-- Frontend lint/build: passed.
-- Browser/WCAG: 16 journeys and 14 configured Axe surfaces passed locally.
-- Migration drill: passed outside production.
+## Backup and migration evidence
 
-## Remaining blockers
+| Item | Value | Status |
+|---|---|---|
+| Pre-deploy backup | `/opt/pactra/backups/pactra-pre-4534d136766a094aeeac4489a9e694111b9257ae-20261109T163956Z.dump` | PASS |
+| Backup SHA-256 | `e7c1ce7bac3891586d19c0165be42eda0dde21c3da93b2e1fa4178c1c50b7f1e` | PASS |
+| Restore database | `pactra_restore_4534d13_20261109163956` | PASS |
+| Restore revision/tables | `20261107_0005`, 16 base tables | PASS |
+| Downgrade/re-upgrade | `0005 → 0004 → 0005`; measured user/transaction/reservation/ledger/audit counts unchanged | PASS |
+| Downgrade consequence | `rate_limit_buckets` and its rows are dropped | PASS |
+| Old-release readiness | `0e3e905` returned ready on the downgraded clone | PASS |
 
-- Gemini function call blocked by provider quota/entitlement.
-- PayPal item-level `SUCCESS` and real reconciliation unverified.
-- PayPal guided scenario incomplete.
-- Candidate not deployed and public smoke not run.
+## Provider boundary
 
-No activation, service restart, configuration change, migration, database
-mutation, provider request, or payout occurred during this workstream.
-Production remains active on release `0e3e905`.
+- Gemini configuration is present, but genuine Pactra function-call
+  acceptance is **BLOCKED**. The bounded live workflow returned provider
+  `503`/timeout and used the deterministic governed fallback.
+- PayPal Sandbox OAuth and Payouts scope are **PASS**. The prepared transaction
+  `bfe1e158-863b-4ddf-93a0-e31146e7cbcb` remains `pending_approval` with zero
+  attempts and no provider identifiers.
+- The exact $25.00 USD Sandbox payout is **BLOCKED** pending separate explicit
+  transaction-specific authorisation. No payout was submitted.
 
-The `4ac86897...` artifact and CI rows are historical evidence, not the current
-release candidate after PR #8. Stage and verify the exact integrated `main`
-commit before any deployment. Production release status remains blocked on the
-external provider and deployment acceptance gates listed above.
+Deployment and public acceptance are complete. Overall product acceptance is
+still **BLOCKED** by the two provider-success requirements above.
