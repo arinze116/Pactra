@@ -4,6 +4,11 @@ The instant demo uses Pactra's existing opaque cookie session and synchronizer
 CSRF conventions. Production responses use the global structured error
 envelope and include request IDs. Session tokens are never returned in JSON.
 
+Production deployment `28634c13082a61b5c53e75528eacf2263ea1fd5e`
+serves these contracts at <https://pactra-nine.vercel.app>. Production browser
+acceptance verified Secure, HttpOnly, SameSite=Lax demo cookies, refresh
+restoration, reset, exit, and preservation of a separate normal session.
+
 ## `POST /api/demo/sessions`
 
 Creates one isolated temporary principal and seeded workspace.
