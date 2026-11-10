@@ -15,6 +15,14 @@ async function submitRegistration(page: Page) {
   await expect(page.locator("#main-content")).toBeVisible();
 }
 
+async function submitSignIn(page: Page) {
+  await Promise.all([
+    page.waitForURL(/\/app$/, { timeout: authenticationTimeout }),
+    page.getByRole("button", { name: "Sign in", exact: true }).click(),
+  ]);
+  await expect(page.locator("#main-content")).toBeVisible();
+}
+
 async function register(page: Page, prefix: string) {
   const email = `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
@@ -70,8 +78,7 @@ async function exercisePasswordReveal(page: Page, viewport: { width: number; hei
   await expect(page.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
   await expect(signInPassword).toHaveAttribute("type", "text");
   await expect(signInPassword).toHaveValue(password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await submitSignIn(page);
 }
 
 test("password reveal remains accessible through sign-up and sign-in", async ({ page }) => {
@@ -723,8 +730,7 @@ test.describe("mobile judge navigation", () => {
 
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/app$/);
+    await submitSignIn(page);
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "Open navigation" }).click();
