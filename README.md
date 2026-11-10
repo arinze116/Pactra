@@ -428,6 +428,13 @@ contracts, recovery procedure, and screenshots are indexed by
 [DEMO/DEMO-GUIDE.md](./DEMO/DEMO-GUIDE.md) and
 [DEMO/INSTANT-DEMO-IMPLEMENTATION.md](./DEMO/INSTANT-DEMO-IMPLEMENTATION.md).
 
+Production runs the merged instant-demo release
+`28634c13082a61b5c53e75528eacf2263ea1fd5e` at migration
+`20261110_0006`. The Vercel production deployment is
+`dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL`; the Oracle release is
+`/opt/pactra/releases/28634c1`. See the production evidence in
+[QA/DEMO/DEMO-ACCEPTANCE-REPORT.md](./QA/DEMO/DEMO-ACCEPTANCE-REPORT.md).
+
 ## CI pipeline
 
 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs on pushes and pull requests with read-only repository permission:
@@ -481,8 +488,10 @@ and [QA/BACKUP-VERIFICATION-RUNBOOK.md](./QA/BACKUP-VERIFICATION-RUNBOOK.md).
 - Terminal item failure: release once; an explicit later retry creates attempt N+1.
 - Provider return/reversal/refund: post one compensating journal.
 - Worker restart: resume from persisted submitting/processing attempts and stable IDs.
-- Current deployment failure: use the same-schema `73fdfb6` rollback first;
-  never point legacy `0e3e905` at a database stamped `0005`.
+- Instant-demo deployment failure: use the migration-aware
+  `/opt/pactra/releases/ca361c0-0006` application rollback. It preserves the
+  accepted `ca361c0` application while recognizing schema `0006`; do not point
+  an artifact whose Alembic graph ends at `0005` at the production database.
 
 The full backup, deployment, health, migration, and rollback procedure is in [QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
 
@@ -492,7 +501,7 @@ The full backup, deployment, health, migration, and rollback procedure is in [QA
 - Gemini compatibility, isolated workflow acceptance and live production
   function calling pass for `gemini-3.5-flash-lite`.
 - PayPal Sandbox acceptance is proven for the separately authorised $25 payout; this Gemini change does not alter that integration or its records.
-- Production runs release `63f2583` at migration `20261107_0005`.
+- Production runs release `28634c1` at migration `20261110_0006`.
 - Provider webhooks are not implemented; reconciliation uses polling.
 - Approval uses the requesting account; separate approver roles and approval-request TTL are not implemented.
 - SQLite cannot prove PostgreSQL locking, triggers, or multi-process concurrency.

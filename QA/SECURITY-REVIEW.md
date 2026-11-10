@@ -1,5 +1,36 @@
 # Pactra Security Review
 
+## 2026-11-10 instant-demo production verification
+
+- PR `#20` merged normally as
+  `28634c13082a61b5c53e75528eacf2263ea1fd5e`; exact-main CI run
+  `42849003993` passed every required job, including PostgreSQL, dependency
+  audits, three-browser journeys, demo isolation, WCAG, and Lighthouse.
+- Oracle runs immutable release `/opt/pactra/releases/28634c1` at migration
+  `20261110_0006`; Vercel deployment
+  `dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL` carries the same merged SHA.
+- Production issued distinct demo principals to independent browser contexts.
+  Cross-session transaction access returned `404`, and one context never saw
+  the other context's created payment.
+- Production demo cookies were Secure, HttpOnly, SameSite=Lax, absent from
+  URLs/local storage, and restored the workspace after refresh.
+- A direct production attempt to submit a demo payment on the PayPal rail
+  returned `403 DEMO_SANDBOX_ONLY`. The production PayPal-attempt count stayed
+  at one historical attempt, with zero unknown outcomes and zero unresolved
+  provider backlog before and after demo acceptance.
+- Demo exit removed only demo cookies. A separately created normal session in
+  the same browser remained authenticated, then normal logout/login passed.
+- Reset restored the deterministic seed. Production Axe checks reported zero
+  WCAG 2.1 A/AA findings on the landing page, dashboard, and confirmation
+  dialog. Lighthouse scored `1.00` accessibility and best practices.
+- No PayPal or Gemini request was made by this mission's demo journey. The
+  only normal production data created for authentication regression was one
+  fictional `example.com` test account; its session was logged out.
+
+Production assessment: no known critical/high instant-demo isolation,
+provider-boundary, session, or ownership finding. Manual NVDA/VoiceOver and
+external DAST remain unverified.
+
 ## 2026-11-10 instant-demo candidate addendum
 
 - Each instant demo is a distinct `User` with `is_demo=true`, one active

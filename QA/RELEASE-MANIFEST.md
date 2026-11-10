@@ -1,10 +1,31 @@
 # Pactra Release Manifest
 
-Updated: 2026-11-09, Africa/Lagos
+Updated: 2026-11-10, Africa/Lagos
 
 The canonical frozen baseline and artefact inventory is
 [`QA/ACCEPTED-PRODUCTION-BASELINE.md`](./ACCEPTED-PRODUCTION-BASELINE.md).
 This manifest remains the point-in-time release record.
+
+## Instant-demo release addendum — 2026-11-10
+
+The current production release supersedes the runtime coordinates below while
+retaining them as historical evidence:
+
+| Item | Current value |
+|---|---|
+| Pull request | `#20` |
+| Merged/runtime SHA | `28634c13082a61b5c53e75528eacf2263ea1fd5e` |
+| Exact-main CI | `42849003993`, all required jobs passed |
+| Oracle release | `/opt/pactra/releases/28634c1` |
+| Database revision | `20261110_0006` |
+| Vercel deployment | `dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL`, production alias READY |
+| Migration-aware rollback | `/opt/pactra/releases/ca361c0-0006` |
+| Pre-migration backup | `/opt/pactra/backups/pactra-pre-28634c13082a61b5c53e75528eacf2263ea1fd5e-20261110T161229Z.dump` |
+| Backup SHA-256 | `02158efde0f9aa1aa5e43b196a966bb6f274927ae690217a8366ee43dd4c1a0e` |
+| Production acceptance | PASS; see `QA/DEMO/DEMO-ACCEPTANCE-REPORT.md` |
+
+The remainder of this file documents the prior 2026-11-09 frozen release and
+must not be read as the current runtime coordinate.
 
 ## Release identity
 

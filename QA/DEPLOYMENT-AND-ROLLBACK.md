@@ -317,6 +317,38 @@ Deploy the Vercel frontend only through its existing linked project and record
 the resulting deployment ID and alias. Do not place provider secrets in Vercel
 or any `VITE_*` variable.
 
+## Instant-demo migration-aware application rollback
+
+Production is now stamped at `20261110_0006`. The immediate application
+rollback is `/opt/pactra/releases/ca361c0-0006`, not an artifact whose Alembic
+graph ends at `0005`. This immutable rollback artifact contains the accepted
+`ca361c0` application and the byte-identical `0006` migration file only. Its
+worker and PayPal modules are byte-identical to `ca361c0`.
+
+For an application rollback that does not require destructive data recovery:
+
+```bash
+sudo systemctl stop pactra-worker.service
+sudo systemctl stop pactra-api.service
+
+sudo test ! -e /opt/pactra/current.next
+sudo test ! -L /opt/pactra/current.next
+sudo ln -s /opt/pactra/releases/ca361c0-0006 /opt/pactra/current.next
+sudo mv -Tf /opt/pactra/current.next /opt/pactra/current
+sudo test "$(sudo readlink -f /opt/pactra/current)" = \
+  /opt/pactra/releases/ca361c0-0006
+
+sudo systemctl start pactra-api.service
+curl --fail --silent http://127.0.0.1:8010/api/ready
+sudo systemctl start pactra-worker.service
+sudo systemctl is-active pactra-api.service pactra-worker.service
+```
+
+Verify that the database remains at `20261110_0006`, the worker holds exactly
+one lease, the provider backlog remains zero, and public readiness returns
+`200`. Do not downgrade the production database for this ordinary application
+rollback.
+
 ## Gemini-only API deployment
 
 The Gemini release changes only API assistant/configuration code and requires
@@ -513,7 +545,27 @@ step.
 | Rollback | not triggered |
 | Unrelated infrastructure | not changed |
 
-Release `73fdfb6` remains the immediate same-schema rollback target.
+At that 2026-11-09 deployment point, release `73fdfb6` was the immediate
+same-schema rollback target. The current `0006` target is recorded below.
+
+## Verified instant-demo deployment record - 2026-11-10
+
+| Field | Result |
+|---|---|
+| Merge | PR `#20`; `28634c13082a61b5c53e75528eacf2263ea1fd5e` |
+| Exact-main CI | run `42849003993`; SQLite, PostgreSQL, frontend audits/build, three-browser journeys, demo, WCAG, Lighthouse passed |
+| Deployment start | `2026-11-10T16:16:46Z` |
+| Oracle release | `/opt/pactra/releases/28634c1` |
+| Database before/after | `20261107_0005` / `20261110_0006` |
+| API pre-start migration | transactional `0005 -> 0006` completed once |
+| API/worker | active from release `28634c1`; zero restarts; one worker lease |
+| Vercel | `dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL`; production alias verified |
+| Backup | `pactra-pre-28634c13082a61b5c53e75528eacf2263ea1fd5e-20261110T161229Z.dump`, 178,792 bytes, SHA-256 `02158efde0f9aa1aa5e43b196a966bb6f274927ae690217a8366ee43dd4c1a0e` |
+| Restore drill | isolated `pactra_restore_demo_20261110T161229Z`; core counts unchanged; all ten financial invariants passed; clone dropped after final verification |
+| Rollback artifact | `/opt/pactra/releases/ca361c0-0006`; readiness passed at `0006`; worker/provider modules unchanged |
+| Provider checkpoint | one historical PayPal attempt before and after; zero unknown or unresolved backlog |
+| Rollback | not triggered |
+| Unrelated infrastructure | not changed |
 
 ## Deployment evidence to retain
 

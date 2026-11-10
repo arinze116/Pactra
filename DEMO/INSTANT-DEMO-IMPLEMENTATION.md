@@ -1,7 +1,8 @@
 # Instant demo implementation
 
-Status: candidate implementation locally verified; production deployment and
-public acceptance are recorded separately after release.
+Status: merged, deployed, and production verified on 2026-11-10. Public
+acceptance evidence is in
+[`QA/DEMO/DEMO-ACCEPTANCE-REPORT.md`](../QA/DEMO/DEMO-ACCEPTANCE-REPORT.md).
 
 ## Architecture
 
@@ -206,7 +207,7 @@ session model.
 
 ## Verification status
 
-Verified locally on 2026-11-10:
+Verified on 2026-11-10:
 
 - migration `0005 -> 0006` on SQLite and isolated PostgreSQL;
 - full backend suite on SQLite and PostgreSQL;
@@ -216,17 +217,37 @@ Verified locally on 2026-11-10:
 - four-test instant-demo Playwright journey with retries disabled;
 - 48-test Chromium journey/WCAG/responsive regression suite;
 - 48-test Firefox journey/WCAG/responsive regression suite;
-- required responsive screenshots in `QA/DEMO/screenshots/`.
+- required local responsive screenshots in `QA/DEMO/screenshots/`;
+- exact-main GitHub Actions run `42849003993`, including PostgreSQL, SQLite,
+  frontend audits/build, Chromium, Firefox, WebKit 27.2, demo, WCAG, and
+  Lighthouse;
+- fresh PostgreSQL custom backup, archive validation, isolated restore,
+  `0005 -> 0006` migration, unchanged core counts, and all ten financial
+  invariants;
+- migration-aware rollback artifact readiness at schema `0006`;
+- Oracle API/worker health, zero restarts, one worker lease, and zero provider
+  backlog;
+- Vercel production alias and exact merged-SHA metadata;
+- public two-context isolation, provider rejection, policy, approval,
+  rejection, receipt, reset, exit, normal-session preservation, normal login,
+  responsive, keyboard, and Axe checks;
+- settled production screenshots in `QA/DEMO/screenshots/production/`;
+- production Lighthouse: performance `0.99`, accessibility `1.00`, best
+  practices `1.00`, LCP `1,515 ms`, CLS `0.006`.
 
-GitHub CI, production deployment, production performance, and public acceptance
-are recorded in the acceptance report when completed. Local WebKit is not
-claimed because this host lacks its required system libraries.
+Local WebKit is not claimed because this host lacks its required system
+libraries; exact-main CI installed those libraries and passed WebKit.
 
 ## Deployment record
 
-- Candidate branch: `codex/instant-demo-20261110`
-- Candidate SHA: pending commit
-- Merged SHA: pending
-- Oracle active release: pending
-- Vercel production deployment: pending
-- Production migration: pending (`20261110_0006` expected)
+- Feature branch: `codex/instant-demo-20261110`
+- Feature head: `2bb69d40b024bb89ced20b9d5a1480009dced2a0`
+- Pull request: `#20`
+- Merged SHA: `28634c13082a61b5c53e75528eacf2263ea1fd5e`
+- Exact-main CI: `42849003993`
+- Oracle active release: `/opt/pactra/releases/28634c1`
+- Vercel production deployment: `dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL`
+- Production migration: `20261110_0006`
+- Migration-aware rollback: `/opt/pactra/releases/ca361c0-0006`
+- Pre-migration backup:
+  `/opt/pactra/backups/pactra-pre-28634c13082a61b5c53e75528eacf2263ea1fd5e-20261110T161229Z.dump`
