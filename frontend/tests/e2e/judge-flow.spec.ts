@@ -93,9 +93,10 @@ test("authentication and the application shell are keyboard operable", async ({ 
   await expect(page).toHaveURL(/\/app$/);
 
   await page.goto("/app");
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const skipLink = page.getByRole("link", { name: "Skip to content" });
+  await expect(skipLink).toBeAttached();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+  await expect(skipLink).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();
 });

@@ -1,6 +1,6 @@
 # Pactra Codebase, README, and Web Application Reconciliation
 
-Verification date: 2026-11-09 (Africa/Lagos)
+Verification dates: 2026-11-09 to 2026-11-10 (Africa/Lagos)
 
 Branch: `audit/full-codebase-readme-webapp-reconciliation`
 
@@ -90,35 +90,48 @@ data mutation occurred.
   present. Its retained private payment handlers also remain unable to submit
   a provider operation.
 
+### Verification reliability
+
+- Removed a race from the authenticated skip-link browser check. The test now
+  waits for the protected application shell to replace its session-loading
+  state before asserting first-Tab focus order.
+- The corrected keyboard path passed 20 consecutive repetitions before the
+  complete browser suite was rerun with retries disabled.
+- Scoped session initialization to authentication and workspace routes. Public
+  informational routes no longer depend on `/api/auth/session`, eliminating a
+  public-page console error when the API is unavailable.
+
 ## Functional verification
 
 | Check | Result | Evidence |
 |---|---|---|
 | Backend SQLite | PASS | 150 collected; 140 passed and 10 PostgreSQL-only tests skipped |
+| Backend PostgreSQL 17 | PASS | Clean migration and all 150 tests passed in a disposable container under Python 3.11 |
 | Authentication unit/API file | PASS | 14 tests in `backend/tests/test_auth.py` |
 | Frontend lint | PASS | `npm run lint` |
 | TypeScript and production build | PASS | `npm run build`; initial JS 85.04 kB gzip |
-| Browser journeys | PASS | 21 Playwright tests |
+| Browser journeys | PASS | 22 Playwright tests on PostgreSQL with retries disabled |
 | Automated WCAG 2.1 AA | PASS | Axe on 16 public/authenticated surfaces |
 | Responsive route matrix | PASS | 6 public and 10 authenticated routes at 320, 375, 768, 1024, and 1440 pixels |
 | Account lifecycle at 8 characters | PASS | registration, logout, login, password change, old/new credential checks |
-| Lighthouse homepage | PASS | performance 0.99, accessibility 1.00, best practices 1.00, LCP 760 ms, CLS 0 |
+| Lighthouse homepage | PASS | performance 0.98, accessibility 1.00, best practices 1.00, LCP 756 ms, CLS 0, zero console errors |
 | Python dependency consistency | PASS | `pip check` |
 | Python vulnerability audit | PASS | no known vulnerabilities |
 | npm production/full audits | PASS | zero vulnerabilities |
 | Public production availability | PASS | `/`, `/api/health`, and `/api/ready` returned 200 in a read-only check |
-| Current-branch PostgreSQL suite | NOT VERIFIED | no isolated PostgreSQL service was changed or created on the production VPS; required CI remains the verification gate |
 
 ## Visual review
 
-Screenshots were captured from an isolated local database with providers
-disabled. They covered landing, sign-up, Privacy, Terms, overview, and Settings
-at representative desktop, tablet, and mobile widths. The final automated
+Screenshots were captured from isolated local databases with providers
+disabled. The initial review covered landing, sign-up, Privacy, Terms,
+overview, and Settings. The continuation review recaptured the full landing
+page and authenticated overview at 1440, 768, and 390 pixels. The automated
 matrix additionally loaded every public and authenticated route at all five
 supported widths. No clipped content, page-level horizontal overflow, broken
 image, runtime console error, or overlapping control was found.
 
-Ephemeral visual evidence: `/tmp/pactra-ui-audit-20261109/`.
+Ephemeral visual evidence: `/tmp/pactra-ui-audit-20261109/` and
+`/tmp/pactra-ui-final-3319140/`.
 
 Manual screen-reader testing, Safari, and Firefox visual inspection were not
 performed. Automated Axe, Chromium keyboard paths, reduced motion, and the
@@ -135,6 +148,7 @@ five-width responsive matrix passed.
   passed all four jobs for exact SHA `70def1db357b3782a0d6fab0891838d49e99c91e`.
 - The changes in this report are not deployed and have no current-branch CI
   evidence until the branch is published through the normal review process.
+  Local PostgreSQL and browser verification does not replace that hosted gate.
 
 ## Residual limitations
 
@@ -143,5 +157,5 @@ five-width responsive matrix passed.
   are not implemented.
 - Provider webhooks are not implemented; PayPal reconciliation uses polling.
 - Lighthouse is homepage-only and not real-user monitoring.
-- Current-branch PostgreSQL CI, manual assistive-technology testing, and
+- Current-branch hosted CI, manual assistive-technology testing, and
   non-Chromium visual testing remain outstanding verification gates.

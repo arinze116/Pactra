@@ -3,6 +3,19 @@ import { expect, test } from "@playwright/test";
 const acceptedPassword = "Aa1!aaaa";
 const replacementPassword = "Bb2@bbbb";
 
+test("public informational routes do not initialize an authenticated session", async ({ page }) => {
+  let sessionRequestCount = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/auth/session") sessionRequestCount += 1;
+  });
+
+  for (const route of ["/", "/privacy", "/terms", "/missing-page"]) {
+    await page.goto(route, { waitUntil: "networkidle" });
+  }
+
+  expect(sessionRequestCount).toBe(0);
+});
+
 test("the desktop product menu opens and closes from the keyboard", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
