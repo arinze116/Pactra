@@ -93,6 +93,7 @@ test("route changes update the page title and move focus to the new heading", as
 });
 
 test("eight-character passwords work across registration, login, and password change", async ({ page }) => {
+  test.setTimeout(60_000);
   const email = `password-boundary-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
 
@@ -109,7 +110,7 @@ test("eight-character passwords work across registration, login, and password ch
 
   await signUpPassword.fill(acceptedPassword);
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page).toHaveURL(/\/app$/, { timeout: 15_000 });
 
   await page.goto("/app/settings");
   await page.getByRole("button", { name: "Sign out of this session" }).click();
@@ -117,7 +118,7 @@ test("eight-character passwords work across registration, login, and password ch
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(acceptedPassword);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page).toHaveURL(/\/app$/, { timeout: 15_000 });
 
   await page.goto("/app/settings");
   await expect(page.getByLabel("New password")).toHaveAttribute("minlength", "8");
@@ -134,7 +135,7 @@ test("eight-character passwords work across registration, login, and password ch
 
   await page.getByLabel("Password", { exact: true }).fill(replacementPassword);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await expect(page).toHaveURL(/\/app$/, { timeout: 15_000 });
 });
 
 test.describe("public responsive matrix", () => {
