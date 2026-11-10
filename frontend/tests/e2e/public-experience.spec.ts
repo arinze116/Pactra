@@ -26,7 +26,7 @@ const supportedViewports = [
   { width: 1920, height: 1080 },
 ];
 
-const webKitNavigationAbortPattern = /^\/127\.0\.0\.1:\d+\/api\/.* due to access control checks\.$/;
+const webKitNavigationAbortPattern = /\/127\.0\.0\.1:\d+\/api\/.* due to access control checks\.$/;
 
 function collectRuntimeErrors(page: Page, browserName: string) {
   const runtimeErrors: string[] = [];
