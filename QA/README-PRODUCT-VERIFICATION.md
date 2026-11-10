@@ -1,34 +1,41 @@
-# README-to-product verification matrix
+# README-to-Product Verification Matrix
 
-Verified against branch `codex/paypal-worker-single-authority`. Provider acceptance rows deliberately distinguish implementation/mocked evidence from genuine external success.
+Updated: 2026-11-09
 
-| README claim | Implementation evidence | UI evidence | Test/evidence | Status |
-|---|---|---|---|---|
-| Sandbox-only product | Production config rejects SQLite/insecure/provider-live settings; rails are `internal_sandbox` and `paypal_sandbox_payouts` | Persistent sandbox copy and rail labels | Config tests; public landing inspection | PASS |
-| Email/password accounts and opaque sessions | `backend/auth.py`, `AuthSession` | Sign-up, sign-in, settings/logout | `test_auth.py`; Playwright journeys | PASS |
-| CSRF and same-origin mutations | `require_csrf`, `require_same_origin` | Browser sends synchronizer header | Auth/API/public E2E checks | PASS |
-| Owner-scoped data | Owner filters in services/routes | Foreign receipts show not found | API and browser tenant-isolation tests | PASS |
-| Double-entry wallet | `backend/services/ledger.py`; PostgreSQL immutability triggers | Wallet and receipt ledger panels | Ledger, transaction, PostgreSQL tests | PASS |
-| Deterministic versioned policy | `backend/services/policies.py` | Policy editor, preview, version history | Boundary, precedence, race and E2E tests | PASS |
-| Approval and rejection | Conditional transaction updates and `ApprovalAction` | Approval cards and rejection reason | Duplicate/race/revalidation/session-expiry tests | PASS |
-| Manual and AI requests share transaction service | Assistant tool calls `create_payment_request` | Manual form and assistant receipts | Assistant and transaction tests | PASS |
-| Deterministic AI fallback | `backend/services/assistant.py` | Assistant reports fallback/provider state | Provider-failure and E2E tests | PASS |
-| Live Gemini function calling | Gemini client/tool schema exists | Assistant route exists | Latest live generation returned 429, no function call | BLOCKED |
-| API never submits PayPal | No client call in transaction routes/services | Receipt shows queued/executing state | Monkeypatched API regression | PASS |
-| Worker-only PayPal submission | `backend/worker.py`, `backend/services/paypal.py` | Provider status appears asynchronously | Worker tests and source trace | PASS |
-| Atomic worker claim | `FOR UPDATE SKIP LOCKED` plus conditional attempt update | Not directly visual | PostgreSQL concurrent one-winner test | PASS |
-| Stable provider idempotency | `paypal_client.py` stable request/batch/item IDs | Attempt evidence on receipt | Request-shape and duplicate-batch tests | PASS |
-| No blind unknown retry | Unknown/no-batch excluded from scan | Recover submission confirmation | Unknown hold and explicit same-ID recovery tests | PASS |
-| Capture only on item `SUCCESS` | `apply_paypal_reconciliation` | Receipt provider/ledger separation | Batch-success/item-pending and capture tests | PASS |
-| Terminal failure releases once | Failure transition and idempotent reservation release | Failed receipt | Provider status parameter tests | PASS |
-| Return/reversal/refund compensates once | Provider reversal journal idempotency | Reversed receipt | Return/reversal/refund tests | PASS |
-| Genuine PayPal item success | Provider adapter exists and production is configured | PayPal integration page | OAuth/prior denial are not item success | BLOCKED |
-| Provider configuration privacy | Status API masks the global recipient and never returns credentials | Settings shows only the masked recipient | API regression asserts the full address is absent | PASS |
-| Persisted receipts and audit | `transaction_detail`, audit service | Receipt lifecycle/policy/ledger panels | API/E2E evidence | PASS |
-| Shared rate limits | `RateLimitBucket`, migration `0005` | Rate-limit errors | PostgreSQL atomic counter test | PASS candidate; not deployed |
-| WCAG 2.1 AA automated surfaces | Semantic components and focus styles | 14 public/authenticated surfaces | Axe Playwright suite | PASS automated |
-| Responsive interface | Responsive layout and mobile navigation | Desktop/tablet/mobile visual inspection | Screenshot audit and E2E overflow checks | PASS inspected |
-| Homepage performance budget | Lighthouse assertion script | Homepage | CI homepage-only Lighthouse | PASS homepage only |
-| Production worker-only candidate deployed | Candidate branch only | Public app still older release | `/opt/pactra/current` → `0e3e905` | BLOCKED / not deployed |
+Branch: `audit/full-codebase-readme-webapp-reconciliation`
 
-No fixture, mock, fallback, OAuth result, batch acceptance, or historical provider record is counted as live provider success.
+This is the current claim matrix. Older inventory, gap-review, and bug-report
+files are retained as dated historical snapshots.
+
+| README claim | Implementation evidence | Executed evidence | Status |
+|---|---|---|---|
+| Sandbox-only product | production config guards; internal and PayPal Sandbox rails | config tests; public copy and route review | PASS |
+| Registration uses an 8 to 128 character password policy | `backend/schemas.py`, shared frontend password constants | seven-character rejection and exact eight-character API/browser lifecycle | PASS |
+| Argon2id and opaque sessions | `backend/auth.py`, `AuthSession` | auth suite and browser logout/login/change-password path | PASS |
+| CSRF and same-origin mutation protection | `require_csrf`, `require_same_origin`, browser token client | backend and browser negative tests | PASS |
+| Owner-scoped records | owner filters in API/services | API and browser tenant-isolation tests | PASS |
+| Double-entry simulated wallet | `backend/services/ledger.py`; PostgreSQL trigger migrations | SQLite ledger tests; accepted PostgreSQL CI evidence | PASS, current-branch PostgreSQL CI pending |
+| Deterministic versioned policy | policy service and preview endpoint | boundary, precedence, re-evaluation, and browser tests | PASS |
+| Human approval and rejection | conditional state changes and `ApprovalAction` | duplicate, race, rejection, expiry, and browser tests | PASS |
+| Manual and AI requests share governance | assistant tools call transaction service | assistant, transaction, policy, and E2E tests | PASS |
+| AI cannot approve, submit a payout, or mutate the ledger directly | tool declarations, server-side handlers, worker boundary | source trace and failure-path tests | PASS |
+| Retired pre-account agent cannot contact Gemini or execute a provider payment | provider-free fail-closed shim in `backend/agent.py` | configured-key rejection and disabled-execution tests | PASS |
+| Deterministic AI fallback | assistant service fallback parser and audit classification | timeout, 503, empty/malformed, invalid arguments, and E2E tests | PASS |
+| Genuine Gemini function calling passed for the accepted model | retained provider acceptance evidence | `QA/GEMINI-MODEL-COMPATIBILITY.md`; not re-executed here | PASS, retained evidence |
+| API never submits PayPal | no PayPal client call in API transaction routes | monkeypatched regression and source trace | PASS |
+| Worker is the sole PayPal submission authority | `backend/worker.py`, `backend/services/paypal.py` | worker claim/idempotency tests | PASS |
+| PayPal capture requires item-level `SUCCESS` | reconciliation state machine | batch-success/item-pending, success, failure, and reversal tests | PASS |
+| Unknown provider outcome is not blindly retried | unknown-state exclusion and explicit same-ID recovery | reservation/recovery/idempotency tests | PASS |
+| Genuine PayPal Sandbox acceptance completed once | retained accepted transaction evidence | `QA/PAYMENT-OPERATIONS-AND-RECONCILIATION.md`; not re-executed here | PASS, retained evidence |
+| Receipts and audit evidence persist | transaction detail and audit services | API, E2E, and isolated demo evidence | PASS |
+| Public Privacy Policy, Terms, and structured footer exist | `/privacy`, `/terms`, `PublicFooter` | route, overflow, Axe, and visual checks | PASS |
+| Responsive interface | responsive layouts and mobile navigation | six public and ten authenticated routes at five widths | PASS |
+| Automated WCAG 2.1 AA surfaces | semantic landmarks, focus styles, labels, status regions | Axe on 16 surfaces; keyboard E2E | PASS automated |
+| Homepage performance budget | route-light public bundle and Lighthouse assertion | 0.99 performance, 1.00 accessibility, 1.00 best practices | PASS homepage only |
+| Production is publicly healthy | Vercel frontend and same-origin API route | read-only 200 responses for `/`, health, and readiness | PASS availability only |
+
+No fixture, mock, deterministic fallback, OAuth response, HTTP 200, or batch
+acknowledgement is counted as genuine provider completion.
+
+The current branch is not deployed. Its PostgreSQL job and exact-SHA GitHub CI
+remain pending until the branch is published through the normal review process.

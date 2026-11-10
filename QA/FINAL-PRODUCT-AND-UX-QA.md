@@ -1,5 +1,9 @@
 # Pactra Final Product and UX QA
 
+> Historical PR #17 product QA. The later public footer, legal pages,
+> eight-character authentication boundary, and five-width responsive review
+> are recorded in `QA/CODEBASE-README-WEBAPP-RECONCILIATION.md`.
+
 Review date: 2026-11-09
 
 Environment: isolated `APP_ENV=demo` SQLite database with fictional data and

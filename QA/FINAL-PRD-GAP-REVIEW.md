@@ -50,16 +50,16 @@ Sources reviewed:
 
 Statuses used here:
 
-- **PASS** — the PRD criterion was exercised successfully with evidence.
-- **PARTIAL** — meaningful implementation works, but one or more PRD criteria remain unmet or unproved.
-- **BLOCKED** — implementation exists, but a safe conclusive test requires missing credentials, provider capability, explicit authorization or external action.
-- **NOT IMPLEMENTED** — the PRD requirement is absent from the product.
+- **PASS** - the PRD criterion was exercised successfully with evidence.
+- **PARTIAL** - meaningful implementation works, but one or more PRD criteria remain unmet or unproved.
+- **BLOCKED** - implementation exists, but a safe conclusive test requires missing credentials, provider capability, explicit authorization or external action.
+- **NOT IMPLEMENTED** - the PRD requirement is absent from the product.
 
 No result is upgraded to PASS based only on source presence, mocks, deterministic fallback or UI copy.
 
 ## Detailed PRD gap register
 
-### 1. AUTH-008 — Password reveal control
+### 1. AUTH-008 - Password reveal control
 
 | Field | Reconciliation |
 |---|---|
@@ -73,7 +73,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | Small: 1–2 hours including tests. |
 | Exact closure test | On sign-up and sign-in, activate a keyboard-accessible show/hide button; assert the input toggles `password`/`text`, the value and focus are retained, the control exposes an accessible name and `aria-pressed`, Enter/Space work, and registration/login still pass in desktop and mobile Playwright runs. |
 
-### 2. AI-006 / INT-005 — Live Gemini provider and deployed configuration
+### 2. AI-006 / INT-005 - Live Gemini provider and deployed configuration
 
 | Field | Reconciliation |
 |---|---|
@@ -88,7 +88,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Human action required | Supply an approved Gemini API key with access to `gemini-3.8-flash`; authorize secret installation and AI enablement on the deployed server. |
 | Exact closure test | On the public judge deployment, enable `AI_ENABLED=true` with the approved key and exact model. From a fresh isolated account, send a natural-language request that causes an actual Gemini function call to `create_payment_request`; verify persisted user/assistant/tool messages, tool arguments, governed transaction, policy result, ledger or reservation, and audit events. Then invoke wallet, policy, recent-transaction and transaction-detail tools. Inject provider timeout, quota error and malformed response and verify safe audited fallback without duplicate transactions, policy bypass, tenant leakage, secret logging or uncaught UI error. |
 
-### 3. PAY-010 / INT-002 / INT-003 — PayPal Sandbox execution and live reconciliation
+### 3. PAY-010 / INT-002 / INT-003 - PayPal Sandbox execution and live reconciliation
 
 | Field | Reconciliation |
 |---|---|
@@ -103,7 +103,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Human action required | Provide a PayPal Sandbox business app `CLIENT_ID` and `CLIENT_SECRET`, confirm that the business account has Payouts capability, supply a valid Sandbox recipient email/account, and explicitly authorize one no-real-money Sandbox payout test. If capability is absent, the account owner must resolve it with PayPal. |
 | Exact closure test | Against `https://api-m.sandbox.paypal.com` only: (1) OAuth succeeds; (2) an approved Pactra payout creates exactly one real batch/item using the stable request and sender-batch IDs; (3) batch/item IDs persist; (4) `PENDING`/`PROCESSING`/unknown keeps the reservation; (5) item-level `SUCCESS` causes exactly one ledger capture and completed state; (6) manual refresh and the worker both reconcile safely; (7) retry after timeout reuses the unresolved attempt and creates no duplicate batch or capture; (8) terminal failure releases once; (9) a controlled returned/reversed/refunded provider fixture or permitted Sandbox outcome posts one compensating credit; (10) receipt and integration UI show actual recipient, PayPal rail, provider reference and status. Verify database journals, entries, reservations, attempts and audit events after each transition. |
 
-### 4. PLT-006 — Guided judge scenarios and analytics
+### 4. PLT-006 - Guided judge scenarios and analytics
 
 | Field | Reconciliation |
 |---|---|
@@ -117,7 +117,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 4–8 hours for code and E2E after PayPal credentials are available. |
 | Exact closure test | Register a fresh judge account and complete all six persisted guided scenarios plus reset from the checklist. Assert each step advances only after the corresponding server record/state exists; the insufficient-funds scenario creates the correct persisted failure/block without a debit; the PayPal scenario reaches a real provider result; reset starts a new generation while history remains; and exactly one `judge.guided_test_started` plus one `judge.reset_confirmed` event is persisted/emitted with no secrets or private data. |
 
-### 5. PAY-003 — Persisted blocked transaction API contract
+### 5. PAY-003 - Persisted blocked transaction API contract
 
 | Field | Reconciliation |
 |---|---|
@@ -132,7 +132,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Human action required | Product owner confirms whether the PRD remains authoritative. If so, return the specified status codes while preserving the created transaction payload. |
 | Exact closure test | Submit an over-limit request and assert HTTP 422, code `POLICY_BLOCKED`, human-readable first rule and persisted transaction ID/body. Submit an insufficient-balance request and assert HTTP 402, code `INSUFFICIENT_FUNDS` and persisted body. Refresh each receipt, verify zero ledger posting and correct audit event, and retry the same idempotency key to receive the original blocked result without a duplicate row. |
 
-### 6. PAY-005 / BUG-007 — Approval decision context
+### 6. PAY-005 / BUG-007 - Approval decision context
 
 | Field | Reconciliation |
 |---|---|
@@ -146,7 +146,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 4–6 hours including DTO, UI and regressions. |
 | Exact closure test | Create a pending request and assert the approval card or drawer shows requester identity, vendor, amount, category, reason, current policy decision/checks, available balance, created timestamp and human-readable age from server data. Reload and verify persistence; modify policy/balance and verify refreshed authoritative context; confirm another user still receives 404/no card. |
 
-### 7. Reset, retry and reversal repeatability evidence — WAL-007 / PAY-009 / US-08 / US-10
+### 7. Reset, retry and reversal repeatability evidence - WAL-007 / PAY-009 / US-08 / US-10
 
 | Field | Reconciliation |
 |---|---|
@@ -160,7 +160,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 3–5 hours for isolated/browser tests; provider cases are included in the PayPal effort. |
 | Exact closure test | In Playwright, create and reverse a completed internal payment; assert the original journal is unchanged, one compensating journal appears, balance restores and a second reversal conflicts. Create an eligible failed internal transaction, retry twice with the same key and assert one terminal result/capture. Before reset, create pending approval and assert reset cancels/releases it, increments generation, restores baseline/current counters, retains all-history receipt and records a reset journal/audit. In an isolated provider fixture and then the configured Sandbox, assert reset is blocked while a payout outcome is unresolved and succeeds only after terminal reconciliation. |
 
-### 8. POL-007 — Server-authoritative likely-decision preview
+### 8. POL-007 - Server-authoritative likely-decision preview
 
 | Field | Reconciliation |
 |---|---|
@@ -174,7 +174,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 4–6 hours. |
 | Exact closure test | Provide a read-only, owner-scoped, server-authoritative preview that reuses the policy evaluator without creating a transaction or reservation. For exact boundary, blocked vendor, invalid category, per-transaction cap, daily budget, category budget, insufficient balance and approval-threshold cases, assert `approved`, `approval_required` or `blocked` and the same first reason later returned by real creation. Assert database transaction/reservation/journal counts remain unchanged after preview. |
 
-### 9. PLT-004 — Recoverable and partial data states
+### 9. PLT-004 - Recoverable and partial data states
 
 | Field | Reconciliation |
 |---|---|
@@ -188,7 +188,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 3–5 hours. |
 | Exact closure test | Independently fail wallet, summary, transactions and approvals GETs; assert unaffected overview sections remain populated, the failed section has a specific retry, retry restores it without reloading the route, and stale/partial data is not mislabeled as current. Fail wallet and ledger separately on `/app/wallet`; assert each has a keyboard-accessible retry and successful persistence after refresh. |
 
-### 10. REC-003 — Lifecycle actor and event context
+### 10. REC-003 - Lifecycle actor and event context
 
 | Field | Reconciliation |
 |---|---|
@@ -202,7 +202,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 2–3 hours. |
 | Exact closure test | For creation, approval, rejection, failure, retry, reversal, reset and provider events, assert the receipt shows chronological event name, safe actor label and a redacted human-readable payload summary after reload. Verify raw secrets, session identifiers and unrelated user data are never rendered. |
 
-### 11. REC-004 — Receipt ledger account/counter-account detail
+### 11. REC-004 - Receipt ledger account/counter-account detail
 
 | Field | Reconciliation |
 |---|---|
@@ -216,7 +216,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 3–4 hours. |
 | Exact closure test | For issuance, top-up, capture, reversal and reset journals, assert the owned receipt shows safe wallet and counter-account labels, debit/credit direction, amount and journal type; debits equal credits; no internal identifier reveals another user's account; blocked/pending receipts correctly show no posted entries. |
 
-### 12. INF-005 — CI and dependency hygiene
+### 12. INF-005 - CI and dependency hygiene
 
 | Field | Reconciliation |
 |---|---|
@@ -230,7 +230,7 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 | Estimated effort | 4–8 hours if upgrades are straightforward; potentially longer for Vite/esbuild/lint breaking changes. |
 | Exact closure test | Upgrade or replace affected development dependencies, or obtain a documented owner risk exception that explicitly narrows the PRD gate. Run `pip check`, `pip-audit -r requirements.txt`, production and full npm audits, lint, production build, PostgreSQL backend tests, all E2E and Lighthouse. CI must enforce the agreed audits and finish green with zero unaccepted high/critical findings. |
 
-### 13. SEC-005 — Distributed rate limiting
+### 13. SEC-005 - Distributed rate limiting
 
 | Field | Reconciliation |
 |---|---|
@@ -320,25 +320,25 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 
 | Definition-of-Done criterion | Result |
 |---|---|
-| All P0 user stories pass | FAIL — US-05 and US-12 are blocked; several stories are partial. |
+| All P0 user stories pass | FAIL - US-05 and US-12 are blocked; several stories are partial. |
 | User accounts/data isolated | PASS |
 | Initial credit/top-ups ledger-backed and idempotent | PASS |
-| Ledger invariant under concurrency, failure, retry and reversal | PARTIAL — internal path passes; live provider outcomes remain unproved. |
+| Ledger invariant under concurrency, failure, retry and reversal | PARTIAL - internal path passes; live provider outcomes remain unproved. |
 | Policy checks deterministic, versioned and server-side | PASS |
 | Manual and AI requests use the same transaction service | PASS for implemented/fallback tool path; live Gemini invocation BLOCKED. |
 | Gemini function calling configured/exercised on deployed instance | FAIL / BLOCKED |
 | Approval/rejection work and cannot be replayed | PASS |
-| All transaction states persisted and visible | PARTIAL — persisted; some lifecycle/ledger context is not visible. |
+| All transaction states persisted and visible | PARTIAL - persisted; some lifecycle/ledger context is not visible. |
 | All routes and loading/empty/error/success states implemented | PARTIAL |
 | No decorative or inert primary controls | PASS in audited controls |
-| Backend, lint/build and P0 E2E pass | PARTIAL — executed functional suites pass; live-provider P0 cases and browser retry/reversal remain open. |
+| Backend, lint/build and P0 E2E pass | PARTIAL - executed functional suites pass; live-provider P0 cases and browser retry/reversal remain open. |
 | Security and cross-user tests pass | PASS with distributed-limiter/dependency limitations |
 | Public deployment sandbox-only and durable PostgreSQL | PASS |
 | One PayPal Sandbox Payouts transaction created and reconciled; judge can trigger another | FAIL / BLOCKED |
 | Health/readiness endpoints work | PASS |
 | README, env, migrations, seed/reset and instructions complete | PARTIAL pending live-provider closure |
 | No console or uncaught API errors in core journeys | PASS in executed journeys |
-| Judge can test all features without external credentials | FAIL — operator-side Gemini and PayPal credentials/configuration are absent. |
+| Judge can test all features without external credentials | FAIL - operator-side Gemini and PayPal credentials/configuration are absent. |
 
 **Overall Definition of Done: NOT MET.**
 
@@ -363,18 +363,18 @@ No result is upgraded to PASS based only on source presence, mocks, deterministi
 
 ## Human blockers and required actions
 
-1. **Gemini credential and model access** — provide an approved API key with `gemini-3.8-flash` access and authorize installation as a server-side secret plus `AI_ENABLED=true`.
-2. **PayPal Sandbox business credentials** — provide Payouts-capable Sandbox business app client ID/secret. Production credentials and live endpoints must never be used.
-3. **PayPal Sandbox recipient** — provide and confirm a valid Sandbox recipient account/email for `PAYPAL_TEST_RECIPIENT_EMAIL`.
-4. **Explicit payout-test authorization** — authorize one Sandbox-only, no-real-money payout after credentials and recipient are verified. The prior failed/unknown item is not sufficient.
-5. **External PayPal capability** — if Payouts is not enabled, the account owner must complete PayPal enablement/support steps; application code cannot grant this capability.
-6. **Deployment operator action** — after approval, install secrets through the existing production secret mechanism, restart/deploy safely, and run the acceptance tests without exposing values in logs or reports.
-7. **API contract decision** — confirm that the Judge-Ready PRD remains authoritative for `422 POLICY_BLOCKED` and `402 INSUFFICIENT_FUNDS` responses.
-8. **Dependency-risk decision** — approve breaking development-tool upgrades or explicitly document a time-bounded risk exception if the PRD security gate is narrowed to shipped/runtime dependencies.
+1. **Gemini credential and model access** - provide an approved API key with `gemini-3.8-flash` access and authorize installation as a server-side secret plus `AI_ENABLED=true`.
+2. **PayPal Sandbox business credentials** - provide Payouts-capable Sandbox business app client ID/secret. Production credentials and live endpoints must never be used.
+3. **PayPal Sandbox recipient** - provide and confirm a valid Sandbox recipient account/email for `PAYPAL_TEST_RECIPIENT_EMAIL`.
+4. **Explicit payout-test authorization** - authorize one Sandbox-only, no-real-money payout after credentials and recipient are verified. The prior failed/unknown item is not sufficient.
+5. **External PayPal capability** - if Payouts is not enabled, the account owner must complete PayPal enablement/support steps; application code cannot grant this capability.
+6. **Deployment operator action** - after approval, install secrets through the existing production secret mechanism, restart/deploy safely, and run the acceptance tests without exposing values in logs or reports.
+7. **API contract decision** - confirm that the Judge-Ready PRD remains authoritative for `422 POLICY_BLOCKED` and `402 INSUFFICIENT_FUNDS` responses.
+8. **Dependency-risk decision** - approve breaking development-tool upgrades or explicitly document a time-bounded risk exception if the PRD security gate is narrowed to shipped/runtime dependencies.
 
 ## Updated recommendation
 
-### NO-GO — full PRD and hackathon submission readiness
+### NO-GO - full PRD and hackathon submission readiness
 
 The deployed internal sandbox product is suitable for controlled internal demonstration and would otherwise merit a **CONDITIONAL GO**. However, the Judge-Ready PRD explicitly classifies live Gemini function calling and real PayPal Sandbox Payouts as P0, must-ship, non-cut requirements and includes both in §33 Definition of Done. Neither has been configured and successfully exercised on the deployed judge instance, and PayPal has not reached verified item-level `SUCCESS` with reconciliation.
 

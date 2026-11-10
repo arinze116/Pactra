@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from backend.agent import PactraAgent
+from backend.agent import AgentConfigurationError, PactraAgent
 from backend.config import Settings
 from backend.models import Transaction
 from backend.paypal_client import PayPalClient, PayPalError
@@ -63,6 +63,29 @@ def app_settings() -> Settings:
         paypal_mock_mode=True,
         gemini_api_key="",
     )
+
+
+@pytest.mark.asyncio
+async def test_legacy_agent_run_is_disabled_even_with_a_provider_key(
+    policy_path: Path, session: Session, app_settings: Settings
+) -> None:
+    enabled_settings = app_settings.model_copy(
+        update={"gemini_api_key": "test-provider-key"}
+    )
+    policy_engine = PolicyEngine(policy_path)
+    paypal_client = PayPalClient(enabled_settings)
+    agent = PactraAgent(enabled_settings)
+    try:
+        with pytest.raises(AgentConfigurationError, match="Legacy PactraAgent is disabled"):
+            await agent.run(
+                "Create a payment",
+                [],
+                policy_engine,
+                paypal_client,
+                session,
+            )
+    finally:
+        await paypal_client.close()
 
 
 @pytest.mark.asyncio

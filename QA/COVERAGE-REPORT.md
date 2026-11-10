@@ -51,7 +51,7 @@ No statement of line/branch percentage is made because the repository does not c
 
 ## Final commands and results
 
-### Backend — SQLite
+### Backend - SQLite
 
 ```bash
 APP_ENV=test DATABASE_URL=sqlite:// PAYPAL_MOCK_MODE=true \
@@ -60,7 +60,7 @@ SESSION_COOKIE_SECURE=false .venv-linux/bin/python -m pytest -q
 
 Result: **91 collected; 83 passed; 8 PostgreSQL-only skipped**. One Starlette/httpx deprecation warning.
 
-### Backend — isolated PostgreSQL
+### Backend - isolated PostgreSQL
 
 Database: `pactra_audit_backend_20261107_r2`
 

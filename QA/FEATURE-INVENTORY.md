@@ -1,9 +1,8 @@
 # Pactra Feature Inventory
 
-> Historical inventory from the original audit. Provider configuration is now
-> present in production, but genuine Gemini function calling and PayPal
-> item-level `SUCCESS` remain unverified. Use
-> `QA/README-PRODUCT-VERIFICATION.md` for current claim status.
+> Historical inventory from the original audit. Its missing-feature and
+> provider statuses describe the 7 November snapshot, not the current product.
+> Use `QA/README-PRODUCT-VERIFICATION.md` for current claim status.
 
 Audit date: 2026-11-07 (Africa/Lagos)  
 PRD baseline: `Pactra-PRD-Judge-Ready.md`  

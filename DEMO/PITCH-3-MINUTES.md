@@ -12,7 +12,8 @@ authority.
 
 Pactra is a payment-governance workspace. A business configures deterministic
 limits, category budgets, restricted vendors, and an approval threshold. Every
-request—manual or AI-assisted—enters the same authenticated backend service.
+request, whether manual or AI-assisted, enters the same authenticated backend
+service.
 
 The service evaluates policy in a fixed order, reserves simulated funds once,
 and chooses one truthful state: blocked, pending approval, executing,

@@ -22,7 +22,7 @@
 
   Tagline                             Govern every payment, safely
 
-  Version / date                      v1.1 / 3 November 2026
+  Version / date                      v1.2 / 9 November 2026
 
   Hackathon / track(s) / prizes       PayPal AI Hackathon 2026; Grand
   targeted                            Prize; Best Use of PayPal + AI
@@ -580,8 +580,8 @@ PayPal Sandbox.
 ### F-01 Authentication and account
 
 Purpose: isolate users and persist sessions. - Register with email and
-password; normalise email to lowercase and trim. - Password length
-12--128 characters; reject breached/common passwords if a maintained
+password; normalise email to lowercase and trim. - Password length is
+8 to 128 characters; reject breached/common passwords if a maintained
 local list is available, otherwise enforce length and complexity of at
 least 3 character classes. - Hash with Argon2id using a maintained
 library; never store plaintext. - Use opaque server-side sessions in an

@@ -1,30 +1,47 @@
 # Changelog
 
-All notable release-candidate changes are documented here. Pactra has not yet published a semantic versioned release.
+Pactra has not published a semantic-versioned release. This file records
+notable repository changes and points to the separately accepted production
+baseline.
 
 ## Unreleased
 
 ### Added
 
-- Explicit operator-controlled recovery for ambiguous PayPal submissions without a stored batch ID, reusing the original attempt and stable provider identifiers.
-- Receipt copy and confirmation that distinguish provider refresh from same-ID ambiguous-submission recovery.
-- Approval-threshold boundary and expired/revoked-session authorization regressions.
-- README-to-product verification matrix, architecture decision record, contribution guide, and corrected migration rollback documentation.
+- Public Privacy Policy and Terms of Use routes.
+- A structured responsive footer with product, resource, legal, licence, and
+  sandbox-boundary links.
+- Browser coverage for every public and authenticated route at 320, 375, 768,
+  1024, and 1440 pixels.
+- Registration, login, logout, and password-change coverage at the exact
+  eight-character password boundary.
 
 ### Changed
 
-- PayPal submission is worker-only; API routes persist and enqueue work without provider submission.
-- PostgreSQL worker claims use row locks and conditional state transitions.
-- Documentation distinguishes configured providers, OAuth, batch acceptance, item-level success, deterministic fallback, and mocked state-machine evidence.
+- New-account and password-change minimum length is now 8 characters instead
+  of 12. The 128-character maximum and three-character-class requirement stay
+  in place.
+- The landing page and README now explain the governed request lifecycle, AI
+  authority boundary, sandbox limitation, architecture, and evidence model
+  more directly.
+- The retired pre-account agent is now a provider-free compatibility shim that
+  always fails closed. Active AI requests continue through
+  `backend.services.assistant`.
+- Root design and deployment documentation now match the actual dark/red
+  interface and Vercel plus Oracle production architecture.
 
 ### Safety
 
-- Unknown provider outcomes remain reserved and are excluded from automatic resubmission.
+- Unknown PayPal outcomes remain reserved and are never blindly resubmitted.
 - PayPal ledger capture still requires individual item status `SUCCESS`.
-- Production remains on release `0e3e905`; this candidate has not been deployed.
+- These unreleased changes are repository-only. No production deployment,
+  service restart, migration, provider request, or financial operation was
+  performed for them.
 
-## Production baseline `0e3e905`
+## Accepted production baseline `63f2583`
 
-- Preserves complete payment audit evidence.
-- Runs schema revision `20261107_0004`.
-- Does not include the worker-only PayPal correction or shared rate-limit migration `0005`.
+- Runtime SHA: `63f25839a6b645a8ca404846ecd82d16c1994b7c`.
+- Database revision: `20261107_0005`.
+- Active Gemini model: `gemini-3.5-flash-lite`.
+- Canonical retained evidence:
+  [QA/ACCEPTED-PRODUCTION-BASELINE.md](./QA/ACCEPTED-PRODUCTION-BASELINE.md).

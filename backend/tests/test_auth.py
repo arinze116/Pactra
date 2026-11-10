@@ -113,6 +113,66 @@ def test_registration_bootstraps_isolated_sandbox_account(api) -> None:
         assert session.exec(select(LedgerJournal)).one().journal_type == "initial_issuance"
 
 
+def test_password_policy_accepts_eight_characters_across_account_lifecycle(api) -> None:
+    client, engine = api
+    too_short = client.post(
+        "/api/auth/register",
+        headers=ORIGIN_HEADERS,
+        json={"email": "short@example.com", "password": "Aa1!aaa"},
+    )
+    weak = client.post(
+        "/api/auth/register",
+        headers=ORIGIN_HEADERS,
+        json={"email": "weak@example.com", "password": "lowercase1"},
+    )
+    assert too_short.status_code == 400
+    assert too_short.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert weak.status_code == 400
+    assert weak.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    accepted_password = "Aa1!aaaa"
+    new_password = "Bb2@bbbb"
+    registered = client.post(
+        "/api/auth/register",
+        headers=ORIGIN_HEADERS,
+        json={"email": "boundary@example.com", "password": accepted_password},
+    )
+    assert registered.status_code == 201
+
+    client.cookies.clear()
+    login = client.post(
+        "/api/auth/login",
+        headers=ORIGIN_HEADERS,
+        json={"email": "boundary@example.com", "password": accepted_password},
+    )
+    assert login.status_code == 200
+
+    changed = client.post(
+        "/api/auth/change-password",
+        headers=csrf_headers(client),
+        json={"current_password": accepted_password, "new_password": new_password},
+    )
+    assert changed.status_code == 204
+
+    client.cookies.clear()
+    old_password = client.post(
+        "/api/auth/login",
+        headers=ORIGIN_HEADERS,
+        json={"email": "boundary@example.com", "password": accepted_password},
+    )
+    replacement = client.post(
+        "/api/auth/login",
+        headers=ORIGIN_HEADERS,
+        json={"email": "boundary@example.com", "password": new_password},
+    )
+    assert old_password.status_code == 401
+    assert replacement.status_code == 200
+
+    with Session(engine) as session:
+        users = session.exec(select(User)).all()
+        assert [user.email for user in users] == ["boundary@example.com"]
+
+
 def test_guided_analytics_events_are_unique_per_generation(api) -> None:
     client, engine = api
     assert register(client).status_code == 201

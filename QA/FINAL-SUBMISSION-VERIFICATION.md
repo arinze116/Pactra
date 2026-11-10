@@ -60,7 +60,7 @@ success. No provider call was made during this mandate.
 
 ## Current verdict
 
-**MERGED — RELEASE BLOCKED.**
+**MERGED - RELEASE BLOCKED.**
 
 Engineering and documentation gates passed, but the external provider and
 production release gates above remain blocked. Production remains unchanged.

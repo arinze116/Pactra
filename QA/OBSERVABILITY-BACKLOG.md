@@ -63,7 +63,7 @@ These changes are not deployed. The scheduled workflow is not active until a
 reviewed merge to the default branch, and it still has no pager. Production
 activation of API/worker logging requires a separately approved release.
 
-## P0 — financial and availability safety
+## P0 - financial and availability safety
 
 ### OBS-001 External production availability
 
@@ -153,7 +153,7 @@ The read-only checker now covers:
 Any nonzero inconsistency is a financial incident. The checker never repairs
 data automatically. Scheduling and notification remain outstanding.
 
-## P1 — provider and recovery visibility
+## P1 - provider and recovery visibility
 
 ### OBS-006 Gemini reliability
 
@@ -203,7 +203,7 @@ Select and approve a service before integration. Requirements:
 No external service should be connected during a freeze or without security
 review.
 
-## P2 — performance and operational maturity
+## P2 - performance and operational maturity
 
 ### OBS-009 API and route latency
 

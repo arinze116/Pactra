@@ -7,11 +7,11 @@
 > reached item-level `SUCCESS` exactly once. Current truth is in `README.md`,
 > `QA/ACCEPTED-PRODUCTION-BASELINE.md`, and the final handover documents.
 
-Source of truth: `Pactra-PRD-Judge-Ready.md` v1.1, dated 3 November 2026.
+Historical baseline: `Pactra-PRD-Judge-Ready.md` v1.1, dated 3 November 2026.
 
 Status legend: `[x]` complete and verified, `[~]` partially present, `[ ]` not implemented, `[B]` externally blocked.
 
-## Final release candidate — 5 November 2026
+## Final release candidate - 5 November 2026
 
 - Active release branch: `feat/red-dark-fintech-redesign`; PR #2 targets `main`.
 - Backend verification: `63 passed, 2 skipped`; the skipped tests are PostgreSQL-only UUID/runtime and concurrent-policy locking checks that run in CI.
@@ -35,7 +35,7 @@ Status legend: `[x]` complete and verified, `[~]` partially present, `[ ]` not i
 - Deployment: Render static frontend plus free Python service using ephemeral SQLite and mock PayPal mode.
 - Tests: 11 backend policy/agent-handler tests; no auth, ledger, API authorisation, migration, provider reconciliation, frontend or E2E tests.
 
-## Baseline verification — 3 November 2026
+## Baseline verification - 3 November 2026
 
 | Check | Result | Evidence |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ Status legend: `[x]` complete and verified, `[~]` partially present, `[ ]` not i
 
 Local runtime note: the existing `.venv` uses Python 3.13.14, while deployment and PRD target Python 3.11.10. Node 22.23.2 matches the PRD.
 
-## Historical phase 0 revalidation — 3 November 2026
+## Historical phase 0 revalidation - 3 November 2026
 
 The repository is now on `feat/judge-ready-product` at `ed96828`, with `origin/main` already contained in the branch. The working tree also contains an uncommitted frontend route/workflow implementation plus transaction date filtering. These changes pre-date this revalidation and are being preserved in place; no pull, reset, clean, checkout, or branch switch was performed.
 

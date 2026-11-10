@@ -95,7 +95,7 @@ test("public submission journey remains secure, durable, and tenant isolated", a
   await expect(page.getByRole("heading", { name: "Lifecycle" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ledger impact" })).toBeVisible();
   await expect(page.getByText("Internal ledger capture")).toBeVisible();
-  await expect(page.getByText("Not applicable — internal ledger only")).toBeVisible();
+  await expect(page.getByText("Not applicable: internal ledger only")).toBeVisible();
   await expect(page.getByText("SUCCESS", { exact: true })).toHaveCount(0);
   const primaryReceipt = page.url();
   const ownerCompletedId = primaryReceipt.split("/").pop() ?? "";

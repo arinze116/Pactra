@@ -20,7 +20,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 
 ## Fixed defects
 
-### BUG-001 — Approval revalidation could block without a complete state audit
+### BUG-001 - Approval revalidation could block without a complete state audit
 
 - Severity: P2
 - Status: FIXED and deployed
@@ -34,7 +34,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Regression: `backend/tests/test_transactions.py::test_approval_revalidation_block_is_audited_and_releases_hold`.
 - Evidence: SQLite and PostgreSQL full suites pass; production release `0e3e905`.
 
-### BUG-002 — Payout receipt omitted the recipient
+### BUG-002 - Payout receipt omitted the recipient
 
 - Severity: P2
 - Status: FIXED and deployed
@@ -47,7 +47,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Regressions: local/PG `fresh judge completes the core sandbox journey`; production `public submission journey remains secure, durable, and tenant isolated` now asserts the recipient before and after approval.
 - Evidence: `frontend/src/pages/TransactionPages.tsx`; public test passed after Vercel deployment.
 
-### BUG-003 — Audit events were append-only by convention, not by database enforcement
+### BUG-003 - Audit events were append-only by convention, not by database enforcement
 
 - Severity: P2 security hardening
 - Status: FIXED and deployed
@@ -59,7 +59,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 
 ## Open product defects and deviations
 
-### BUG-004 — Policy-blocked create response deviates from the PRD contract
+### BUG-004 - Policy-blocked create response deviates from the PRD contract
 
 - Severity: P2
 - Status: OPEN; safe behaviour, deliberate contract decision required
@@ -70,7 +70,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Risk: API consumers built from the PRD may treat any 2xx as execution acceptance even though `transaction.status` is `blocked`.
 - Recommended fix: choose and document one contract, then update OpenAPI/tests/UI together. Do not silently revert the persisted-receipt safety behaviour.
 
-### BUG-005 — Guided walkthrough does not cover all PRD scenarios
+### BUG-005 - Guided walkthrough does not cover all PRD scenarios
 
 - Severity: P2
 - Status: OPEN
@@ -80,7 +80,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Root cause: implementation stopped at the deterministic internal demo path.
 - Recommended fix: add the missing real persisted scenarios. PayPal step must remain disabled with an explicit reason when provider configuration is absent.
 
-### BUG-006 — Payment preview does not show the likely policy decision
+### BUG-006 - Payment preview does not show the likely policy decision
 
 - Severity: P2
 - Status: OPEN
@@ -90,7 +90,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Root cause: no read-only server-authoritative preview path exists; the UI checks only the approval threshold.
 - Recommended fix: expose a non-mutating evaluation endpoint or reusable server result and show approved/approval-required/blocked with the first reason.
 
-### BUG-007 — Approval cards omit part of the required decision context
+### BUG-007 - Approval cards omit part of the required decision context
 
 - Severity: P2
 - Status: OPEN
@@ -100,7 +100,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Root cause: approval list response/UI use the compact transaction object rather than an approval-specific view model.
 - Recommended fix: add a server-owned approval context DTO and render it without duplicating policy logic in the browser.
 
-### BUG-008 — Overview core data fails as one request group
+### BUG-008 - Overview core data fails as one request group
 
 - Severity: P2
 - Status: OPEN
@@ -110,7 +110,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Root cause: coupled request/error state in `OverviewPage`.
 - Recommended fix: use independent results or `Promise.allSettled` with section-level errors.
 
-### BUG-009 — Live Gemini functionality is unconfigured
+### BUG-009 - Live Gemini functionality is unconfigured
 
 - Severity: P2 integration readiness
 - Status: BLOCKED
@@ -119,7 +119,7 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 - Root cause: no production Gemini credential/enablement.
 - Required action: provide approved credential, enable provider, then run live success/timeout/malformed-response tests. Do not claim live Gemini pass before that.
 
-### BUG-010 — Live PayPal Sandbox payout is unconfigured
+### BUG-010 - Live PayPal Sandbox payout is unconfigured
 
 - Severity: P2 integration readiness
 - Status: BLOCKED
@@ -130,31 +130,31 @@ No confirmed P0 or P1 defect remains. “Blocked by configuration” identifies 
 
 ## Open P3 issues
 
-### BUG-011 — Receipt lifecycle omits actor and payload context
+### BUG-011 - Receipt lifecycle omits actor and payload context
 
 - Status: OPEN
 - Actual: event type and timestamp only, although the API returns actor/payload.
 - Fix: render a safe actor label and selected payload fields.
 
-### BUG-012 — Receipt ledger rows omit account/counter-account identity
+### BUG-012 - Receipt ledger rows omit account/counter-account identity
 
 - Status: OPEN
 - Actual: direction, journal type and amount are shown.
 - Fix: enrich transaction detail ledger entries with safe account labels.
 
-### BUG-013 — Wallet error state has no explicit retry control
+### BUG-013 - Wallet error state has no explicit retry control
 
 - Status: OPEN
 - Actual: an error is shown, but recovery relies on navigation/reload.
 - Fix: pass the wallet reload callback to `ErrorNotice`.
 
-### BUG-014 — Password reveal is absent
+### BUG-014 - Password reveal is absent
 
 - Status: OPEN / NOT IMPLEMENTED
 - Actual: password fields provide no show/hide control required by the PRD.
 - Fix: add accessible toggle buttons with `aria-pressed` and preserved focus.
 
-### BUG-015 — Development dependency audit reports nine findings
+### BUG-015 - Development dependency audit reports nine findings
 
 - Status: OPEN
 - Actual: 8 moderate and 1 high findings in Vite/esbuild and lint/minimatch chains; production dependency audit is clean.

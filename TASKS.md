@@ -1,6 +1,11 @@
 # Pactra submission release tasks
 
-Source of truth: `Pactra-PRD-Judge-Ready.md` and the verified state of PR #2 on 5 November 2026.
+> Historical task plan for PR #2 on 5 November 2026. It is retained for
+> traceability and is not the current release checklist. Use `README.md`,
+> `QA/ACCEPTED-PRODUCTION-BASELINE.md`, and
+> `QA/CODEBASE-README-WEBAPP-RECONCILIATION.md` for current status.
+
+Source at the time: `Pactra-PRD-Judge-Ready.md` and the verified state of PR #2.
 
 | ID | Outcome | Owned paths | Depends on | Owner | Acceptance and verification |
 | --- | --- | --- | --- | --- | --- |

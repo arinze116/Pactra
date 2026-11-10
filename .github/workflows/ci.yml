@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   backend-sqlite:
-    name: Backend — SQLite
+    name: "Backend \u2014 SQLite"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -37,7 +37,7 @@ jobs:
       - run: pytest -q
 
   backend-postgresql:
-    name: Backend — PostgreSQL
+    name: "Backend \u2014 PostgreSQL"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -76,7 +76,7 @@ jobs:
       - run: pytest -q
 
   frontend:
-    name: Frontend — lint, build and audits
+    name: "Frontend \u2014 lint, build and audits"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -98,7 +98,7 @@ jobs:
         working-directory: frontend
 
   e2e:
-    name: E2E — journeys, WCAG and homepage Lighthouse
+    name: "E2E \u2014 journeys, WCAG and homepage Lighthouse"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:

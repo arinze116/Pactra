@@ -1,5 +1,9 @@
 # Pactra Final Engineering Handover
 
+> Historical handover for PR #17. The later codebase, README, authentication,
+> legal-page, and responsive UI reconciliation is recorded in
+> `QA/CODEBASE-README-WEBAPP-RECONCILIATION.md`.
+
 Date: 2026-11-09
 
 Branch: `release/final-pre-demo-readiness`
@@ -10,9 +14,9 @@ Base main: `9c6c94b85b75d2ec20c8905aabd77700a7779238`
 
 Implementation commits:
 
-- `b8538fc` — safe operational diagnostics and request hardening;
-- `346f741` — reproducible isolated demo rehearsal and assets;
-- `a6dc1cf` — final pre-demo documentation and handover.
+- `b8538fc` - safe operational diagnostics and request hardening;
+- `346f741` - reproducible isolated demo rehearsal and assets;
+- `a6dc1cf` - final pre-demo documentation and handover.
 
 The exact final PR head and required CI run are recorded by GitHub on PR #17;
 the final completion report must cite that immutable SHA and run after all

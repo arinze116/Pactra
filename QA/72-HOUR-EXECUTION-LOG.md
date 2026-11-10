@@ -53,10 +53,10 @@ https://github.com/arinze116/Pactra/actions/runs/42557687655
 GitHub reported the workflow completed successfully at 2026-11-09 04:42:54
 WAT for exact SHA b50117757347efd86d13bc43838654c5da2bcf0a:
 
-- Backend — SQLite: PASS.
-- Backend — PostgreSQL: PASS.
-- Frontend — lint, build and audits: PASS.
-- E2E — journeys, WCAG and homepage Lighthouse: PASS.
+- Backend - SQLite: PASS.
+- Backend - PostgreSQL: PASS.
+- Frontend - lint, build and audits: PASS.
+- E2E - journeys, WCAG and homepage Lighthouse: PASS.
 
 Exact-SHA CI blocker: **CLOSED** for the current application candidate
 `b50117757347efd86d13bc43838654c5da2bcf0a`.

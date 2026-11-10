@@ -13,7 +13,7 @@ Target length: 2 minutes 40 seconds. Use a fresh account so every balance and re
 | 1:25-1:48 | Edit the approval threshold and save | Show the immutable policy version increment, then create a request that follows the new version. |
 | 1:48-2:18 | Open Transactions and a receipt | Filter the history, then show lifecycle events, ordered policy trace, execution attempt, and balanced ledger impact. |
 | 2:18-2:35 | Reset the sandbox | Type `RESET`; show the restored `$1,000.00` current-generation balance and preserved historical receipts. |
-| 2:35-2:40 | Close | “Pactra makes every AI-initiated payment accountable to policy, a human decision when needed, and a ledger—even when every fund is sandbox-only.” |
+| 2:35-2:40 | Close | “Pactra makes every AI-initiated payment accountable to policy, a human decision when needed, and a ledger, even when every fund is sandbox-only.” |
 
 ## Rehearsal data
 
