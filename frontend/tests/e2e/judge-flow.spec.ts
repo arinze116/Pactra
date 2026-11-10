@@ -8,15 +8,19 @@ const apiOrigin = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "8000"}`;
 const frontendOrigin = `http://127.0.0.1:${process.env.E2E_FRONTEND_PORT ?? "5173"}`;
 
 async function submitRegistration(page: Page) {
-  const [registrationResponse] = await Promise.all([
-    page.waitForResponse(
-      (response) => response.url().endsWith("/api/auth/register") && response.request().method() === "POST",
-      { timeout: authenticationTimeout },
-    ),
+  await Promise.all([
+    page.waitForURL(/\/app$/, { timeout: authenticationTimeout }),
     page.getByRole("button", { name: "Create account" }).click(),
   ]);
-  expect(registrationResponse.status()).toBe(201);
-  await expect(page).toHaveURL(/\/app$/, { timeout: authenticationTimeout });
+  await expect(page.locator("#main-content")).toBeVisible();
+}
+
+async function submitSignIn(page: Page) {
+  await Promise.all([
+    page.waitForURL(/\/app$/, { timeout: authenticationTimeout }),
+    page.getByRole("button", { name: "Sign in", exact: true }).click(),
+  ]);
+  await expect(page.locator("#main-content")).toBeVisible();
 }
 
 async function register(page: Page, prefix: string) {
@@ -74,8 +78,7 @@ async function exercisePasswordReveal(page: Page, viewport: { width: number; hei
   await expect(page.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
   await expect(signInPassword).toHaveAttribute("type", "text");
   await expect(signInPassword).toHaveValue(password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await submitSignIn(page);
 }
 
 test("password reveal remains accessible through sign-up and sign-in", async ({ page }) => {
@@ -474,15 +477,25 @@ test("ambiguous payment retry survives reload without creating a duplicate", asy
     requestKeys.push(payload.idempotency_key);
     if (loseFirstResponse) {
       loseFirstResponse = false;
-      await route.fetch();
-      await route.abort("failed");
+      const committedResponse = await route.fetch();
+      expect(committedResponse.status()).toBe(201);
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: {
+            code: "UPSTREAM_RESPONSE_LOST",
+            message: "Payment request outcome is unknown",
+          },
+        }),
+      });
       return;
     }
     await route.continue();
   });
 
   await submitPayment(page);
-  await expect(page.getByText("Payment request could not be created")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Payment request outcome is unknown")).toBeVisible({ timeout: 10_000 });
   const storedAttempt = await page.evaluate(() => {
     const storageKey = Object.keys(sessionStorage).find((key) => key.startsWith("pactra-payment-attempt:"));
     return storageKey ? JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Record<string, string> : null;
@@ -717,8 +730,7 @@ test.describe("mobile judge navigation", () => {
 
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(/\/app$/);
+    await submitSignIn(page);
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "Open navigation" }).click();

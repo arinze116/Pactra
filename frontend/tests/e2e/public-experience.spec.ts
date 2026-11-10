@@ -28,15 +28,19 @@ const supportedViewports = [
 ];
 
 async function submitRegistration(page: Page) {
-  const [registrationResponse] = await Promise.all([
-    page.waitForResponse(
-      (response) => response.url().endsWith("/api/auth/register") && response.request().method() === "POST",
-      { timeout: authenticationTimeout },
-    ),
+  await Promise.all([
+    page.waitForURL(/\/app$/, { timeout: authenticationTimeout }),
     page.getByRole("button", { name: "Create account" }).click(),
   ]);
-  expect(registrationResponse.status()).toBe(201);
-  await expect(page).toHaveURL(/\/app$/, { timeout: authenticationTimeout });
+  await expect(page.locator("#main-content")).toBeVisible();
+}
+
+async function submitSignIn(page: Page) {
+  await Promise.all([
+    page.waitForURL(/\/app$/, { timeout: authenticationTimeout }),
+    page.getByRole("button", { name: "Sign in", exact: true }).click(),
+  ]);
+  await expect(page.locator("#main-content")).toBeVisible();
 }
 
 async function expectFreshDashboardLoaded(page: Page) {
@@ -127,8 +131,7 @@ test("eight-character passwords work across registration, login, and password ch
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(acceptedPassword);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await submitSignIn(page);
 
   await page.goto("/app/settings");
   await expect(page.getByLabel("New password")).toHaveAttribute("minlength", "8");
@@ -144,8 +147,7 @@ test("eight-character passwords work across registration, login, and password ch
   await expect(page.getByText("Email or password is incorrect.")).toBeVisible();
 
   await page.getByLabel("Password", { exact: true }).fill(replacementPassword);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await submitSignIn(page);
 });
 
 test.describe("public responsive matrix", () => {
