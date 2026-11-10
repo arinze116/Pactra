@@ -6,6 +6,9 @@ email, password, wallet connection, or provider credential is required.
 
 Production URL: <https://pactra-nine.vercel.app>
 
+Verified production release:
+`28634c13082a61b5c53e75528eacf2263ea1fd5e`.
+
 ## Judge journey
 
 1. Open the public landing page in a fresh browser context.
@@ -98,6 +101,21 @@ npm run test:demo
 ```
 
 Never point this command at the production database.
+
+## Production verification
+
+The merged release is active on both production surfaces:
+
+- Vercel deployment `dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL`, aliased to the
+  production URL;
+- Oracle release `/opt/pactra/releases/28634c1`, database migration
+  `20261110_0006`.
+
+Production browser acceptance uses retries disabled, two isolated contexts,
+the real policy/approval/ledger workflow, all seven required viewports, and
+Axe WCAG 2.1 A/AA checks. Detailed timings, browser versions, screenshots,
+provider-exclusion evidence, and deployment health are recorded in
+[QA/DEMO/DEMO-ACCEPTANCE-REPORT.md](../QA/DEMO/DEMO-ACCEPTANCE-REPORT.md).
 
 ## Recovery
 
