@@ -77,7 +77,7 @@ export default defineConfig({
     {
       command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
       cwd: ".",
-      env: { VITE_API_URL: apiURL },
+      env: { PACTRA_DEV_PROXY_TARGET: apiURL, VITE_API_URL: "" },
       url: baseURL,
       reuseExistingServer,
       timeout: 120_000,

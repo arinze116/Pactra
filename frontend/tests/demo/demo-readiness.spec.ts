@@ -240,6 +240,7 @@ test("instant demo is responsive and keeps reset, exit, navigation, and content 
 
 test("demo landing, dashboard, and confirmation dialog meet automated WCAG checks", async ({ page }) => {
   test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await expect(page.locator('[data-auth-state="unauthenticated"]').first()).toBeVisible();
   await expectWcag21AA(page, "Instant-demo landing page");
