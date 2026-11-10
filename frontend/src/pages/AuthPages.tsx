@@ -120,7 +120,7 @@ function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
                 <p className="text-xs leading-5 text-ink-500" id={passwordRequirementsId}>{PASSWORD_REQUIREMENTS}</p>
               ) : null}
               <button className="action-primary h-11 w-full" disabled={submitting} type="submit">
-                {submitting ? "Please wait" : isSignUp ? "Create sandbox account" : "Sign in"}
+                {submitting ? "Please wait" : isSignUp ? "Create account" : "Sign in"}
               </button>
             </form>
             {isSignUp ? (
@@ -131,7 +131,7 @@ function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
             <p className="mt-6 text-sm text-ink-500">
               {isSignUp ? "Already have an account?" : "New to Pactra?"}{" "}
               <Link className="font-medium text-pactra-300 hover:text-white" to={isSignUp ? "/sign-in" : "/sign-up"}>
-                {isSignUp ? "Sign in" : "Create a sandbox"}
+                {isSignUp ? "Sign in" : "Sign up"}
               </Link>
             </p>
           </div>

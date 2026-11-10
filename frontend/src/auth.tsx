@@ -1,56 +1,90 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { api } from "./api";
 import type { User } from "./types";
 
+export type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
+
 interface AuthContextValue {
   user: User | null;
-  loading: boolean;
+  status: AuthenticationStatus;
+  retrySession: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
+interface AuthenticationState {
+  user: User | null;
+  status: AuthenticationStatus;
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
+let pendingSessionRequest: ReturnType<typeof api.session> | null = null;
+
+function requestSessionState() {
+  if (pendingSessionRequest) return pendingSessionRequest;
+
+  const request = api.session();
+  pendingSessionRequest = request;
+  void request.then(
+    () => { if (pendingSessionRequest === request) pendingSessionRequest = null; },
+    () => { if (pendingSessionRequest === request) pendingSessionRequest = null; },
+  );
+  return request;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [authentication, setAuthentication] = useState<AuthenticationState>({
+    user: null,
+    status: "loading",
+  });
+  const mountedRef = useRef(false);
 
-  useEffect(() => {
-    let active = true;
-    api.session().then(({ user: nextUser }) => {
-      if (active) setUser(nextUser);
-    }).catch(() => {
-      if (active) setUser(null);
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    const clear = () => setUser(null);
-    window.addEventListener("pactra:unauthenticated", clear);
-    return () => {
-      active = false;
-      window.removeEventListener("pactra:unauthenticated", clear);
-    };
+  const restoreSession = useCallback(async () => {
+    setAuthentication((current) => ({ ...current, status: "loading" }));
+    try {
+      const { user } = await requestSessionState();
+      if (!mountedRef.current) return;
+      setAuthentication({
+        user,
+        status: user ? "authenticated" : "unauthenticated",
+      });
+    } catch {
+      if (!mountedRef.current) return;
+      setAuthentication((current) => ({ ...current, status: "error" }));
+    }
   }, []);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    void restoreSession();
+    const clear = () => setAuthentication({ user: null, status: "unauthenticated" });
+    window.addEventListener("pactra:unauthenticated", clear);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener("pactra:unauthenticated", clear);
+    };
+  }, [restoreSession]);
+
   const value = useMemo<AuthContextValue>(() => ({
-    user,
-    loading,
+    retrySession: restoreSession,
+    status: authentication.status,
+    user: authentication.user,
     signIn: async (email, password) => {
       const result = await api.login(email, password);
-      setUser(result.user);
+      setAuthentication({ user: result.user, status: "authenticated" });
     },
     signUp: async (email, password) => {
       const result = await api.register(email, password);
-      setUser(result.user);
+      setAuthentication({ user: result.user, status: "authenticated" });
     },
     signOut: async () => {
       await api.logout();
-      setUser(null);
+      setAuthentication({ user: null, status: "unauthenticated" });
     },
-  }), [loading, user]);
+  }), [authentication, restoreSession]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -62,15 +96,40 @@ export function useAuth() {
 }
 
 export function ProtectedRoute() {
-  const { user, loading } = useAuth();
+  const { retrySession, status, user } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="grid min-h-screen place-items-center text-sm text-ink-500">Loading workspace</div>;
+  if (status === "loading") return <SessionLoadingState />;
+  if (status === "error") return <SessionErrorState onRetry={retrySession} />;
   if (!user) return <Navigate replace state={{ from: location.pathname }} to="/sign-in" />;
   return <Outlet />;
 }
 
 export function GuestRoute() {
-  const { user, loading } = useAuth();
-  if (loading) return null;
+  const { retrySession, status, user } = useAuth();
+  if (status === "loading") return <SessionLoadingState />;
+  if (status === "error") return <SessionErrorState onRetry={retrySession} />;
   return user ? <Navigate replace to="/app" /> : <Outlet />;
+}
+
+function SessionLoadingState() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-canvas px-6 text-center text-ink-950" role="status">
+      <div>
+        <span aria-hidden="true" className="mx-auto block h-2.5 w-2.5 rounded-full bg-pactra-600" />
+        <p className="mt-3 text-sm text-ink-500">Checking your Pactra session</p>
+      </div>
+    </div>
+  );
+}
+
+function SessionErrorState({ onRetry }: { onRetry: () => Promise<void> }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-canvas px-6 text-center text-ink-950">
+      <div className="max-w-sm">
+        <p className="text-lg font-medium">Session check unavailable</p>
+        <p className="mt-2 text-sm leading-6 text-ink-500">Pactra could not verify your session. Your account has not been signed out.</p>
+        <button className="action-secondary mt-5" onClick={() => void onRetry()} type="button">Retry session</button>
+      </div>
+    </div>
+  );
 }

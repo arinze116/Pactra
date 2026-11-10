@@ -39,7 +39,9 @@ const backendEnv = {
   PAYPAL_TEST_RECIPIENT_EMAIL: "",
   PAYPAL_BASE_URL: "https://api-m.sandbox.paypal.com",
   SESSION_COOKIE_SECURE: "false",
-  AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR: "100",
+  AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR: "1000",
+  AUTH_REGISTRATION_GLOBAL_RATE_LIMIT_PER_HOUR: "10000",
+  AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE: "10000",
   SEED_DEMO_ACCOUNT: "false",
 };
 
@@ -50,14 +52,18 @@ export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: false,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "firefox", use: { ...devices["Desktop Firefox"] } },
+    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+  ],
   webServer: [
     {
       command: `${pythonShellCommand} -m alembic upgrade head && ${pythonShellCommand} -m uvicorn backend.main:app --host 127.0.0.1 --port ${apiPort}`,

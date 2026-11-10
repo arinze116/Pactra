@@ -49,6 +49,14 @@ interface PactraRequestInit extends RequestInit {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const NETWORK_REQUEST_FAILED_MESSAGE = "Network request failed. Please try again.";
+
+class NetworkRequestError extends Error {
+  constructor() {
+    super(NETWORK_REQUEST_FAILED_MESSAGE);
+    this.name = "NetworkRequestError";
+  }
+}
 
 async function request<T>(path: string, init: PactraRequestInit = {}): Promise<T> {
   const { timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, signal, ...requestInit } = init;
@@ -72,11 +80,11 @@ async function request<T>(path: string, init: PactraRequestInit = {}): Promise<T
         ...requestInit.headers,
       },
     });
-  } catch (error) {
+  } catch {
     if (controller.signal.aborted && !signal?.aborted) {
       throw new Error(`Request timed out. Reference ${requestId}.`);
     }
-    throw error;
+    throw new NetworkRequestError();
   } finally {
     window.clearTimeout(timeout);
     signal?.removeEventListener("abort", abortFromCaller);

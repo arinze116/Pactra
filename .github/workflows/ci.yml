@@ -100,7 +100,7 @@ jobs:
   e2e:
     name: "E2E \u2014 journeys, WCAG and homepage Lighthouse"
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17
@@ -142,7 +142,7 @@ jobs:
       - run: alembic upgrade head
       - run: npm ci
         working-directory: frontend
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend

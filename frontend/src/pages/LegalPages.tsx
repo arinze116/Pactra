@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { BrandMark } from "../components/Brand";
+import { PublicAuthActions } from "../components/PublicAuthActions";
 import { PublicFooter } from "../components/PublicFooter";
 
 interface LegalSection {
@@ -139,10 +140,7 @@ function LegalPage({
             <BrandMark />
             Pactra
           </Link>
-          <nav aria-label="Legal page navigation" className="flex items-center gap-2 sm:gap-4">
-            <Link className="inline-flex min-h-11 items-center px-2 text-sm text-ink-500 hover:text-ink-950" to="/sign-in">Sign in</Link>
-            <Link className="action-primary hidden sm:inline-flex" to="/sign-up">Create sandbox</Link>
-          </nav>
+          <nav aria-label="Legal page navigation"><PublicAuthActions layout="legal" /></nav>
         </div>
       </header>
 
