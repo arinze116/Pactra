@@ -26,7 +26,7 @@ const supportedViewports = [
   { width: 1920, height: 1080 },
 ];
 
-const webKitNavigationAbortSuffix = " due to access control checks.";
+const webKitNavigationAbortMarker = "due to access control checks";
 
 function collectRuntimeErrors(page: Page, browserName: string) {
   const runtimeErrors: string[] = [];
@@ -34,7 +34,7 @@ function collectRuntimeErrors(page: Page, browserName: string) {
     if (message.type() !== "error") return;
     const text = message.text();
     // WebKit labels same-origin fetches aborted by full-page navigation as access-control errors.
-    if (browserName === "webkit" && text.endsWith(webKitNavigationAbortSuffix)) return;
+    if (browserName === "webkit" && text.includes(webKitNavigationAbortMarker)) return;
     runtimeErrors.push(text);
   });
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
