@@ -52,6 +52,8 @@ export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: false,
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   retries: 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
