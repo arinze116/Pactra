@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const acceptedPassword = "Aa1!aaaa";
 const replacementPassword = "Bb2@bbbb";
@@ -25,6 +25,20 @@ const supportedViewports = [
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
 ];
+
+const webKitNavigationAbortPattern = /^\/127\.0\.0\.1:\d+\/api\/.* due to access control checks\.$/;
+
+function collectRuntimeErrors(page: Page, browserName: string) {
+  const runtimeErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const text = message.text();
+    if (browserName === "webkit" && webKitNavigationAbortPattern.test(text)) return;
+    runtimeErrors.push(text);
+  });
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+  return runtimeErrors;
+}
 
 test("public informational routes share one session restoration request", async ({ page }) => {
   let sessionRequestCount = 0;
@@ -125,14 +139,10 @@ test("eight-character passwords work across registration, login, and password ch
 
 test.describe("public responsive matrix", () => {
   for (const viewport of supportedViewports) {
-    test(`public pages and footer remain complete at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    test(`public pages and footer remain complete at ${viewport.width}x${viewport.height}`, async ({ page, browserName }) => {
       test.setTimeout(60_000);
       await page.setViewportSize(viewport);
-      const runtimeErrors: string[] = [];
-      page.on("console", (message) => {
-        if (message.type() === "error") runtimeErrors.push(message.text());
-      });
-      page.on("pageerror", (error) => runtimeErrors.push(error.message));
+      const runtimeErrors = collectRuntimeErrors(page, browserName);
 
       for (const route of publicRoutes) {
         const response = await page.goto(route, { waitUntil: "domcontentloaded" });
@@ -155,14 +165,10 @@ test.describe("public responsive matrix", () => {
 
 test.describe("authenticated responsive matrix", () => {
   for (const viewport of supportedViewports) {
-    test(`authenticated routes remain responsive at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    test(`authenticated routes remain responsive at ${viewport.width}x${viewport.height}`, async ({ page, browserName }) => {
       test.setTimeout(60_000);
       await page.setViewportSize(viewport);
-      const runtimeErrors: string[] = [];
-      page.on("console", (message) => {
-        if (message.type() === "error") runtimeErrors.push(message.text());
-      });
-      page.on("pageerror", (error) => runtimeErrors.push(error.message));
+      const runtimeErrors = collectRuntimeErrors(page, browserName);
 
       await page.goto("/sign-up");
       await page.getByLabel("Email").fill(
