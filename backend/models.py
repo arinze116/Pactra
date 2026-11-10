@@ -184,6 +184,8 @@ class User(SQLModel, table=True):
     email: str = Field(max_length=254, unique=True, index=True)
     password_hash: str
     status: str = Field(default="active", max_length=16)
+    is_demo: bool = Field(default=False, index=True)
+    display_name: str | None = Field(default=None, max_length=100)
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -221,6 +223,49 @@ class AuthSession(SQLModel, table=True):
     )
     revoked_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
+
+class DemoWorkspace(SQLModel, table=True):
+    """Lifecycle record for one isolated, temporary demo principal."""
+
+    __tablename__ = "demo_workspaces"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active','revoked','expired')",
+            name="demo_workspaces_status_valid",
+        ),
+        CheckConstraint(
+            "seed_version > 0",
+            name="demo_workspaces_seed_version_positive",
+        ),
+        Index("ix_demo_workspaces_status_expiry", "status", "expires_at"),
+    )
+
+    id: str = Field(
+        default_factory=new_id,
+        sa_column=Column(UUID_STRING, primary_key=True, nullable=False),
+    )
+    user_id: str = Field(
+        sa_column=Column(
+            UUID_STRING,
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            unique=True,
+        )
+    )
+    status: str = Field(default="active", max_length=16)
+    seed_version: int = Field(default=1)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False)
+    )
+    last_reset_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
     )
 
 

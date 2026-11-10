@@ -63,6 +63,14 @@ class IntegrationUnavailable(TransactionServiceError):
     code = "PAYPAL_UNAVAILABLE"
 
 
+class DemoProviderDisabled(IntegrationUnavailable):
+    code = "DEMO_SANDBOX_ONLY"
+
+
+class DemoResourceLimit(TransactionServiceError):
+    code = "DEMO_RESOURCE_LIMIT"
+
+
 class AlreadyActioned(TransactionServiceError):
     code = "ALREADY_ACTIONED"
 
@@ -297,6 +305,10 @@ def retry_transaction(
     transaction = get_owned_transaction(
         session, user_id=user.id, transaction_id=transaction_id, for_update=True
     )
+    if user.is_demo and transaction.rail != "internal_sandbox":
+        raise DemoProviderDisabled(
+            "Demo workspaces cannot submit or retry provider payments"
+        )
     if transaction.status != "failed":
         raise AlreadyActioned("Only definitively failed transactions can be retried")
     if transaction.rail == "paypal_sandbox_payouts" and transaction.provider_status in {
@@ -366,6 +378,10 @@ def create_payment_request(
     payload: dict[str, Any],
 ) -> TransactionResult:
     """Apply policy, reserve funds and execute through the selected rail once."""
+    if user.is_demo and payload["rail"] != "internal_sandbox":
+        raise DemoProviderDisabled(
+            "Demo workspaces use the internal sandbox only"
+        )
     existing = session.exec(
         select(PaymentTransaction).where(
             PaymentTransaction.user_id == user.id,
@@ -427,6 +443,19 @@ def create_payment_request(
             balance=wallet_balance(session, wallet),
             replayed=True,
         )
+    if user.is_demo:
+        transaction_count = int(
+            session.exec(
+                select(func.count(PaymentTransaction.id)).where(
+                    PaymentTransaction.user_id == user.id
+                )
+            ).one()
+            or 0
+        )
+        if transaction_count >= settings.demo_max_transactions:
+            raise DemoResourceLimit(
+                "This demo reached its activity limit. Start a fresh demo to continue."
+            )
     policy = get_current_policy(session, user.id, for_update=True)
     transaction = PaymentTransaction(
         user_id=user.id,
@@ -547,6 +576,10 @@ def approve_transaction(
     transaction = get_owned_transaction(
         session, user_id=user.id, transaction_id=transaction_id, for_update=True
     )
+    if user.is_demo and transaction.rail != "internal_sandbox":
+        raise DemoProviderDisabled(
+            "Demo workspaces cannot approve provider payments"
+        )
     if transaction.status != "pending_approval":
         raise AlreadyActioned("This request was already actioned")
     wallet = get_wallet_for_user(session, user.id, for_update=True)
@@ -809,6 +842,10 @@ def enqueue_paypal_reconciliation(
         transaction_id=transaction_id,
         for_update=True,
     )
+    if user.is_demo:
+        raise DemoProviderDisabled(
+            "Demo workspaces cannot access provider reconciliation"
+        )
     if transaction.rail != "paypal_sandbox_payouts" or transaction.status not in {
         "executing",
         "completed",

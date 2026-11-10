@@ -50,17 +50,19 @@ function removePendingPaymentAttempt(storageKey: string) {
   try { sessionStorage.removeItem(storageKey); } catch { /* storage may be unavailable */ }
 }
 
-const scenarioPresets: Record<
+type ScenarioPreset = {
+  type: TransactionType;
+  vendor: string;
+  recipient: string;
+  amount: string;
+  category: string;
+  reason: string;
+  rail: PaymentRail;
+};
+
+const normalScenarioPresets: Record<
   string,
-  {
-    type: TransactionType;
-    vendor: string;
-    recipient: string;
-    amount: string;
-    category: string;
-    reason: string;
-    rail: PaymentRail;
-  }
+  ScenarioPreset
 > = {
   auto: { type: "vendor_payment", vendor: "Linear", recipient: "", amount: "49.00", category: "software", reason: "Monthly software subscription", rail: "internal_sandbox" },
   approval: { type: "payout", vendor: "Ada Contractor", recipient: "ada@example.com", amount: "125.00", category: "freelance", reason: "Freelance contract work", rail: "internal_sandbox" },
@@ -69,12 +71,19 @@ const scenarioPresets: Record<
   paypal: { type: "payout", vendor: "PayPal test recipient", recipient: "", amount: "25.00", category: "freelance", reason: "PayPal Sandbox payout test", rail: "paypal_sandbox_payouts" },
 };
 
+const demoScenarioPresets: Record<string, ScenarioPreset> = {
+  ...normalScenarioPresets,
+  approval: { type: "vendor_payment", vendor: "Figma Teams", recipient: "", amount: "120.00", category: "software", reason: "Team design subscription", rail: "internal_sandbox" },
+  blocked: { type: "vendor_payment", vendor: "Restricted Supply Co", recipient: "", amount: "75.00", category: "vendor_payments", reason: "Restricted vendor purchase", rail: "internal_sandbox" },
+  reject: { type: "vendor_payment", vendor: "Northstar Contractor", recipient: "", amount: "120.00", category: "software", reason: "Invoice requiring review", rail: "internal_sandbox" },
+};
+
 export function NewPaymentPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const scenario = searchParams.get("scenario") ?? "";
-  const preset = scenarioPresets[scenario];
+  const preset = (user?.is_demo ? demoScenarioPresets : normalScenarioPresets)[scenario];
   const [policy, setPolicy] = useState<PolicyEnvelope | null>(null);
   const [paypal, setPaypal] = useState<PayPalStatus | null>(null);
   const [type, setType] = useState<TransactionType>(preset?.type ?? "vendor_payment");
@@ -157,6 +166,14 @@ export function NewPaymentPage() {
         if (active) setPolicyLoading(false);
       });
 
+    if (user?.is_demo) {
+      setPaypal(null);
+      setRail("internal_sandbox");
+      setIsUsingConfiguredPayPalRecipient(false);
+      setPaypalLoading(false);
+      return () => { active = false; };
+    }
+
     api.paypalStatus()
       .then((nextPayPal) => {
         if (!active) return;
@@ -178,7 +195,7 @@ export function NewPaymentPage() {
       });
 
     return () => { active = false; };
-  }, [preset, scenario]);
+  }, [preset, scenario, user?.is_demo]);
 
   useEffect(() => {
     if (type !== "payout") {
@@ -355,7 +372,7 @@ export function NewPaymentPage() {
       <aside className="space-y-4">
         <Panel className="p-5" aria-live="polite"><div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-pactra-700" />Likely policy decision</div>{previewLoading ? <p className="mt-4 text-xs text-ink-500">Checking current policy and available funds…</p> : previewError ? <p className="mt-4 text-xs text-negative">{previewError}. Final submission remains server-authoritative.</p> : preview ? <div className="mt-4"><p className={`text-sm font-medium ${preview.decision === "blocked" ? "text-negative" : preview.decision === "approval_required" ? "text-warning-dark" : "text-positive-dark"}`}>{preview.decision === "blocked" ? "Likely blocked" : preview.decision === "approval_required" ? "Likely needs approval" : "Likely auto-approved"}</p><p className="mt-2 text-xs leading-5 text-ink-500">Policy v{preview.policy_version}{preview.reason_code ? ` · ${preview.reason_code.replace(/_/g, " ")}` : " · all checks pass"}. The final decision is recalculated when you submit.</p></div> : <p className="mt-4 text-xs text-ink-500">Enter a vendor and valid amount to preview the current decision.</p>}</Panel>
         <Panel className="p-5"><div className="flex items-center gap-2 text-sm font-medium"><ShieldCheck className="h-4 w-4 text-pactra-700" />Decision order</div><ol className="policy-trace mt-5 space-y-4 text-xs text-ink-600">{["Account and category", "Vendor and payment cap", "Daily and category budgets", "Available wallet funds", "Approval threshold"].map((item, index) => <li className="flex items-center gap-3" key={item}><span>{index + 1}</span>{item}</li>)}</ol></Panel>
-        <Panel className="p-5"><p className="text-sm font-medium">Rail disclosure</p><p className="mt-2 text-xs leading-5 text-ink-500">Internal payments use Pactra's simulated ledger. PayPal Sandbox payouts are sent by the configured sandbox business account. The balances are not linked.</p><p aria-live="polite" className={`mt-4 text-xs font-medium ${paypal?.configured ? "text-positive-dark" : "text-ink-500"}`}>{paypalLoading ? "Checking PayPal Sandbox status" : paypalError ? "PayPal status could not be verified; internal sandbox only" : paypal?.configured ? "PayPal Sandbox configured" : "PayPal Sandbox unavailable"}</p><Link className="mt-2 inline-flex min-h-11 items-center text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" to="/app/settings/integrations/paypal">Integration details</Link></Panel>
+        <Panel className="p-5"><p className="text-sm font-medium">Rail disclosure</p><p className="mt-2 text-xs leading-5 text-ink-500">{user?.is_demo ? "Demo payments stay inside Pactra's simulated ledger and never enter a provider execution path." : "Internal payments use Pactra's simulated ledger. PayPal Sandbox payouts are sent by the configured sandbox business account. The balances are not linked."}</p><p aria-live="polite" className={`mt-4 text-xs font-medium ${paypal?.configured ? "text-positive-dark" : "text-ink-500"}`}>{user?.is_demo ? "Demo-safe internal sandbox only" : paypalLoading ? "Checking PayPal Sandbox status" : paypalError ? "PayPal status could not be verified; internal sandbox only" : paypal?.configured ? "PayPal Sandbox configured" : "PayPal Sandbox unavailable"}</p>{user?.is_demo ? null : <Link className="mt-2 inline-flex min-h-11 items-center text-xs font-medium text-ink-700 underline decoration-line underline-offset-4" to="/app/settings/integrations/paypal">Integration details</Link>}</Panel>
       </aside>
     </div>
   </>;

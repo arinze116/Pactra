@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const devProxyTarget = process.env.PACTRA_DEV_PROXY_TARGET?.trim()
+  || "http://localhost:8000";
+
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -11,7 +14,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://localhost:8000",
+        target: devProxyTarget,
         changeOrigin: true,
       },
     },

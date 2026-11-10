@@ -55,6 +55,7 @@ def test_initial_migration_builds_clean_sqlite_database(tmp_path: Path) -> None:
         "conversations",
         "conversation_messages",
         "rate_limit_buckets",
+        "demo_workspaces",
         "alembic_version",
     }
     assert expected_tables.issubset(set(inspector.get_table_names()))
@@ -92,7 +93,7 @@ def test_initial_migration_builds_clean_sqlite_database(tmp_path: Path) -> None:
         "request_id",
         "role",
     ]
-    assert revision == "20261107_0005"
+    assert revision == "20261110_0006"
 
 
 def test_runtime_models_use_postgresql_uuid_for_migrated_identifiers() -> None:

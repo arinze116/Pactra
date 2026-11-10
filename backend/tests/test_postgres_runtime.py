@@ -18,6 +18,7 @@ from backend.errors import ApiError
 from backend.models import (
     ApprovalAction,
     AuditEvent,
+    DemoWorkspace,
     FundReservation,
     LedgerEntry,
     LedgerJournal,
@@ -25,8 +26,14 @@ from backend.models import (
     TransactionAttempt,
     User,
     Wallet,
+    utc_now,
 )
 from backend.services.accounts import create_account
+from backend.services.demo import (
+    cleanup_expired_demo_workspaces,
+    create_demo_workspace,
+    reset_demo_workspace,
+)
 from backend.services.ledger import get_wallet_for_user, wallet_balance
 from backend.services.policies import get_current_policy, save_policy
 from backend.services.transactions import (
@@ -488,3 +495,73 @@ def test_concurrent_approval_and_rejection_have_one_terminal_winner() -> None:
             assert reservation.status == "released"
             assert balance.posted_cents == 100_000
         assert balance.reserved_cents == 0
+
+
+def test_expired_demo_cleanup_passes_immutability_triggers_and_is_idempotent() -> None:
+    normal_user_id = create_postgres_account()
+    with Session(engine, expire_on_commit=False) as session:
+        demo = create_demo_workspace(session)
+        session.commit()
+        demo_user_id = demo.user.id
+        workspace_id = demo.workspace.id
+
+    with Session(engine) as session:
+        workspace = session.get(DemoWorkspace, workspace_id)
+        assert workspace is not None
+        workspace.expires_at = utc_now() - timedelta(seconds=1)
+        session.add(workspace)
+        session.commit()
+
+    with Session(engine) as session:
+        assert cleanup_expired_demo_workspaces(session) == 1
+        session.commit()
+
+    with Session(engine) as session:
+        assert session.get(User, demo_user_id) is None
+        assert session.get(DemoWorkspace, workspace_id) is None
+        assert session.get(User, normal_user_id) is not None
+        assert cleanup_expired_demo_workspaces(session) == 0
+        session.commit()
+
+
+def test_concurrent_demo_resets_serialize_and_leave_one_reconciled_generation() -> None:
+    with Session(engine, expire_on_commit=False) as session:
+        demo = create_demo_workspace(session)
+        session.commit()
+        demo_user_id = demo.user.id
+        workspace_id = demo.workspace.id
+
+    barrier = Barrier(2)
+
+    def reset(index: int) -> int:
+        with Session(engine, expire_on_commit=False) as session:
+            user = session.get(User, demo_user_id)
+            assert user is not None
+            barrier.wait(timeout=10)
+            result = reset_demo_workspace(
+                session,
+                user=user,
+                workspace_id=workspace_id,
+                idempotency_key=f"postgres-demo-reset-{index}-{uuid4()}",
+            )
+            session.commit()
+            return result.reset.sandbox_generation
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        generations = list(executor.map(reset, [1, 2]))
+
+    assert sorted(generations) == [2, 3]
+    with Session(engine) as session:
+        wallet = get_wallet_for_user(session, demo_user_id)
+        balance = wallet_balance(session, wallet)
+        current_transactions = session.exec(
+            select(PaymentTransaction).where(
+                PaymentTransaction.user_id == demo_user_id,
+                PaymentTransaction.sandbox_generation == wallet.sandbox_generation,
+            )
+        ).all()
+        assert wallet.sandbox_generation == 3
+        assert balance.posted_cents == 96_500
+        assert balance.reserved_cents == 14_000
+        assert balance.available_cents == 82_500
+        assert len(current_transactions) == 4

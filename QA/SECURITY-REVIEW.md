@@ -1,5 +1,33 @@
 # Pactra Security Review
 
+## 2026-11-10 instant-demo candidate addendum
+
+- Each instant demo is a distinct `User` with `is_demo=true`, one active
+  `DemoWorkspace`, and the normal owner-scoped wallet, policy, transaction,
+  receipt, conversation, and audit records. No shared writable account exists.
+- Demo and normal sessions use separate opaque HttpOnly cookies and the
+  existing same-origin/CSRF mechanism. Exiting a demo does not revoke an
+  unrelated normal session.
+- Cross-session receipt access, normal/demo separation, expiry, revocation,
+  and cleanup were exercised in SQLite and PostgreSQL tests.
+- Provider exclusion is enforced in the API, transaction service, PayPal
+  service, worker claim, and worker scan. Directly inserted provider-shaped
+  demo rows did not invoke the test provider client.
+- Demo AI requests bypass Gemini and return a labelled deterministic response.
+- PostgreSQL immutable ledger/audit functions permit delete only when a joined
+  workspace proves the owner is demo-owned and expired or revoked. Normal-user
+  immutability regressions still pass.
+- Database-backed creation/reset limits, a PostgreSQL-serialized active cap,
+  a per-principal transaction cap, absolute expiry, and bounded cleanup reduce
+  resource-exhaustion risk. IP is not used as the ownership boundary.
+- Full SQLite/PostgreSQL suites, the no-retry instant-demo journey, 48 Chromium
+  regression tests, dependency audits, and secret-pattern review pass locally.
+  Exact-head CI and production acceptance remain separate release gates.
+
+Candidate assessment: no known critical/high instant-demo isolation or
+provider-boundary finding. Production is not claimed until the deployed
+two-context isolation and no-provider-call checks pass.
+
 > The original review below is retained as historical evidence. Current
 > production reports provider configuration present. The candidate additionally
 > makes the worker the sole PayPal submitter and masks the configured recipient

@@ -52,6 +52,7 @@ export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: false,
+  workers: process.env.CI ? 1 : undefined,
   retries: 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
@@ -76,7 +77,7 @@ export default defineConfig({
     {
       command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
       cwd: ".",
-      env: { VITE_API_URL: apiURL },
+      env: { PACTRA_DEV_PROXY_TARGET: apiURL, VITE_API_URL: "" },
       url: baseURL,
       reuseExistingServer,
       timeout: 120_000,

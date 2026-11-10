@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { ArrowLeft, Check, ClipboardCopy, RefreshCw, X } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, createIdempotencyKey, isAmbiguousMutationError } from "../api";
+import { useAuth } from "../auth";
+import { markDemoProgress } from "../demoProgress";
 import { EmptyState, ErrorNotice, formatCents, LoadingBlock, PageHeader, Panel, Status } from "../components/UI";
 import type { ApprovalItem, Transaction, TransactionDetail, TransactionStatus, TransactionType } from "../types";
 
@@ -54,7 +56,7 @@ export function ApprovalsPage() {
     <PageHeader title="Approvals" description="Oldest requests appear first. Every approval rechecks the current policy and wallet." />
     {error ? <div className="mb-5"><ErrorNotice message={error} onRetry={() => void load()} /></div> : null}
     <Panel>
-      {loading ? <div className="space-y-3 p-5"><LoadingBlock className="h-28" /><LoadingBlock className="h-28" /></div> : items.length ? <div className="divide-y divide-line">{items.map((item) => { const transaction = item.transaction; return <article className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center" key={transaction.id}><div><div className="flex flex-wrap items-center gap-3"><h2 className="text-base font-medium">{transaction.vendor}</h2><Status value={transaction.status} /></div><p className="mt-2 text-sm text-ink-600">{transaction.reason}</p><dl className="mt-4 grid gap-x-8 gap-y-3 text-xs sm:grid-cols-2 xl:grid-cols-4"><ApprovalFact label="Requester" value={item.requester.email} /><ApprovalFact label="Amount" value={formatCents(transaction.amount_cents)} /><ApprovalFact label="Category" value={transaction.category} /><ApprovalFact label="Available balance" value={formatCents(item.available_balance.available_cents)} /><ApprovalFact label="Created" value={new Date(transaction.created_at).toLocaleString()} /><ApprovalFact label="Age" value={formatAge(transaction.created_at)} /><ApprovalFact label="Rail" value={transaction.rail === "internal_sandbox" ? "Internal sandbox" : "PayPal Sandbox"} /><ApprovalFact label="Current policy" value={`v${item.current_policy_version} · ${item.current_policy_decision.replace(/_/g, " ")}`} /></dl><div className="mt-4 rounded-xl bg-canvas p-4"><p className="text-xs font-medium text-ink-700">Policy checks</p><ul className="mt-2 grid gap-1 text-xs text-ink-500 sm:grid-cols-2">{item.policy_checks.map((check, index) => <li key={`${String(check.code)}-${index}`}>{check.passed ? "Pass" : "Stop"}: {String(check.code ?? "policy check").replace(/_/g, " ")}</li>)}</ul>{item.current_policy_reason_code ? <p className="mt-2 text-xs font-medium text-negative">{item.current_policy_reason_code.replace(/_/g, " ")}</p> : null}</div>{rejecting === transaction.id ? <label className="mt-5 block max-w-xl text-xs font-medium text-ink-600">Rejection reason for {transaction.vendor}<textarea className="input mt-2 min-h-20 resize-y py-2" maxLength={300} onChange={(event) => { rejectionKeysRef.current.delete(transaction.id); setReason(event.target.value); }} placeholder="Optional context for the audit trail" value={reason} /></label> : null}</div><div className="flex flex-wrap gap-2">{rejecting === transaction.id ? <><button className="action-secondary" disabled={busy === transaction.id} onClick={() => { rejectionKeysRef.current.delete(transaction.id); setRejecting(null); setReason(""); }} type="button">Cancel</button><button className="inline-flex h-10 items-center gap-2 rounded-lg border border-negative/30 px-4 text-sm font-medium text-negative disabled:opacity-50" disabled={busy === transaction.id} onClick={() => void act(item, "reject")} type="button"><X className="h-4 w-4" />Confirm rejection</button></> : <><button className="action-secondary" disabled={busy === transaction.id} onClick={() => { if (rejecting) rejectionKeysRef.current.delete(rejecting); rejectionKeysRef.current.delete(transaction.id); setRejecting(transaction.id); setReason(""); }} type="button"><X className="h-4 w-4" />Reject</button><button className="action-primary" disabled={busy === transaction.id} onClick={() => void act(item, "approve")} type="button"><Check className="h-4 w-4" />Approve</button></>}</div></article>; })}</div> : <EmptyState title="No requests need approval" description="Requests above your approval threshold will appear here" />}
+      {loading ? <div className="space-y-3 p-5"><LoadingBlock className="h-28" /><LoadingBlock className="h-28" /></div> : items.length ? <div className="divide-y divide-line">{items.map((item) => { const transaction = item.transaction; return <article className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center" key={transaction.id}><div><div className="flex flex-wrap items-center gap-3"><h2 className="text-base font-medium">{transaction.vendor}</h2><Status value={transaction.status} /></div><p className="mt-2 text-sm text-ink-600">{transaction.reason}</p><dl className="mt-4 grid gap-x-8 gap-y-3 text-xs sm:grid-cols-2 xl:grid-cols-4"><ApprovalFact label="Requester" value={item.requester.is_demo ? item.requester.display_name : item.requester.email} /><ApprovalFact label="Amount" value={formatCents(transaction.amount_cents)} /><ApprovalFact label="Category" value={transaction.category} /><ApprovalFact label="Available balance" value={formatCents(item.available_balance.available_cents)} /><ApprovalFact label="Created" value={new Date(transaction.created_at).toLocaleString()} /><ApprovalFact label="Age" value={formatAge(transaction.created_at)} /><ApprovalFact label="Rail" value={transaction.rail === "internal_sandbox" ? "Internal sandbox" : "PayPal Sandbox"} /><ApprovalFact label="Current policy" value={`v${item.current_policy_version} · ${item.current_policy_decision.replace(/_/g, " ")}`} /></dl><div className="mt-4 rounded-xl bg-canvas p-4"><p className="text-xs font-medium text-ink-700">Policy checks</p><ul className="mt-2 grid gap-1 text-xs text-ink-500 sm:grid-cols-2">{item.policy_checks.map((check, index) => <li key={`${String(check.code)}-${index}`}>{check.passed ? "Pass" : "Stop"}: {String(check.code ?? "policy check").replace(/_/g, " ")}</li>)}</ul>{item.current_policy_reason_code ? <p className="mt-2 text-xs font-medium text-negative">{item.current_policy_reason_code.replace(/_/g, " ")}</p> : null}</div>{rejecting === transaction.id ? <label className="mt-5 block max-w-xl text-xs font-medium text-ink-600">Rejection reason for {transaction.vendor}<textarea className="input mt-2 min-h-20 resize-y py-2" maxLength={300} onChange={(event) => { rejectionKeysRef.current.delete(transaction.id); setReason(event.target.value); }} placeholder="Optional context for the audit trail" value={reason} /></label> : null}</div><div className="flex flex-wrap gap-2">{rejecting === transaction.id ? <><button className="action-secondary" disabled={busy === transaction.id} onClick={() => { rejectionKeysRef.current.delete(transaction.id); setRejecting(null); setReason(""); }} type="button">Cancel</button><button className="inline-flex h-10 items-center gap-2 rounded-lg border border-negative/30 px-4 text-sm font-medium text-negative disabled:opacity-50" disabled={busy === transaction.id} onClick={() => void act(item, "reject")} type="button"><X className="h-4 w-4" />Confirm rejection</button></> : <><button className="action-secondary" disabled={busy === transaction.id} onClick={() => { if (rejecting) rejectionKeysRef.current.delete(rejecting); rejectionKeysRef.current.delete(transaction.id); setRejecting(transaction.id); setReason(""); }} type="button"><X className="h-4 w-4" />Reject</button><button className="action-primary" disabled={busy === transaction.id} onClick={() => void act(item, "approve")} type="button"><Check className="h-4 w-4" />Approve</button></>}</div></article>; })}</div> : <EmptyState title="No requests need approval" description="Requests above your approval threshold will appear here" />}
     </Panel>
   </>;
 }
@@ -203,6 +205,7 @@ export function TransactionsPage() {
 
 export function ReceiptPage() {
   const { id = "" } = useParams();
+  const { user } = useAuth();
   const [detail, setDetail] = useState<TransactionDetail | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -217,6 +220,23 @@ export function ReceiptPage() {
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (detail && user?.is_demo) {
+      if (
+        detail.transaction.status === "completed"
+        && detail.ledger_entries.length > 0
+        && detail.events.length > 0
+      ) {
+        markDemoProgress("receipt_viewed");
+      }
+      if (
+        detail.transaction.vendor === "Linear"
+        && detail.transaction.amount_cents === 4_900
+      ) {
+        markDemoProgress("policy_decision_observed");
+      }
+    }
+  }, [detail, user?.is_demo]);
 
   async function action(kind: "retry" | "reverse" | "reconcile") {
     if (!detail) return;
@@ -265,6 +285,7 @@ export function ReceiptPage() {
   return <>
     <Link className="mb-5 inline-flex items-center gap-2 text-sm text-ink-500 hover:text-ink-950" to="/app/transactions"><ArrowLeft className="h-4 w-4" />Transactions</Link>
     <PageHeader title="Transaction receipt" description={`Pactra ID ${transaction.id}`} action={<div className="flex flex-wrap gap-2"><button className="action-secondary" onClick={() => void copyId()} type="button"><ClipboardCopy className="h-4 w-4" />{copied ? "Copied" : "Copy ID"}</button>{transaction.status === "failed" ? <button className="action-secondary" disabled={busy} onClick={() => void action("retry")}>Retry</button> : null}{transaction.status === "completed" && transaction.rail === "internal_sandbox" ? <button className="action-secondary" disabled={busy} onClick={() => void action("reverse")}>Reverse</button> : null}{transaction.rail === "paypal_sandbox_payouts" && transaction.status === "executing" ? <button className="action-secondary" disabled={busy} onClick={() => void action("reconcile")}><RefreshCw className="h-4 w-4" />{isAmbiguousSubmissionRecovery ? "Recover submission" : "Refresh provider"}</button> : null}</div>} />
+    {user?.is_demo ? <div className="mb-5 rounded-xl border border-line bg-canvas-deep px-4 py-3 text-sm text-ink-600">Demo receipt · simulated internal sandbox evidence · no provider transfer occurred</div> : null}
     {error ? <div className="mb-5"><ErrorNotice message={error} onRetry={() => void load()} /></div> : null}
     <div className="grid gap-6 xl:grid-cols-[1fr_0.72fr]">
       <div className="space-y-6">

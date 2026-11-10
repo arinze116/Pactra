@@ -123,10 +123,11 @@ jobs:
       PAYPAL_PAYOUTS_ENABLED: "false"
       PAYPAL_MOCK_MODE: "false"
       PAYPAL_BASE_URL: https://api-m.sandbox.paypal.com
-      CORS_ORIGINS: http://localhost:5173
-      FRONTEND_URL: http://localhost:5173
+      CORS_ORIGINS: http://127.0.0.1:5173
+      FRONTEND_URL: http://127.0.0.1:5173
       VITE_API_URL: http://127.0.0.1:8000
       SESSION_COOKIE_SECURE: "false"
+      DEMO_DATABASE_URL: postgresql+psycopg://pactra:pactra@localhost:5432/pactra_e2e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -145,6 +146,8 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox webkit
         working-directory: frontend
       - run: npm run test:e2e
+        working-directory: frontend
+      - run: npm run test:demo
         working-directory: frontend
       - name: Lighthouse budgets
         working-directory: frontend

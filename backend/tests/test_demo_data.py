@@ -7,6 +7,7 @@ from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from backend.auth import verify_password
 from backend.demo_data import (
     DEMO_EMAIL,
     seed_demo_dataset,
@@ -56,6 +57,14 @@ def test_demo_seed_is_idempotent_and_financially_consistent() -> None:
 
     assert first.replayed is False
     assert second.replayed is True
+    assert first.email == DEMO_EMAIL
+    with Session(engine) as session:
+        fixture_user = session.exec(
+            select(User).where(User.email == DEMO_EMAIL)
+        ).one()
+        assert fixture_user.is_demo
+        assert fixture_user.display_name == "Pactra local demo fixture"
+        assert not verify_password("PactraDemo2026!", fixture_user.password_hash)
     assert first.transaction_ids == second.transaction_ids
     assert {item.status for item in transactions} == {
         "blocked",

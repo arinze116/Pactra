@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import secrets
 from typing import Any
 
 from sqlalchemy import inspect, text
@@ -23,9 +24,8 @@ from backend.services.transactions import (
 
 
 DEMO_EMAIL = "demo@pactra-demo.example.com"
-DEMO_PASSWORD = "PactraDemo2026!"
 DEMO_DATABASE_PREFIX = "pactra-demo-"
-DEMO_SCHEMA_REVISION = "20261107_0005"
+DEMO_SCHEMA_REVISION = "20261110_0006"
 
 
 @dataclass(frozen=True)
@@ -152,8 +152,17 @@ def seed_demo_dataset(session: Session) -> DemoDataset:
         user = create_account(
             session,
             email=DEMO_EMAIL,
-            password_hash=hash_password(DEMO_PASSWORD),
+            password_hash=hash_password(secrets.token_urlsafe(48)),
+            is_demo=True,
+            display_name="Pactra local demo fixture",
         ).user
+    else:
+        user.password_hash = hash_password(secrets.token_urlsafe(48))
+        user.is_demo = True
+        user.display_name = "Pactra local demo fixture"
+        session.add(user)
+        session.commit()
+        session.refresh(user)
 
     completed = _ensure_payment(
         session,

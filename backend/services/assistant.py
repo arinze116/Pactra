@@ -25,6 +25,7 @@ from backend.services.ledger import get_wallet_for_user, wallet_balance
 from backend.services.audit import record_audit_event
 from backend.services.policies import get_current_policy
 from backend.services.transactions import (
+    DemoResourceLimit,
     IntegrationUnavailable,
     PolicyBlocked,
     TransactionIdempotencyConflict,
@@ -784,7 +785,13 @@ async def _run_gemini(
                         message=message,
                         request_id=request_id,
                     )
-                except (ValidationError, ValueError, IntegrationUnavailable, TransactionIdempotencyConflict) as exc:
+                except (
+                    DemoResourceLimit,
+                    ValidationError,
+                    ValueError,
+                    IntegrationUnavailable,
+                    TransactionIdempotencyConflict,
+                ) as exc:
                     session.rollback()
                     result = {"error": str(exc)}
                     transaction_id = None
@@ -907,7 +914,7 @@ async def run_assistant(
     transaction_ids: list[str] = []
     reply: str
     ai_failed = False
-    if settings.ai_enabled and settings.gemini_api_key:
+    if not user.is_demo and settings.ai_enabled and settings.gemini_api_key:
         try:
             reply, tool_log, transaction_ids, metadata = await _run_gemini(
                 session,
@@ -1016,9 +1023,21 @@ async def run_assistant(
                         "Gemini is temporarily unavailable, so I used Pactra's "
                         f"deterministic parser. {reply}"
                     )
-            except (ValidationError, ValueError, IntegrationUnavailable, TransactionIdempotencyConflict) as exc:
+            except (
+                DemoResourceLimit,
+                ValidationError,
+                ValueError,
+                IntegrationUnavailable,
+                TransactionIdempotencyConflict,
+            ) as exc:
                 session.rollback()
                 reply = str(exc)
+        fallback_payload = {
+            "parsed": parsed is not None,
+            "provider_failed": ai_failed,
+        }
+        if user.is_demo:
+            fallback_payload["demo_mode"] = True
         record_audit_event(
             session,
             user_id=user.id,
@@ -1027,8 +1046,11 @@ async def run_assistant(
             entity_type="conversation",
             entity_id=conversation.id,
             event_type="assistant.fallback_used",
-            payload={"parsed": parsed is not None, "provider_failed": ai_failed},
+            payload=fallback_payload,
         )
+
+    if user.is_demo:
+        reply = f"Demo assistant (deterministic; no external AI call): {reply}"
 
     assistant_message = ConversationMessage(
         conversation_id=conversation.id,

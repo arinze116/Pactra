@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 
 type PublicAuthActionsLayout = "desktop" | "mobile" | "legal";
@@ -9,8 +10,26 @@ interface PublicAuthActionsProps {
 }
 
 export function PublicAuthActions({ layout, onNavigate }: PublicAuthActionsProps) {
-  const { retrySession, status } = useAuth();
+  const { retrySession, startDemo, status } = useAuth();
+  const navigate = useNavigate();
+  const [startingDemo, setStartingDemo] = useState(false);
+  const [demoError, setDemoError] = useState("");
   const containerClassName = getContainerClassName(layout);
+
+  async function exploreDemo() {
+    if (startingDemo) return;
+    setStartingDemo(true);
+    setDemoError("");
+    try {
+      await startDemo();
+      onNavigate?.();
+      navigate("/app");
+    } catch (caught) {
+      setDemoError(caught instanceof Error ? caught.message : "The demo could not be prepared");
+    } finally {
+      setStartingDemo(false);
+    }
+  }
 
   if (status === "loading") {
     return (
@@ -45,14 +64,18 @@ export function PublicAuthActions({ layout, onNavigate }: PublicAuthActionsProps
     <div className={containerClassName} data-auth-state="unauthenticated">
       <Link className={getGuestSignInClassName(layout)} onClick={onNavigate} to="/sign-in">Sign in</Link>
       <Link className={getGuestSignUpClassName(layout)} onClick={onNavigate} to="/sign-up">Sign up</Link>
+      <button className={getExploreDemoClassName(layout)} disabled={startingDemo} onClick={() => void exploreDemo()} type="button">
+        {startingDemo ? "Preparing demo…" : "Explore demo"}
+      </button>
+      {demoError ? <p aria-live="assertive" className={getErrorClassName(layout)} role="alert">{demoError}</p> : null}
     </div>
   );
 }
 
 function getContainerClassName(layout: PublicAuthActionsLayout) {
   if (layout === "mobile") return "mt-4 grid min-h-11 grid-cols-2 gap-2";
-  if (layout === "legal") return "flex min-h-11 items-center justify-end gap-2 sm:min-w-[190px] sm:gap-4";
-  return "flex min-h-11 min-w-[206px] items-center justify-end gap-4";
+  if (layout === "legal") return "flex min-h-11 flex-wrap items-center justify-end gap-2 sm:min-w-[320px]";
+  return "flex min-h-11 min-w-[350px] flex-wrap items-center justify-end gap-3";
 }
 
 function getStatusClassName(layout: PublicAuthActionsLayout) {
@@ -71,6 +94,16 @@ function getGuestSignInClassName(layout: PublicAuthActionsLayout) {
 }
 
 function getGuestSignUpClassName(layout: PublicAuthActionsLayout) {
-  if (layout === "legal") return "action-primary hidden sm:inline-flex";
-  return "action-primary";
+  if (layout === "legal") return "action-secondary hidden sm:inline-flex";
+  return "action-secondary";
+}
+
+function getExploreDemoClassName(layout: PublicAuthActionsLayout) {
+  return layout === "mobile" ? "action-primary col-span-2 row-start-1" : "action-primary";
+}
+
+function getErrorClassName(layout: PublicAuthActionsLayout) {
+  return layout === "mobile"
+    ? "col-span-2 text-xs leading-5 text-negative"
+    : "basis-full text-right text-xs leading-5 text-negative";
 }

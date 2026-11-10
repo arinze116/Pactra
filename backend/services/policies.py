@@ -125,11 +125,16 @@ def save_policy(
     return policy
 
 
-def reset_policy(session: Session, *, user_id: str) -> PolicyVersion:
+def reset_policy(
+    session: Session,
+    *,
+    user_id: str,
+    policy_json: dict[str, Any] | None = None,
+) -> PolicyVersion:
     return save_policy(
         session,
         user_id=user_id,
-        policy_json=default_policy(),
+        policy_json=policy_json if policy_json is not None else default_policy(),
         event_type="policy.reset",
         allow_unchanged=True,
     )

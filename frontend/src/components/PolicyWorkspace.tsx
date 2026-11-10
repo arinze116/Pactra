@@ -1,6 +1,8 @@
 import { CheckCircle2, Clock3, RotateCcw, ShieldCheck } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../auth";
+import { markDemoProgress } from "../demoProgress";
 import type { Policy, PolicyVersion } from "../types";
 import { ErrorNotice, formatCents, LoadingBlock, PageHeader, Panel } from "./UI";
 
@@ -105,6 +107,7 @@ function policiesEqual(left: Policy, right: Policy) {
 }
 
 export function PolicyWorkspace() {
+  const { user } = useAuth();
   const [versions, setVersions] = useState<PolicyVersion[]>([]);
   const [form, setForm] = useState<PolicyFormState | null>(null);
   const [baseline, setBaseline] = useState<Policy | null>(null);
@@ -129,6 +132,9 @@ export function PolicyWorkspace() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (user?.is_demo && baseline) markDemoProgress("policies_reviewed");
+  }, [baseline, user?.is_demo]);
 
   const validation = useMemo(() => form ? validatePolicy(form) : { policy: null, errors: {} }, [form]);
   const dirty = Boolean(validation.policy && baseline && !policiesEqual(validation.policy, baseline));

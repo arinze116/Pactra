@@ -4,6 +4,11 @@ Pactra is an open-source, sandbox-only payment governance workspace for small te
 
 [Open the production application](https://pactra-nine.vercel.app) · [Read the demo guide](./DEMO/DEMO-GUIDE.md) · [Review the accepted production baseline](./QA/ACCEPTED-PRODUCTION-BASELINE.md)
 
+Fresh visitors can select **Explore demo** to enter an isolated, populated
+Northstar Studio workspace without registration or shared credentials. Demo
+payments remain inside Pactra's internal sandbox and cannot enter the provider
+execution path.
+
 Current code, documentation, and UI reconciliation evidence is in
 [QA/CODEBASE-README-WEBAPP-RECONCILIATION.md](./QA/CODEBASE-README-WEBAPP-RECONCILIATION.md).
 
@@ -44,6 +49,8 @@ Implemented capabilities include:
 - Internal sandbox execution that works without provider credentials.
 - Worker-owned PayPal Sandbox Payouts submission and item-level reconciliation.
 - Persisted receipts, policy checks, provider attempts, lifecycle events, audit evidence, and ledger entries.
+- Per-session instant-demo principals with seeded policy/payment evidence,
+  reset/exit controls, bounded expiry/cleanup, and normal-session preservation.
 - Public Privacy Policy and Terms of Use pages, plus a responsive footer and sandbox disclosure.
 
 ## How a request becomes an outcome
@@ -78,6 +85,12 @@ flowchart LR
 
 Production uses Vercel for the static frontend and same-origin `/api/*` rewrite, plus FastAPI, PostgreSQL, and one systemd worker on the Oracle VPS. Tailscale Funnel terminates the public API HTTPS route. PostgreSQL and Uvicorn remain bound locally.
 
+Instant demos reuse this architecture. The API creates a temporary `User` and
+`DemoWorkspace`, issues a separate opaque cookie session, and seeds the normal
+policy, approval, ledger, receipt, and audit models. The worker removes only
+expired or revoked demo-owned data and excludes demo owners from every PayPal
+scan.
+
 ## Technology stack
 
 | Layer | Implementation |
@@ -109,6 +122,9 @@ Production uses Vercel for the static frontend and same-origin `/api/*` rewrite,
 | `/app/wallet` | Balance, top-up, ledger history, and reset |
 | `/app/settings` | Session and account controls |
 | `/app/settings/integrations/paypal` | PayPal Sandbox configuration and reconciliation status |
+
+Demo users do not receive settings routes. The public Explore demo action
+creates the session through `POST /api/demo/sessions` and then opens `/app`.
 
 QA captures branch-specific desktop, tablet, and mobile screenshots into the ignored `artifacts/` directory. The production link is the accepted deployed reference; it does not prove that later branch-only UI changes are live.
 
@@ -215,6 +231,11 @@ The internal rail is always available to authenticated users. It moves only simu
 - Sanitized provider errors; no credentials, tokens, or raw provider bodies in responses or logs.
 - Provider-status responses mask the globally configured Sandbox recipient.
 - Sandbox-only PayPal configuration guards.
+- Distinct demo principals and cookies; no shared writable demo account.
+- Demo provider exclusion in the API, transaction service, PayPal service, and
+  worker query.
+- Bounded demo creation, active sessions, resets, transactions, expiry, and
+  cleanup.
 
 No inbound provider webhook endpoint exists, so webhook signature verification is not claimed. Reconciliation uses authenticated polling.
 
@@ -269,6 +290,11 @@ The canonical secret-free template is [`.env.example`](./.env.example). The appl
 | `AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR` | Per-client registration ceiling |
 | `AUTH_REGISTRATION_GLOBAL_RATE_LIMIT_PER_HOUR` | Shared registration ceiling |
 | `AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE` | Shared login ceiling |
+| `DEMO_SESSION_TTL_MINUTES` | Absolute instant-demo lifetime; default 120 minutes |
+| `DEMO_CREATION_RATE_LIMIT_PER_HOUR`, `DEMO_CREATION_GLOBAL_RATE_LIMIT_PER_HOUR` | Per-client and shared creation ceilings |
+| `DEMO_MAX_ACTIVE_SESSIONS`, `DEMO_MAX_TRANSACTIONS` | Active-workspace and per-principal resource caps |
+| `DEMO_RESET_RATE_LIMIT_PER_HOUR` | Per-demo reset ceiling |
+| `DEMO_CLEANUP_BATCH_SIZE`, `DEMO_CLEANUP_INTERVAL_SECONDS` | Worker cleanup bounds |
 | `AI_ENABLED` | Enable the Gemini path only when a key is present |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Server-only Gemini credential and model |
 | `GEMINI_REQUEST_TIMEOUT_SECONDS`, `GEMINI_REQUEST_ATTEMPTS`, `MAX_CHAT_HISTORY` | AI bounds; attempts are limited to 1–2 |
@@ -280,7 +306,7 @@ The canonical secret-free template is [`.env.example`](./.env.example). The appl
 | `PAYPAL_REQUEST_TIMEOUT_SECONDS` | Provider request timeout |
 | `POLICY_CONFIG_PATH` | Optional path to the default policy JSON file |
 | `VITE_API_URL` | Optional browser API origin; blank for same-origin rewrite |
-| `SEED_DEMO_ACCOUNT` | Legacy startup guard; keep `false`; isolated demo data uses `scripts.demo_environment` |
+| `SEED_DEMO_ACCOUNT` | Legacy local-seed guard; keep `false`; instant demos are created per session by the API |
 
 ## Running the application
 
@@ -314,12 +340,16 @@ python -m alembic upgrade head
 python -m alembic current
 ```
 
-Candidate migration `20261107_0005` adds the empty `rate_limit_buckets` table and expiry index. It does not rewrite existing user, wallet, transaction, ledger, or audit rows. Downgrade removes the table and therefore deletes stored rate-limit windows.
+Migration `20261110_0006` adds `users.is_demo`, `users.display_name`, and the
+`demo_workspaces` lifecycle table. In PostgreSQL it also narrows ledger/audit
+immutability functions so deletion is allowed only while the database can
+prove the owner is an expired or revoked demo principal. Normal-owner updates
+and deletions remain forbidden.
 
-The immediate rollback release `73fdfb6` understands migration `0005` and can
-be restored without a database downgrade. Legacy release `0e3e905` knows only
-through `0004`; using it requires both Pactra services stopped and the current
-migration code to downgrade before the symlink changes. See
+After `0006`, an application rollback must use a migration-aware artifact that
+contains the `0006` Alembic revision. A release whose graph ends at `0005`
+cannot pass the API unit's pre-start migration check against a database stamped
+`0006`. Do not perform an unsafe database downgrade. See
 [QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
 
 ## API overview
@@ -327,6 +357,7 @@ migration code to downgrade before the symlink changes. See
 The authoritative request/response schemas are generated from `backend/main.py` and `backend/schemas.py`. Main groups are:
 
 - `/api/auth/*` - register, login, session, password change, logout.
+- `/api/demo/sessions`, `/api/demo/session`, `/api/demo/reset`, `/api/demo/exit` - instant-demo lifecycle.
 - `/api/wallet*` - balance, top-up, ledger, reset.
 - `/api/policy`, `/api/policies`, `/api/spend-summary` - policy and capacity.
 - `/api/transactions*`, `/api/approvals*` - preview, create, history, receipt, approval, rejection, retry, reversal, reconciliation/recovery.
@@ -378,12 +409,12 @@ Python dependency gates:
 
 Playwright covers supported journeys and 16 automated WCAG surfaces with providers disabled. Lighthouse asserts only the homepage; it is not route-wide performance evidence.
 
-## Isolated demo
+## Instant demo
 
-The supported demo uses `APP_ENV=demo`, a deliberately named local SQLite
-database, fictional data, and disabled providers. It refuses production,
-PostgreSQL, symlinks, production paths, wrong confirmation phrases, and any
-existing non-demo user.
+The public instant demo creates a unique temporary principal and fictional
+Northstar Studio workspace through the production API. It does not use a
+shared password or frontend authentication bypass. Normal registration and
+login remain unchanged.
 
 Run the complete automated rehearsal and screenshot capture:
 
@@ -392,8 +423,10 @@ cd frontend
 DEMO_PYTHON=/absolute/path/to/pactra/.venv/bin/python npm run test:demo
 ```
 
-The manual setup, reset, three scenarios, recovery procedure, screenshots, and
-presentation narrative are indexed by [DEMO/DEMO-GUIDE.md](./DEMO/DEMO-GUIDE.md).
+The visitor flow, seeded data, reset/exit behavior, safety boundary, API
+contracts, recovery procedure, and screenshots are indexed by
+[DEMO/DEMO-GUIDE.md](./DEMO/DEMO-GUIDE.md) and
+[DEMO/INSTANT-DEMO-IMPLEMENTATION.md](./DEMO/INSTANT-DEMO-IMPLEMENTATION.md).
 
 ## CI pipeline
 

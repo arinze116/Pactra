@@ -34,6 +34,60 @@ switch, migration verification and Pactra service restarts described here.
   `pactra:pactra`.
 - Installed `pg_dump`, `pg_restore` and `createdb`: PostgreSQL 16.15.
 
+## Instant-demo release addendum (`20261110_0006`)
+
+The instant-demo candidate advances the schema from `20261107_0005` to
+`20261110_0006`.
+
+Changes:
+
+- add `users.is_demo BOOLEAN NOT NULL DEFAULT FALSE` and an index;
+- add nullable `users.display_name`;
+- create `demo_workspaces` with one row per demo owner, explicit status,
+  expiry, seed version, reset timestamp, and status/expiry index;
+- replace existing PostgreSQL ledger/audit trigger functions so `DELETE` is
+  accepted only for an expired or revoked owner with `users.is_demo=TRUE`;
+- retain rejection of all updates and every normal-owner delete.
+
+The constant boolean default is metadata-only on supported PostgreSQL, while
+the new `users.is_demo` index scans the existing users table. Schedule the
+ordinary short application outage already required for the release and stop
+on any migration error.
+
+### Mandatory rollback preparation
+
+The currently accepted `63f2583` release ends its Alembic graph at `0005`.
+Because the API unit runs `alembic upgrade head` before Uvicorn, that artifact
+cannot start directly against a database stamped `0006`.
+
+Before production migration, build and verify a dedicated application rollback
+artifact from the previous application source plus the unchanged
+`20261110_0006` migration file. The rollback artifact must:
+
+- load the database at revision `0006` without applying or downgrading DDL;
+- pass readiness against an isolated restored-and-upgraded clone;
+- keep PayPal worker behavior unchanged;
+- be recorded by exact SHA/path before the forward symlink switch.
+
+Do not edit an existing immutable release directory. Do not perform a database
+downgrade during ordinary application rollback. A `0006 -> 0005` downgrade is
+a separately approved stopped-service data operation and must first remove
+only explicitly demo-owned rows through verified candidate cleanup.
+
+### Instant-demo preflight
+
+In addition to the existing gates, require:
+
+- exact-head demo tests and three-browser CI pass;
+- a fresh pre-migration PostgreSQL custom-format backup passes
+  `pg_restore --list`;
+- no executing/unknown provider attempt exists;
+- rollback artifact readiness passes at `0006`;
+- production configuration accepts the documented `DEMO_*` defaults without
+  exposing any secret value;
+- post-deploy two-context isolation, reset, exit, normal authentication, and
+  provider-exclusion checks are prepared.
+
 ## Mandatory pre-deployment gates
 
 Do not begin a production operation until the applicable deployment gates are
