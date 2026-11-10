@@ -3,16 +3,28 @@ import { execFileSync } from "node:child_process";
 
 const password = "JudgePassword2026!";
 const networkRequestFailedMessage = "Network request failed. Please try again.";
+const authenticationTimeout = 15_000;
 const apiOrigin = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "8000"}`;
 const frontendOrigin = `http://127.0.0.1:${process.env.E2E_FRONTEND_PORT ?? "5173"}`;
+
+async function submitRegistration(page: Page) {
+  const [registrationResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().endsWith("/api/auth/register") && response.request().method() === "POST",
+      { timeout: authenticationTimeout },
+    ),
+    page.getByRole("button", { name: "Create account" }).click(),
+  ]);
+  expect(registrationResponse.status()).toBe(201);
+  await expect(page).toHaveURL(/\/app$/, { timeout: authenticationTimeout });
+}
 
 async function register(page: Page, prefix: string) {
   const email = `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await submitRegistration(page);
   return email;
 }
 
@@ -49,8 +61,7 @@ async function exercisePasswordReveal(page: Page, viewport: { width: number; hei
   await expect(signUpPassword).toHaveValue(password);
   await expect(signUpPassword).toBeFocused();
   expect(await signUpPassword.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([5, 10]);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await submitRegistration(page);
 
   await page.goto("/app/settings");
   await page.getByRole("button", { name: "Sign out of this session" }).click();
@@ -91,8 +102,13 @@ test("authentication and the application shell are keyboard operable", async ({ 
   await expect(page.getByRole("button", { name: "Show password" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Create account" })).toBeFocused();
+  const registrationResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/api/auth/register") && response.request().method() === "POST",
+    { timeout: authenticationTimeout },
+  );
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/app$/);
+  expect((await registrationResponse).status()).toBe(201);
+  await expect(page).toHaveURL(/\/app$/, { timeout: authenticationTimeout });
 
   await page.goto("/app");
   const skipLink = page.getByRole("link", { name: "Skip to content" });
@@ -691,8 +707,7 @@ test.describe("mobile judge navigation", () => {
 
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Create account" }).click();
-    await expect(page).toHaveURL(/\/app$/);
+    await submitRegistration(page);
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "Open navigation" }).click();
