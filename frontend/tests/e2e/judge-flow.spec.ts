@@ -77,6 +77,7 @@ test("password reveal remains accessible through sign-up and sign-in", async ({ 
 test("authentication and the application shell are keyboard operable", async ({ page }) => {
   const email = `judge-keyboard-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
+  await expect(page.getByRole("heading", { level: 1, name: "Create your sandbox" })).toBeVisible();
 
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Pactra" }).first()).toBeFocused();

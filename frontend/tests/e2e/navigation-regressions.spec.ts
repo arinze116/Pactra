@@ -217,6 +217,7 @@ test("short desktop heights keep the footer pinned while navigation scrolls", as
 test("keyboard navigation reaches every desktop sidebar control after route changes", async ({ page }) => {
   await register(page, "keyboard-sidebar");
   await page.setViewportSize({ width: 1280, height: 600 });
+  await expect(page.locator("main h1")).toBeFocused();
   const sidebar = page.getByTestId("desktop-sidebar");
   const controls = [
     sidebar.getByRole("link", { name: "Overview", exact: true }),
