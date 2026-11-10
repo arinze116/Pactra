@@ -10,7 +10,7 @@ async function register(page: Page, prefix: string) {
   await page.goto("/sign-up");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Create sandbox account" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/app$/);
   return email;
 }
@@ -48,7 +48,7 @@ async function exercisePasswordReveal(page: Page, viewport: { width: number; hei
   await expect(signUpPassword).toHaveValue(password);
   await expect(signUpPassword).toBeFocused();
   expect(await signUpPassword.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([5, 10]);
-  await page.getByRole("button", { name: "Create sandbox account" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/app$/);
 
   await page.goto("/app/settings");
@@ -88,7 +88,7 @@ test("authentication and the application shell are keyboard operable", async ({ 
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Show password" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Create sandbox account" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Create account" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/app$/);
 
@@ -681,13 +681,14 @@ test.describe("mobile judge navigation", () => {
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "Open navigation" }).click();
-    await expect(page.getByRole("link", { name: "Create sandbox" })).toBeVisible();
+    const publicMobileNavigation = page.locator("#public-mobile-navigation");
+    await expect(publicMobileNavigation.getByRole("link", { name: "Sign up", exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    await page.getByRole("link", { name: "Create sandbox" }).click();
+    await publicMobileNavigation.getByRole("link", { name: "Sign up", exact: true }).click();
 
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "Create sandbox account" }).click();
+    await page.getByRole("button", { name: "Create account" }).click();
     await expect(page).toHaveURL(/\/app$/);
     await expectNoHorizontalOverflow(page);
 

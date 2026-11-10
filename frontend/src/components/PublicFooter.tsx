@@ -1,14 +1,9 @@
 import { ArrowUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../auth";
 import { BrandMark } from "./Brand";
 
 const repositoryUrl = "https://github.com/arinze116/Pactra";
-
-const productLinks = [
-  { label: "Overview", to: "/" },
-  { label: "Create account", to: "/sign-up" },
-  { label: "Sign in", to: "/sign-in" },
-];
 
 const resourceLinks = [
   { label: "Project README", href: `${repositoryUrl}#readme` },
@@ -38,6 +33,7 @@ function ExternalLink({ href, label }: { href: string; label: string }) {
 }
 
 export function PublicFooter() {
+  const { retrySession, status } = useAuth();
   return (
     <footer className="border-t border-line bg-canvas-deep" data-testid="public-footer">
       <div className="mx-auto max-w-[1500px] px-5 py-12 sm:px-8 lg:py-16">
@@ -60,13 +56,11 @@ export function PublicFooter() {
             <div>
               <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-ink-700">Product</h2>
               <ul className="mt-3 space-y-1">
-                {productLinks.map((link) => (
-                  <li key={link.to}>
-                    <Link className="inline-flex min-h-11 items-center text-sm text-ink-500 transition-colors hover:text-ink-950" to={link.to}>
-                      {link.label}
-                    </Link>
-                  </li>
-                ))}
+                <FooterProductLink label="Overview" to="/" />
+                {status === "authenticated" ? <FooterProductLink label="Dashboard" to="/app" /> : null}
+                {status === "unauthenticated" ? <><FooterProductLink label="Sign up" to="/sign-up" /><FooterProductLink label="Sign in" to="/sign-in" /></> : null}
+                {status === "loading" ? <li><span className="inline-flex min-h-11 items-center text-sm text-ink-500" role="status">Checking session</span></li> : null}
+                {status === "error" ? <li><button className="inline-flex min-h-11 items-center text-sm text-ink-500 transition-colors hover:text-ink-950" onClick={() => void retrySession()} type="button">Retry session</button></li> : null}
               </ul>
             </div>
 
@@ -106,5 +100,13 @@ export function PublicFooter() {
         </div>
       </div>
     </footer>
+  );
+}
+
+function FooterProductLink({ label, to }: { label: string; to: string }) {
+  return (
+    <li>
+      <Link className="inline-flex min-h-11 items-center text-sm text-ink-500 transition-colors hover:text-ink-950" to={to}>{label}</Link>
+    </li>
   );
 }

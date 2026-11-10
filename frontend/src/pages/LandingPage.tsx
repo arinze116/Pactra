@@ -12,7 +12,9 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../auth";
 import { BrandMark } from "../components/Brand";
+import { PublicAuthActions } from "../components/PublicAuthActions";
 import { PublicFooter } from "../components/PublicFooter";
 
 const productFeatures = [
@@ -46,6 +48,7 @@ const workflowSteps = [
 ];
 
 export function LandingPage() {
+  const { retrySession, status } = useAuth();
   const [featureOpen, setFeatureOpen] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -134,10 +137,21 @@ export function LandingPage() {
                       <p className="mt-5 text-lg font-medium text-ink-950">{productFeatures[activeFeature].label}</p>
                       <p className="mt-2 max-w-sm text-sm leading-6 text-ink-500">{productFeatures[activeFeature].detail}</p>
                     </div>
-                    <Link className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-pactra-300" to="/sign-up">
-                      Try it in the sandbox
-                      <ArrowRight aria-hidden="true" className="h-4 w-4" />
-                    </Link>
+                    {status === "authenticated" ? (
+                      <Link className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-pactra-300" to="/app">
+                        Open dashboard
+                        <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                      </Link>
+                    ) : status === "unauthenticated" ? (
+                      <Link className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-pactra-300" to="/sign-up">
+                        Sign up
+                        <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                      </Link>
+                    ) : status === "error" ? (
+                      <button className="mt-6 inline-flex min-h-11 items-center text-sm font-medium text-pactra-300" onClick={() => void retrySession()} type="button">Retry session</button>
+                    ) : (
+                      <span className="mt-6 inline-flex min-h-11 items-center text-sm text-ink-500" role="status">Checking session</span>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -145,10 +159,7 @@ export function LandingPage() {
             <a className="inline-flex min-h-11 items-center px-1 text-ink-600 transition-colors duration-150 hover:text-ink-950" href="#how-it-works">
               How it works
             </a>
-            <Link className="inline-flex min-h-11 items-center px-1 text-ink-600 transition-colors duration-150 hover:text-ink-950" to="/sign-in">
-              Sign in
-            </Link>
-            <Link className="action-primary" to="/sign-up">Create sandbox</Link>
+            <PublicAuthActions layout="desktop" />
           </nav>
           <button
             aria-controls="public-mobile-navigation"
@@ -177,10 +188,7 @@ export function LandingPage() {
                 </div>
               ))}
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <Link className="action-secondary" onClick={() => setMobileOpen(false)} to="/sign-in">Sign in</Link>
-              <Link className="action-primary" onClick={() => setMobileOpen(false)} to="/sign-up">Create sandbox</Link>
-            </div>
+            <PublicAuthActions layout="mobile" onNavigate={() => setMobileOpen(false)} />
           </div>
         ) : null}
       </header>
@@ -201,12 +209,28 @@ export function LandingPage() {
               Set policy before a request reaches the ledger. Pactra gives teams enforceable limits, human approvals,
               auditable receipts, and an honest sandbox payout path.
             </p>
-            <div className="mt-9 flex flex-wrap gap-3">
-              <Link className="action-primary h-12 px-5" to="/sign-up">
-                Open a sandbox
-                <ArrowRight aria-hidden="true" className="h-4 w-4" />
-              </Link>
-              <Link className="action-secondary h-12 px-5" to="/sign-in">Sign in</Link>
+            <div className="mt-9 flex min-h-12 flex-wrap gap-3">
+              {status === "authenticated" ? (
+                <Link className="action-primary h-12 px-5" to="/app">
+                  Open dashboard
+                  <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                </Link>
+              ) : status === "unauthenticated" ? (
+                <>
+                  <Link className="action-primary h-12 px-5" to="/sign-up">
+                    Sign up
+                    <ArrowRight aria-hidden="true" className="h-4 w-4" />
+                  </Link>
+                  <Link className="action-secondary h-12 px-5" to="/sign-in">Sign in</Link>
+                </>
+              ) : status === "error" ? (
+                <button className="action-secondary h-12 px-5" onClick={() => void retrySession()} type="button">Retry session</button>
+              ) : (
+                <div className="flex h-12 items-center gap-2 text-sm text-ink-500" role="status">
+                  <span aria-hidden="true" className="h-2 w-2 rounded-full bg-pactra-600" />
+                  Checking session
+                </div>
+              )}
             </div>
             <div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 border-t border-white/[0.06] pt-5 text-xs text-ink-400">
               <span>Test funds only</span>
