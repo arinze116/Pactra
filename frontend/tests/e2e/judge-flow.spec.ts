@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 
 const password = "JudgePassword2026!";
+const networkRequestFailedMessage = "Network request failed. Please try again.";
 const apiOrigin = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "8000"}`;
 const frontendOrigin = `http://127.0.0.1:${process.env.E2E_FRONTEND_PORT ?? "5173"}`;
 
@@ -118,7 +119,7 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   });
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "$100.00" }).click();
-  await expect(page.getByText("Failed to fetch")).toBeVisible();
+  await expect(page.getByText(networkRequestFailedMessage)).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "$100.00" }).click();
   await expect(page.getByText("$1,100.00").first()).toBeVisible();
@@ -145,6 +146,7 @@ test("fresh judge completes the core sandbox journey", async ({ page }) => {
   await page.getByLabel("Category").selectOption("freelance");
   await page.getByLabel("Business reason").fill("Contract work");
   await submitPayment(page);
+  await expect(page).toHaveURL(/\/app\/transactions\//);
   await expect(page.getByText("Needs approval").first()).toBeVisible();
   const payoutReceipt = page.url();
   await expect(page.getByText("ada@example.com", { exact: true })).toBeVisible();
@@ -362,7 +364,7 @@ test("transaction history recovers when optional provider status is unavailable"
     await route.continue();
   });
   await page.goto("/app/transactions");
-  await expect(page.getByText("Failed to fetch")).toBeVisible();
+  await expect(page.getByText(networkRequestFailedMessage)).toBeVisible();
   shouldFail = false;
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByText("No matching transactions")).toBeVisible();
@@ -496,7 +498,7 @@ test("credential errors and failed logout do not discard a valid session", async
 
   await page.route("**/api/auth/logout", (route) => route.abort("failed"));
   await page.getByRole("button", { name: "Sign out of this session" }).click();
-  await expect(page.getByText("Failed to fetch")).toBeVisible();
+  await expect(page.getByText(networkRequestFailedMessage)).toBeVisible();
   await expect(page).toHaveURL(/\/app\/settings$/);
   await page.unroute("**/api/auth/logout");
 
@@ -535,7 +537,7 @@ test("assistant conversations persist, continue, and retry without duplicates", 
   const retryText = "Pay Linear $49 for our software subscription";
   await composer.fill(retryText);
   await composer.press("Enter");
-  await expect(page.getByText("Failed to fetch")).toBeVisible();
+  await expect(page.getByText(networkRequestFailedMessage)).toBeVisible();
   await expect(composer).toHaveValue(retryText);
   await composer.press("Enter");
   await expect(page.locator(".assistant-message-assistant").getByText(/Payment to Linear completed after backend policy and ledger confirmation/)).toBeVisible();
