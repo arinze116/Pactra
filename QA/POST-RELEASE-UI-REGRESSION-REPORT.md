@@ -1,11 +1,13 @@
 # Post-release UI regression report
 
 - Date: 2026-11-10
-- Branch: `codex/post-release-hardening-20261110`
 - Mission: P1 authentication navigation and responsive sidebar fixes
-- Local implementation status: Verified
-- Production status: Pending merge and deployment verification
-- Final production application commit SHA: Pending
+- Implementation PR: [#19](https://github.com/arinze116/Pactra/pull/19)
+- Implementation merge SHA: `56740ac67fc78d978ca8a472126c91cd240c69cd`
+- Final production application SHA: `28634c13082a61b5c53e75528eacf2263ea1fd5e`
+- Production deployment: `dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL`
+- Production URL: [https://pactra-nine.vercel.app](https://pactra-nine.vercel.app)
+- Status: Verified in production
 
 ## Requested
 
@@ -37,7 +39,7 @@ Verified:
 - At 1280 × 600, the before-state navigation used `overflow-y: visible` and the footer ended at y=673 in a 600px viewport, making Logout unreachable.
 - At 1280 × 720 and 1919 × 939 the local baseline happened to fit, but it still had no independent sidebar scrolling contract. This made it sensitive to shorter effective viewport heights, browser UI, zoom, and content growth.
 
-The user-reported 1919 × 939 production screenshot was treated as authoritative. The exact supplied image was not present in the workspace, so the repository report uses the local structural reproduction and retained before-state captures.
+The user-reported 1919 × 939 production screenshot was treated as authoritative. The exact supplied image was not present in the workspace, so the retained before-state captures document the reproduced structural failure.
 
 ## Implemented
 
@@ -67,31 +69,30 @@ The user-reported 1919 × 939 production screenshot was treated as authoritative
 
 ## Before and after evidence
 
-| Surface | Before | After |
+| Surface | Before | Production after |
 |---|---|---|
-| Authenticated landing, 1919 × 939 | [Guest actions shown](../artifacts/post-release-ui-regression/before/landing-authenticated-1919x939.png) | [Dashboard actions shown](../artifacts/post-release-ui-regression/after/landing-authenticated-1919x939.png) |
-| Authenticated landing menu, 390 × 844 | [Guest mobile actions](../artifacts/post-release-ui-regression/before/landing-authenticated-mobile-390x844.png) | [Dashboard mobile action](../artifacts/post-release-ui-regression/after/landing-authenticated-mobile-390x844.png) |
-| Application shell, 1280 × 720 | [Baseline shell](../artifacts/post-release-ui-regression/before/sidebar-1280x720.png) | [Logout pinned and visible](../artifacts/post-release-ui-regression/after/app-1280x720.png) |
-| Short desktop shell, 1280 × 600 | [Footer clipped below viewport](../artifacts/post-release-ui-regression/before/sidebar-short-1280x600.png) | [Navigation scrolls; footer remains visible](../artifacts/post-release-ui-regression/after/sidebar-short-1280x600.png) |
+| Authenticated landing, 1919 × 939 | [Guest actions shown](../artifacts/post-release-ui-regression/before/landing-authenticated-1919x939.png) | [Dashboard actions shown](../artifacts/post-release-ui-regression/production/landing-authenticated-1919x939.png) |
+| Application shell, 1919 × 939 | [User-reported structure reproduced](../artifacts/post-release-ui-regression/before/sidebar-1919x939.png) | [All groups and Sign out reachable](../artifacts/post-release-ui-regression/production/app-1919x939.png) |
+| Short desktop shell, 1280 × 600 | [Footer clipped below viewport](../artifacts/post-release-ui-regression/before/sidebar-short-1280x600.png) | [Navigation scrolls; footer remains visible](../artifacts/post-release-ui-regression/production/sidebar-short-1280x600.png) |
+| Mobile drawer, 390 × 844 | [Guest actions shown while authenticated](../artifacts/post-release-ui-regression/before/landing-authenticated-mobile-390x844.png) | [Authenticated drawer with reachable Sign out](../artifacts/post-release-ui-regression/production/app-390x844.png) |
 
-After-state viewport captures:
+Production captures:
 
-- [320 × 700](../artifacts/post-release-ui-regression/after/app-320x700.png)
-- [375 × 812](../artifacts/post-release-ui-regression/after/app-375x812.png)
-- [390 × 844](../artifacts/post-release-ui-regression/after/app-390x844.png)
-- [768 × 1024](../artifacts/post-release-ui-regression/after/app-768x1024.png)
-- [1024 × 768](../artifacts/post-release-ui-regression/after/app-1024x768.png)
-- [1280 × 720](../artifacts/post-release-ui-regression/after/app-1280x720.png)
-- [1440 × 900](../artifacts/post-release-ui-regression/after/app-1440x900.png)
-- [1919 × 939](../artifacts/post-release-ui-regression/after/app-1919x939.png)
+- [Guest landing, 1919 × 939](../artifacts/post-release-ui-regression/production/landing-guest-1919x939.png)
+- [Authenticated landing, 1919 × 939](../artifacts/post-release-ui-regression/production/landing-authenticated-1919x939.png)
+- [320 × 700](../artifacts/post-release-ui-regression/production/app-320x700.png)
+- [375 × 812](../artifacts/post-release-ui-regression/production/app-375x812.png)
+- [390 × 844](../artifacts/post-release-ui-regression/production/app-390x844.png)
+- [768 × 1024](../artifacts/post-release-ui-regression/production/app-768x1024.png)
+- [1024 × 768](../artifacts/post-release-ui-regression/production/app-1024x768.png)
+- [1280 × 720](../artifacts/post-release-ui-regression/production/app-1280x720.png)
+- [1440 × 900](../artifacts/post-release-ui-regression/production/app-1440x900.png)
+- [1919 × 939](../artifacts/post-release-ui-regression/production/app-1919x939.png)
+- [Short desktop, 1280 × 600](../artifacts/post-release-ui-regression/production/sidebar-short-1280x600.png)
 
-Measured after-state evidence:
+Visual inspection found no clipped menu items, footer overlap, main/sidebar collision, horizontal overflow, branding regression, or unexpected redesign.
 
-- Horizontal overflow: 0px at all eight required viewport sizes.
-- Desktop footer bottom: y=700 at 1280 × 720 and y=919 at 1919 × 939, both 20px inside the viewport.
-- Short desktop at 1280 × 600: navigation client height 407px, scroll height 492px, scroll top reached 85px, `overflow-y: auto`, footer bottom y=580.
-
-## Automated tests added
+## Automated regression coverage
 
 `frontend/tests/e2e/navigation-regressions.spec.ts` covers:
 
@@ -114,59 +115,85 @@ Measured after-state evidence:
 17. Mobile drawer scrolling, logout access, closing behavior, and focus restoration.
 18. No clipping at 1280 × 720 or 1919 × 939.
 
-## Test results
+## Test and release results
 
-Passed locally:
+Verified:
 
-- `npm run lint`
-- `npm run build` (includes TypeScript project build)
-- Full Chromium browser set: 48/48 passed in 6.9 minutes.
-- New P1 regression suite on Chromium: 9/9 passed.
-- New P1 regression suite on Firefox: 9/9 passed.
-- Axe WCAG 2.1 A/AA suite: 1/1 journey passed across all public and authenticated surfaces.
-- Existing judge-flow Chromium suite: 16/16 passed after updating the renamed registration controls.
-- Existing public/responsive Chromium matrix: all assertions passed after isolating Playwright artifacts from a concurrent test process.
+- PR #19 passed all required backend, frontend, browser, accessibility, and Lighthouse checks before merge.
+- Final exact-main CI: [run 42849003993](https://github.com/arinze116/Pactra/actions/runs/42849003993), all four required jobs passed at `28634c13082a61b5c53e75528eacf2263ea1fd5e`.
+- Frontend lint, TypeScript/build, production and development dependency audits passed.
+- Browser journeys: 141/141 passed across Chromium, Firefox, and WebKit.
+- Axe WCAG 2.1 A/AA suite: 3/3 passed.
+- Demo browser suite: 4/4 passed.
+- Lighthouse: performance 0.98, accessibility 1.00, best practices 0.96.
+- Backend SQLite and PostgreSQL jobs passed; PostgreSQL dependency audit reported no known vulnerabilities.
+- Production health returned `200 {"status":"ok"}`.
+- Production readiness returned `200` with database `ok`, sandbox mode enabled, and internal sandbox available.
 
-Browser engines:
+Browser and tool versions:
 
-- Playwright 1.64.1
-- Chromium / Chrome for Testing 156.0.8078.4 (revision 1248)
-- Firefox 157.0 (revision 1555)
-- WebKit 27.2 (revision 2370)
-
-Not yet verified:
-
-- Local WebKit launch. The installed browser could not start because node1 lacks `libgstreamer-plugins-bad1.0-0` and `libavif16`. System packages were not changed without approval. CI installs browser dependencies with Playwright and will be the release-gating WebKit verification.
-- GitHub required checks, PR merge, deployment, and production website verification.
+- Playwright: 1.64.1.
+- Production verifier: Chromium 156.0.8078.4.
+- Release CI exercised Chromium, Firefox, and WebKit using the Playwright 1.64.1 browser bundle.
+- Vercel CLI used for deployment inspection: 65.14.0.
 
 ## Production verification
 
-Pending. This section must be updated after the exact merged commit is deployed and verified on the real production website. Local screenshots are not production acceptance evidence.
+Verified on 2026-11-10 against [https://pactra-nine.vercel.app](https://pactra-nine.vercel.app):
 
-Required production checks:
+- Vercel deployment `dpl_FYe3PxM6VXxN8Nh3rLFwFhzd52cL` is `READY`, targeted to production, and aliased to `pactra-nine.vercel.app`.
+- Deployment metadata identifies exact application SHA `28634c13082a61b5c53e75528eacf2263ea1fd5e`.
+- A guest sees Sign in and Sign up; "Create sandbox" is absent.
+- Sign up opens `/sign-up` and exposes the existing Create account flow.
+- An authenticated user sees Dashboard/Open dashboard and no Sign in or Sign up actions.
+- The authenticated session survives a full page refresh.
+- Public-to-private and private-to-public navigation preserve the correct authenticated header immediately.
+- Session restoration renders a neutral loading state, does not flash guest actions, and sends one session request.
+- A synthetic `503` session check renders the explicit neutral error state and does not expose guest actions; retry restores the authenticated state.
+- Logout clears the session and returns mobile public navigation to Sign in and Sign up.
+- Axe reported zero WCAG 2.1 A/AA violations on the guest landing page, authenticated landing page, and authenticated mobile dashboard.
 
-- Authenticated direct navigation to the landing page shows Dashboard and no guest actions.
-- Guest navigation shows Sign in and Sign up.
-- Session refresh and public/private navigation retain authenticated state.
-- 1280 × 720 and 1919 × 939 sidebars expose Sign out and every navigation item.
-- Mobile drawer exposes Sign out and closes after navigation.
-- Production health, API readiness, and deployed SHA match the release record.
+Viewport verification:
+
+| Viewport | Result |
+|---|---|
+| 320 × 700 | Mobile drawer scrollable; all links and Sign out reachable; closes after navigation; no horizontal overflow |
+| 375 × 812 | Mobile drawer scrollable; all links and Sign out reachable; closes after navigation; no horizontal overflow |
+| 390 × 844 | Mobile drawer scrollable; all links and Sign out reachable; closes after navigation; no horizontal overflow |
+| 768 × 1024 | Mobile drawer scrollable; all links and Sign out reachable; closes after navigation; no horizontal overflow |
+| 1024 × 768 | Full-height desktop sidebar; independent navigation/main scrolling; footer inside viewport; no overlap or horizontal overflow |
+| 1280 × 720 | Full-height desktop sidebar; footer bottom y=700; all controls reachable; no overlap or horizontal overflow |
+| 1440 × 900 | Full-height desktop sidebar; independent scrolling; all controls reachable; no overlap or horizontal overflow |
+| 1919 × 939 | Full-height desktop sidebar; footer bottom y=919; all controls reachable; no overlap or horizontal overflow |
+| 1280 × 600 | Browser-confirmed navigation overflow scrolls while the footer remains pinned and Sign out remains visible |
+
+Keyboard verification reached all eight desktop navigation links and the Sign out button in order.
+
+## Release disposition
+
+- PR #19 merged the P1 implementation.
+- PR #20 supplied the overlapping CI routing/settling stabilization and merged as final production SHA `28634c13082a61b5c53e75528eacf2263ea1fd5e`.
+- Exact-main CI passed before production acceptance.
+- Production is serving the exact green SHA.
+- PR #21 was closed as a conflicting duplicate after PR #20 and the exact-main run superseded it.
+- No backend service restart or production financial/provider operation was performed for this frontend release.
 
 ## Completion accounting
 
 - Requested: two P1 production UI defects, regression coverage, release, and production verification.
 - Implemented: auth-state synchronization, session-error handling, CTA rename, full-height shell, independent scrolling, mobile accessibility, tests, ADR, and screenshot evidence.
-- Passed: local lint, TypeScript/build, Chromium full browser suite, Firefox P1 suite, Axe checks, responsive geometry, and screenshot review.
-- Failed: local WebKit launch due missing host libraries; application assertions were not reached.
-- Incomplete: GitHub checks, merge, production deployment, production verification, and final deployed SHA.
-- Risk: production acceptance remains open until hosted verification is complete.
-- Next step: create the PR, run required CI including WebKit, merge after checks, deploy the exact merge SHA, verify production, and update this report.
+- Tested: frontend lint/TypeScript/build/audits, backend SQLite/PostgreSQL, three-engine browser journeys, Axe, Lighthouse, production health/readiness, and live production browser verification.
+- Passed: all required release checks and all production acceptance checks listed above.
+- Failed: none in the final release gate.
+- Incomplete: none for this mission.
+- Not verified: manual screen-reader testing with NVDA or VoiceOver was outside the automated production run.
+- Next step: routine monitoring only.
 
 ## Scorecard evidence (no self-score)
 
-- Engineering: one shared auth authority; explicit failure states; request deduplication; behavior-level browser tests; build and type checks.
-- Design: existing identity preserved; loading/error states designed; no shell redesign; screenshots reviewed at all required sizes.
+- Engineering: one shared auth authority; explicit failure states; request deduplication; behavior-level browser tests; exact-main CI; verified deployed SHA.
+- Design: existing identity preserved; loading/error states designed; no shell redesign; production screenshots inspected at all required sizes.
 - Branding: Pactra logo, IBM Plex Sans, black/red palette, icon system, and navigation hierarchy retained.
 - Research: root causes traced through router scope, provider behavior, backend session semantics, CSS geometry, and browser measurements.
-- Productivity: P1 work completed before demo/video tasks; regressions consolidated into one dedicated suite.
-- Memory: relevant organisation memory retrieved before implementation; a durable update will be proposed only after production verification.
+- Productivity: P1 work completed and released before demo/video tasks; duplicate stabilization PR closed after its replacement was verified.
+- Memory: related organisation memory was retrieved before work; the verified production result is eligible for a durable memory update.
