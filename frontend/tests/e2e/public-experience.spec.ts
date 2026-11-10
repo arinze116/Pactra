@@ -1,7 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const acceptedPassword = "Aa1!aaaa";
 const replacementPassword = "Bb2@bbbb";
+const authenticationTimeout = 15_000;
 const publicRoutes = ["/", "/sign-in", "/sign-up", "/privacy", "/terms", "/missing-page"];
 const authenticatedRoutes = [
   "/app",
@@ -25,6 +26,31 @@ const supportedViewports = [
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
 ];
+
+async function submitRegistration(page: Page) {
+  const [registrationResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().endsWith("/api/auth/register") && response.request().method() === "POST",
+      { timeout: authenticationTimeout },
+    ),
+    page.getByRole("button", { name: "Create account" }).click(),
+  ]);
+  expect(registrationResponse.status()).toBe(201);
+  await expect(page).toHaveURL(/\/app$/, { timeout: authenticationTimeout });
+}
+
+async function expectFreshDashboardLoaded(page: Page) {
+  await expect(page.getByText("$1,000.00", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("$500.00", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("No payment activity", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Not configured; internal sandbox remains fully available", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator("section").filter({ hasText: "Pending approvals" }).getByText("0", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+}
 
 test("public informational routes share one session restoration request", async ({ page }) => {
   let sessionRequestCount = 0;
@@ -94,8 +120,7 @@ test("eight-character passwords work across registration, login, and password ch
   await expect(page).toHaveURL(/\/sign-up$/);
 
   await signUpPassword.fill(acceptedPassword);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/\/app$/);
+  await submitRegistration(page);
 
   await page.goto("/app/settings");
   await page.getByRole("button", { name: "Sign out of this session" }).click();
@@ -169,8 +194,8 @@ test.describe("authenticated responsive matrix", () => {
         `responsive-${viewport.width}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`,
       );
       await page.getByLabel("Password", { exact: true }).fill(acceptedPassword);
-      await page.getByRole("button", { name: "Create account" }).click();
-      await expect(page).toHaveURL(/\/app$/);
+      await submitRegistration(page);
+      await expectFreshDashboardLoaded(page);
 
       for (const route of authenticatedRoutes) {
         await page.goto(route, { waitUntil: "networkidle" });
@@ -194,7 +219,7 @@ test("authenticated mobile navigation closes with Escape and restores focus", as
     `mobile-navigation-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`,
   );
   await page.getByLabel("Password", { exact: true }).fill(acceptedPassword);
-  await page.getByRole("button", { name: "Create account" }).click();
+  await submitRegistration(page);
 
   const navigationButton = page.getByRole("button", { name: "Open navigation" });
   await navigationButton.click();
