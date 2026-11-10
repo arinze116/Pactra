@@ -146,9 +146,14 @@ five-width responsive matrix passed.
 - Base main CI run
   [42699433176](https://github.com/arinze116/Pactra/actions/runs/42699433176)
   passed all four jobs for exact SHA `70def1db357b3782a0d6fab0891838d49e99c91e`.
-- The changes in this report are not deployed and have no current-branch CI
-  evidence until the branch is published through the normal review process.
-  Local PostgreSQL and browser verification does not replace that hosted gate.
+- Review PR [#18](https://github.com/arinze116/Pactra/pull/18) published the
+  branch. Hosted CI run
+  [42755710652](https://github.com/arinze116/Pactra/actions/runs/42755710652)
+  passed all four required jobs for exact SHA
+  `f35a7cba3f7f55a55cd62bf650417771ea0f04fa`.
+- This evidence-only update must pass the same required checks at its new exact
+  head before merge. The changes remain undeployed: the linked Vercel project
+  has no Git repository connection, and no Oracle release action was run.
 
 ## Residual limitations
 
@@ -157,5 +162,5 @@ five-width responsive matrix passed.
   are not implemented.
 - Provider webhooks are not implemented; PayPal reconciliation uses polling.
 - Lighthouse is homepage-only and not real-user monitoring.
-- Current-branch hosted CI, manual assistive-technology testing, and
-  non-Chromium visual testing remain outstanding verification gates.
+- Manual assistive-technology testing and non-Chromium visual testing remain
+  outstanding verification gates.
