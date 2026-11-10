@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { api } from "./api";
+import { clearDemoProgress } from "./demoProgress";
 import type { User } from "./types";
 
 export type AuthenticationStatus = "loading" | "authenticated" | "unauthenticated" | "error";
@@ -9,7 +10,10 @@ export type AuthenticationStatus = "loading" | "authenticated" | "unauthenticate
 interface AuthContextValue {
   user: User | null;
   status: AuthenticationStatus;
+  demoExpired: boolean;
   retrySession: () => Promise<void>;
+  startDemo: () => Promise<void>;
+  exitDemo: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -18,10 +22,12 @@ interface AuthContextValue {
 interface AuthenticationState {
   user: User | null;
   status: AuthenticationStatus;
+  demoExpired: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 let pendingSessionRequest: ReturnType<typeof api.session> | null = null;
+let pendingDemoRequest: ReturnType<typeof api.startDemo> | null = null;
 
 function requestSessionState() {
   if (pendingSessionRequest) return pendingSessionRequest;
@@ -35,21 +41,35 @@ function requestSessionState() {
   return request;
 }
 
+function requestDemoSession() {
+  if (pendingDemoRequest) return pendingDemoRequest;
+
+  const request = api.startDemo();
+  pendingDemoRequest = request;
+  void request.then(
+    () => { if (pendingDemoRequest === request) pendingDemoRequest = null; },
+    () => { if (pendingDemoRequest === request) pendingDemoRequest = null; },
+  );
+  return request;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authentication, setAuthentication] = useState<AuthenticationState>({
     user: null,
     status: "loading",
+    demoExpired: false,
   });
   const mountedRef = useRef(false);
 
   const restoreSession = useCallback(async () => {
     setAuthentication((current) => ({ ...current, status: "loading" }));
     try {
-      const { user } = await requestSessionState();
+      const { user, demo_expired: demoExpired } = await requestSessionState();
       if (!mountedRef.current) return;
       setAuthentication({
         user,
         status: user ? "authenticated" : "unauthenticated",
+        demoExpired,
       });
     } catch {
       if (!mountedRef.current) return;
@@ -60,11 +80,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     void restoreSession();
-    const clear = () => setAuthentication({ user: null, status: "unauthenticated" });
+    const clear = () => setAuthentication({ user: null, status: "unauthenticated", demoExpired: false });
+    const restoreAfterDemoExpiry = () => { void restoreSession(); };
     window.addEventListener("pactra:unauthenticated", clear);
+    window.addEventListener("pactra:demo-expired", restoreAfterDemoExpiry);
     return () => {
       mountedRef.current = false;
       window.removeEventListener("pactra:unauthenticated", clear);
+      window.removeEventListener("pactra:demo-expired", restoreAfterDemoExpiry);
     };
   }, [restoreSession]);
 
@@ -72,17 +95,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     retrySession: restoreSession,
     status: authentication.status,
     user: authentication.user,
+    demoExpired: authentication.demoExpired,
+    startDemo: async () => {
+      clearDemoProgress();
+      const result = await requestDemoSession();
+      setAuthentication({ user: result.user, status: "authenticated", demoExpired: false });
+    },
+    exitDemo: async () => {
+      await api.exitDemo();
+    },
     signIn: async (email, password) => {
       const result = await api.login(email, password);
-      setAuthentication({ user: result.user, status: "authenticated" });
+      setAuthentication({ user: result.user, status: "authenticated", demoExpired: false });
     },
     signUp: async (email, password) => {
       const result = await api.register(email, password);
-      setAuthentication({ user: result.user, status: "authenticated" });
+      setAuthentication({ user: result.user, status: "authenticated", demoExpired: false });
     },
     signOut: async () => {
       await api.logout();
-      setAuthentication({ user: null, status: "unauthenticated" });
+      setAuthentication({ user: null, status: "unauthenticated", demoExpired: false });
     },
   }), [authentication, restoreSession]);
 
@@ -96,11 +128,11 @@ export function useAuth() {
 }
 
 export function ProtectedRoute() {
-  const { retrySession, status, user } = useAuth();
+  const { demoExpired, retrySession, status, user } = useAuth();
   const location = useLocation();
   if (status === "loading") return <SessionLoadingState />;
   if (status === "error") return <SessionErrorState onRetry={retrySession} />;
-  if (!user) return <Navigate replace state={{ from: location.pathname }} to="/sign-in" />;
+  if (!user) return <Navigate replace state={{ from: location.pathname }} to={demoExpired ? "/" : "/sign-in"} />;
   return <Outlet />;
 }
 
@@ -109,6 +141,11 @@ export function GuestRoute() {
   if (status === "loading") return <SessionLoadingState />;
   if (status === "error") return <SessionErrorState onRetry={retrySession} />;
   return user ? <Navigate replace to="/app" /> : <Outlet />;
+}
+
+export function NormalAccountRoute() {
+  const { user } = useAuth();
+  return user?.is_demo ? <Navigate replace to="/app" /> : <Outlet />;
 }
 
 function SessionLoadingState() {

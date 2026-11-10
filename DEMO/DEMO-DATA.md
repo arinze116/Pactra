@@ -6,10 +6,13 @@ All names, addresses, balances, and transactions are fictional.
 
 ## Account
 
-- Business/user: Pactra demo workspace
+- Business/user: legacy local fixture owner
 - Email: `demo@pactra-demo.example.com`
-- Password: `PactraDemo2026!`
 - Environment: local `APP_ENV=demo` only
+
+The fixture receives a random, unrecoverable password and `is_demo=true`.
+It is not an interactive shared account and cannot sign in through the normal
+login endpoint. Use **Explore demo** for browser demonstrations.
 
 ## Seeded financial state
 

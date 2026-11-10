@@ -19,11 +19,13 @@ from sqlmodel import Session, select
 from backend.config import settings
 from backend.database import get_session
 from backend.errors import ApiError
-from backend.models import AuthSession, RateLimitBucket, User, utc_now
+from backend.models import AuthSession, DemoWorkspace, RateLimitBucket, User, utc_now
 
 
 SESSION_COOKIE = "pactra_session"
 CSRF_COOKIE = "pactra_csrf"
+DEMO_SESSION_COOKIE = "pactra_demo_session"
+DEMO_CSRF_COOKIE = "pactra_demo_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 
 password_hasher = PasswordHasher(type=Type.ID)
@@ -36,6 +38,11 @@ class AuthContext:
     user: User
     auth_session: AuthSession
     raw_token: str
+    demo_workspace: DemoWorkspace | None = None
+
+    @property
+    def is_demo(self) -> bool:
+        return self.demo_workspace is not None
 
 
 class FixedWindowRateLimiter:
@@ -135,14 +142,20 @@ def set_csrf_response_header(response: Response, raw_token: str) -> None:
     response.headers[CSRF_HEADER] = csrf_token(raw_token)
 
 
-def create_auth_session(session: Session, *, user_id: str) -> tuple[AuthSession, str]:
+def create_auth_session(
+    session: Session,
+    *,
+    user_id: str,
+    lifetime: timedelta | None = None,
+) -> tuple[AuthSession, str]:
     raw_token = secrets.token_urlsafe(32)
     now = utc_now()
+    session_lifetime = lifetime or timedelta(hours=settings.session_ttl_hours)
     auth_session = AuthSession(
         user_id=user_id,
         token_hash=session_token_hash(raw_token),
         created_at=now,
-        expires_at=now + timedelta(hours=settings.session_ttl_hours),
+        expires_at=now + session_lifetime,
         last_seen_at=now,
     )
     session.add(auth_session)
@@ -150,11 +163,24 @@ def create_auth_session(session: Session, *, user_id: str) -> tuple[AuthSession,
     return auth_session, raw_token
 
 
-def set_session_cookies(response: Response, raw_token: str) -> None:
-    max_age = settings.session_ttl_hours * 60 * 60
+def _cookie_names(*, is_demo: bool) -> tuple[str, str]:
+    if is_demo:
+        return DEMO_SESSION_COOKIE, DEMO_CSRF_COOKIE
+    return SESSION_COOKIE, CSRF_COOKIE
+
+
+def set_session_cookies(
+    response: Response,
+    raw_token: str,
+    *,
+    is_demo: bool = False,
+    max_age_seconds: int | None = None,
+) -> None:
+    session_cookie, csrf_cookie = _cookie_names(is_demo=is_demo)
+    max_age = max_age_seconds or settings.session_ttl_hours * 60 * 60
     set_csrf_response_header(response, raw_token)
     response.set_cookie(
-        SESSION_COOKIE,
+        session_cookie,
         raw_token,
         max_age=max_age,
         httponly=True,
@@ -163,7 +189,7 @@ def set_session_cookies(response: Response, raw_token: str) -> None:
         path="/",
     )
     response.set_cookie(
-        CSRF_COOKIE,
+        csrf_cookie,
         csrf_token(raw_token),
         max_age=max_age,
         httponly=True,
@@ -173,16 +199,17 @@ def set_session_cookies(response: Response, raw_token: str) -> None:
     )
 
 
-def clear_session_cookies(response: Response) -> None:
+def clear_session_cookies(response: Response, *, is_demo: bool = False) -> None:
+    session_cookie, csrf_cookie = _cookie_names(is_demo=is_demo)
     response.delete_cookie(
-        SESSION_COOKIE,
+        session_cookie,
         path="/",
         secure=settings.session_cookie_secure,
         httponly=True,
         samesite=settings.session_cookie_samesite,
     )
     response.delete_cookie(
-        CSRF_COOKIE,
+        csrf_cookie,
         path="/",
         secure=settings.session_cookie_secure,
         httponly=True,
@@ -218,13 +245,13 @@ def require_same_origin(request: Request) -> None:
         raise ApiError(403, "ORIGIN_MISMATCH", "Cross-origin request rejected")
 
 
-def require_auth_context(
-    request: Request, session: Session = Depends(get_session)
+def authenticate_session_token(
+    session: Session,
+    *,
+    raw_token: str,
+    is_demo: bool,
 ) -> AuthContext:
-    raw_token = request.cookies.get(SESSION_COOKIE)
-    if not raw_token:
-        raise ApiError(401, "UNAUTHENTICATED", "Sign in to continue")
-
+    """Resolve one opaque session token for its expected principal type."""
     auth_session = session.exec(
         select(AuthSession).where(
             AuthSession.token_hash == session_token_hash(raw_token),
@@ -233,7 +260,13 @@ def require_auth_context(
     ).one_or_none()
     now = utc_now()
     if auth_session is None:
-        raise ApiError(401, "UNAUTHENTICATED", "Sign in to continue")
+        code = "DEMO_SESSION_EXPIRED" if is_demo else "UNAUTHENTICATED"
+        message = (
+            "This demo session is no longer available. Start a new demo."
+            if is_demo
+            else "Sign in to continue"
+        )
+        raise ApiError(401, code, message)
     if _as_utc(auth_session.expires_at) <= now or (
         _as_utc(auth_session.last_seen_at) + timedelta(hours=settings.session_idle_hours)
         <= now
@@ -241,18 +274,76 @@ def require_auth_context(
         auth_session.revoked_at = now
         session.add(auth_session)
         session.commit()
-        raise ApiError(401, "UNAUTHENTICATED", "Your session has expired. Sign in to continue.")
+        code = "DEMO_SESSION_EXPIRED" if is_demo else "UNAUTHENTICATED"
+        message = (
+            "This demo session expired. Start a new demo to continue."
+            if is_demo
+            else "Your session has expired. Sign in to continue."
+        )
+        raise ApiError(401, code, message)
 
     user = session.get(User, auth_session.user_id)
-    if user is None or user.status != "active":
+    if (
+        user is None
+        or user.status != "active"
+        or bool(user.is_demo) != is_demo
+    ):
         raise ApiError(401, "UNAUTHENTICATED", "Sign in to continue")
+
+    demo_workspace: DemoWorkspace | None = None
+    if is_demo:
+        demo_workspace = session.exec(
+            select(DemoWorkspace).where(DemoWorkspace.user_id == user.id)
+        ).one_or_none()
+        if (
+            demo_workspace is None
+            or demo_workspace.status != "active"
+            or _as_utc(demo_workspace.expires_at) <= now
+        ):
+            if demo_workspace is not None and demo_workspace.status == "active":
+                demo_workspace.status = "expired"
+                session.add(demo_workspace)
+            auth_session.revoked_at = now
+            session.add(auth_session)
+            session.commit()
+            raise ApiError(
+                401,
+                "DEMO_SESSION_EXPIRED",
+                "This demo session expired. Start a new demo to continue.",
+            )
 
     # Touch active sessions at most once every five minutes to limit writes.
     if _as_utc(auth_session.last_seen_at) + timedelta(minutes=5) <= now:
         auth_session.last_seen_at = now
         session.add(auth_session)
         session.commit()
-    context = AuthContext(user=user, auth_session=auth_session, raw_token=raw_token)
+    return AuthContext(
+        user=user,
+        auth_session=auth_session,
+        raw_token=raw_token,
+        demo_workspace=demo_workspace,
+    )
+
+
+def require_auth_context(
+    request: Request, session: Session = Depends(get_session)
+) -> AuthContext:
+    demo_token = request.cookies.get(DEMO_SESSION_COOKIE)
+    normal_token = request.cookies.get(SESSION_COOKIE)
+    if demo_token:
+        context = authenticate_session_token(
+            session,
+            raw_token=demo_token,
+            is_demo=True,
+        )
+    elif normal_token:
+        context = authenticate_session_token(
+            session,
+            raw_token=normal_token,
+            is_demo=False,
+        )
+    else:
+        raise ApiError(401, "UNAUTHENTICATED", "Sign in to continue")
     request.state.auth = context
     return context
 
@@ -263,7 +354,9 @@ def require_csrf(
 ) -> AuthContext:
     require_same_origin(request)
     supplied = request.headers.get(CSRF_HEADER)
-    cookie_value = request.cookies.get(CSRF_COOKIE)
+    cookie_value = request.cookies.get(
+        DEMO_CSRF_COOKIE if context.is_demo else CSRF_COOKIE
+    )
     expected = csrf_token(context.raw_token)
     if (
         supplied is None

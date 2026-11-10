@@ -72,6 +72,9 @@ class ChangePasswordRequest(StrictModel):
 class UserResponse(StrictModel):
     id: str
     email: str
+    display_name: str
+    is_demo: bool
+    demo_expires_at: datetime | None = None
 
 
 class WalletBalanceResponse(StrictModel):
@@ -96,6 +99,33 @@ class AuthResponse(StrictModel):
 
 class SessionStateResponse(StrictModel):
     user: UserResponse | None
+    demo_expired: bool = False
+
+
+class DemoSessionResponse(StrictModel):
+    user: UserResponse
+    message: str
+
+
+class DemoStatusResponse(StrictModel):
+    active: bool
+    expires_at: datetime
+    seed_version: int
+
+
+class DemoResetRequest(StrictModel):
+    idempotency_key: str = Field(
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._~-]+$",
+    )
+
+
+class DemoResetResponse(StrictModel):
+    reset: bool
+    replayed: bool
+    wallet: WalletBalanceResponse
+    transaction_ids: dict[str, str]
 
 
 class TopUpRequest(StrictModel):

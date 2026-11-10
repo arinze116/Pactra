@@ -16,7 +16,9 @@ from sqlmodel import Session, select
 
 from .auth import (
     AuthContext,
+    DEMO_SESSION_COOKIE,
     SESSION_COOKIE,
+    authenticate_session_token,
     auth_rate_limiter,
     clear_session_cookies,
     client_ip,
@@ -51,6 +53,10 @@ from .schemas import (
     ConversationMessagesResponse,
     ConversationSummaryResponse,
     ConversationUpdateRequest,
+    DemoResetRequest,
+    DemoResetResponse,
+    DemoSessionResponse,
+    DemoStatusResponse,
     GuidedScenarioRequest,
     GuidedStartResponse,
     LedgerItemResponse,
@@ -102,6 +108,14 @@ from .services.ledger import (
     wallet_balance,
 )
 from .services.judge import run_insufficient_funds_scenario, start_guided_test
+from .services.demo import (
+    DemoCapacityExceeded,
+    DemoWorkspaceUnavailable,
+    cleanup_expired_demo_workspaces,
+    create_demo_workspace,
+    reset_demo_workspace,
+    revoke_demo_workspace,
+)
 from .services.policies import (
     PolicyError,
     PolicyUnchanged,
@@ -115,6 +129,7 @@ from .services.policies import (
 from .services.sandbox import ResetRateLimited, reset_sandbox
 from .services.transactions import (
     AlreadyActioned,
+    DemoResourceLimit,
     IntegrationUnavailable,
     NotReversible,
     PolicyBlocked,
@@ -285,8 +300,19 @@ AuthDependency = Annotated[AuthContext, Depends(require_auth_context)]
 MutationAuthDependency = Annotated[AuthContext, Depends(require_csrf)]
 
 
-def _user_response(user: User) -> UserResponse:
-    return UserResponse(id=user.id, email=user.email)
+def _user_response(
+    user: User,
+    *,
+    context: AuthContext | None = None,
+) -> UserResponse:
+    demo_workspace = context.demo_workspace if context else None
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name or user.email,
+        is_demo=user.is_demo,
+        demo_expires_at=(demo_workspace.expires_at if demo_workspace else None),
+    )
 
 
 def _masked_email(value: str) -> str:
@@ -401,7 +427,12 @@ def login(
         limit=5,
         window=timedelta(minutes=15),
     )
-    user = db_session.exec(select(User).where(User.email == str(payload.email))).one_or_none()
+    user = db_session.exec(
+        select(User).where(
+            User.email == str(payload.email),
+            User.is_demo.is_(False),
+        )
+    ).one_or_none()
     if user is None or user.status != "active" or not verify_password(
         payload.password, user.password_hash if user else None
     ):
@@ -450,7 +481,7 @@ def login(
 @app.get("/api/auth/me", response_model=AuthResponse)
 def current_user(response: Response, context: AuthDependency) -> AuthResponse:
     set_csrf_response_header(response, context.raw_token)
-    return AuthResponse(user=_user_response(context.user))
+    return AuthResponse(user=_user_response(context.user, context=context))
 
 
 @app.get("/api/auth/session", response_model=SessionStateResponse)
@@ -460,17 +491,176 @@ def current_session_state(
     db_session: SessionDependency,
 ) -> SessionStateResponse:
     """Discover browser session state without treating signed-out users as errors."""
-    if not request.cookies.get(SESSION_COOKIE):
-        return SessionStateResponse(user=None)
+    demo_expired = False
+    demo_token = request.cookies.get(DEMO_SESSION_COOKIE)
+    if demo_token:
+        try:
+            context = authenticate_session_token(
+                db_session,
+                raw_token=demo_token,
+                is_demo=True,
+            )
+        except ApiError as exc:
+            if exc.status_code != status.HTTP_401_UNAUTHORIZED:
+                raise
+            demo_expired = exc.code == "DEMO_SESSION_EXPIRED"
+            clear_session_cookies(response, is_demo=True)
+        else:
+            set_csrf_response_header(response, context.raw_token)
+            return SessionStateResponse(
+                user=_user_response(context.user, context=context),
+            )
+
+    normal_token = request.cookies.get(SESSION_COOKIE)
+    if not normal_token:
+        return SessionStateResponse(user=None, demo_expired=demo_expired)
     try:
-        context = require_auth_context(request, db_session)
+        context = authenticate_session_token(
+            db_session,
+            raw_token=normal_token,
+            is_demo=False,
+        )
     except ApiError as exc:
         if exc.status_code != status.HTTP_401_UNAUTHORIZED:
             raise
         clear_session_cookies(response)
-        return SessionStateResponse(user=None)
+        return SessionStateResponse(user=None, demo_expired=demo_expired)
     set_csrf_response_header(response, context.raw_token)
-    return SessionStateResponse(user=_user_response(context.user))
+    return SessionStateResponse(
+        user=_user_response(context.user, context=context),
+        demo_expired=demo_expired,
+    )
+
+
+@app.post(
+    "/api/demo/sessions",
+    response_model=DemoSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_same_origin)],
+)
+def create_instant_demo_session(
+    request: Request,
+    response: Response,
+    db_session: SessionDependency,
+) -> DemoSessionResponse:
+    auth_rate_limiter.check(
+        db_session,
+        f"demo:create:{client_ip(request)}",
+        limit=settings.demo_creation_rate_limit_per_hour,
+        window=timedelta(hours=1),
+    )
+    auth_rate_limiter.check(
+        db_session,
+        "demo:create:global",
+        limit=settings.demo_creation_global_rate_limit_per_hour,
+        window=timedelta(hours=1),
+    )
+    try:
+        cleanup_expired_demo_workspaces(db_session)
+        db_session.commit()
+        bootstrap = create_demo_workspace(db_session)
+        auth_session, raw_token = create_auth_session(
+            db_session,
+            user_id=bootstrap.user.id,
+            lifetime=timedelta(minutes=settings.demo_session_ttl_minutes),
+        )
+        db_session.commit()
+    except DemoCapacityExceeded as exc:
+        db_session.rollback()
+        raise ApiError(
+            503,
+            "DEMO_CAPACITY_REACHED",
+            "The demo is busy right now. Try again in a few minutes.",
+        ) from exc
+    context = AuthContext(
+        user=bootstrap.user,
+        auth_session=auth_session,
+        raw_token=raw_token,
+        demo_workspace=bootstrap.workspace,
+    )
+    set_session_cookies(
+        response,
+        raw_token,
+        is_demo=True,
+        max_age_seconds=settings.demo_session_ttl_minutes * 60,
+    )
+    return DemoSessionResponse(
+        user=_user_response(bootstrap.user, context=context),
+        message="Northstar Studio demo workspace is ready.",
+    )
+
+
+@app.get("/api/demo/session", response_model=DemoStatusResponse)
+def get_demo_session_status(context: AuthDependency) -> DemoStatusResponse:
+    if not context.is_demo or context.demo_workspace is None:
+        raise ApiError(404, "DEMO_NOT_FOUND", "No active demo session was found")
+    return DemoStatusResponse(
+        active=True,
+        expires_at=context.demo_workspace.expires_at,
+        seed_version=context.demo_workspace.seed_version,
+    )
+
+
+@app.post("/api/demo/reset", response_model=DemoResetResponse)
+def reset_instant_demo_session(
+    payload: DemoResetRequest,
+    request: Request,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> DemoResetResponse:
+    if not context.is_demo or context.demo_workspace is None:
+        raise ApiError(403, "DEMO_REQUIRED", "This action is available only in demo mode")
+    auth_rate_limiter.check(
+        db_session,
+        f"demo:reset:{context.user.id}:{client_ip(request)}",
+        limit=settings.demo_reset_rate_limit_per_hour,
+        window=timedelta(hours=1),
+    )
+    try:
+        result = reset_demo_workspace(
+            db_session,
+            user=context.user,
+            workspace_id=context.demo_workspace.id,
+            idempotency_key=payload.idempotency_key,
+        )
+        db_session.commit()
+    except DemoWorkspaceUnavailable as exc:
+        db_session.rollback()
+        raise ApiError(410, "DEMO_SESSION_EXPIRED", str(exc)) from exc
+    except ResetRateLimited as exc:
+        db_session.rollback()
+        raise ApiError(429, "RATE_LIMITED", str(exc)) from exc
+    except DemoResourceLimit as exc:
+        db_session.rollback()
+        raise ApiError(429, exc.code, str(exc)) from exc
+    except TransactionInProgress as exc:
+        db_session.rollback()
+        raise ApiError(409, exc.code, str(exc)) from exc
+    return DemoResetResponse(
+        reset=True,
+        replayed=result.reset.replayed,
+        wallet=_balance_response(result.seed.balance),
+        transaction_ids=result.seed.transaction_ids,
+    )
+
+
+@app.post("/api/demo/exit", status_code=status.HTTP_204_NO_CONTENT)
+def exit_instant_demo_session(
+    response: Response,
+    context: MutationAuthDependency,
+    db_session: SessionDependency,
+) -> Response:
+    if not context.is_demo or context.demo_workspace is None:
+        raise ApiError(403, "DEMO_REQUIRED", "No active demo session was found")
+    revoke_demo_workspace(
+        db_session,
+        user=context.user,
+        workspace_id=context.demo_workspace.id,
+    )
+    db_session.commit()
+    clear_session_cookies(response, is_demo=True)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -479,8 +669,15 @@ def logout(
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> Response:
-    context.auth_session.revoked_at = datetime.now(timezone.utc)
-    db_session.add(context.auth_session)
+    if context.is_demo and context.demo_workspace is not None:
+        revoke_demo_workspace(
+            db_session,
+            user=context.user,
+            workspace_id=context.demo_workspace.id,
+        )
+    else:
+        context.auth_session.revoked_at = datetime.now(timezone.utc)
+        db_session.add(context.auth_session)
     record_audit_event(
         db_session,
         user_id=context.user.id,
@@ -492,7 +689,7 @@ def logout(
         payload={},
     )
     db_session.commit()
-    clear_session_cookies(response)
+    clear_session_cookies(response, is_demo=context.is_demo)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
 
@@ -504,6 +701,12 @@ def change_password(
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> Response:
+    if context.is_demo:
+        raise ApiError(
+            403,
+            "DEMO_RESTRICTED",
+            "Account security settings are unavailable in demo mode.",
+        )
     if not verify_password(payload.current_password, context.user.password_hash):
         raise ApiError(401, "INVALID_CREDENTIALS", "Current password is incorrect.")
     if verify_password(payload.new_password, context.user.password_hash):
@@ -554,6 +757,12 @@ def create_wallet_topup(
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> TopUpResponse:
+    if context.is_demo:
+        raise ApiError(
+            403,
+            "DEMO_RESTRICTED",
+            "Demo balances are restored with Reset demo.",
+        )
     try:
         journal, balance = top_up_wallet(
             db_session,
@@ -617,6 +826,12 @@ def reset_wallet_sandbox(
     context: MutationAuthDependency,
     db_session: SessionDependency,
 ) -> ResetResponse:
+    if context.is_demo:
+        raise ApiError(
+            403,
+            "DEMO_RESTRICTED",
+            "Use Reset demo to restore the seeded workspace.",
+        )
     if payload.confirmation != "RESET":
         raise ApiError(400, "CONFIRMATION_REQUIRED", "Type RESET to confirm")
     try:
@@ -963,6 +1178,12 @@ async def create_transaction(
         limit=30,
         window=timedelta(minutes=1),
     )
+    if context.is_demo and payload.rail != "internal_sandbox":
+        raise ApiError(
+            403,
+            "DEMO_SANDBOX_ONLY",
+            "Demo workspaces use the internal sandbox only.",
+        )
     if payload.rail == "paypal_sandbox_payouts" and payload.type != "payout":
         raise ApiError(400, "VALIDATION_ERROR", "PayPal Sandbox is available only for payouts")
     if (
@@ -1006,6 +1227,9 @@ async def create_transaction(
     except TransactionIdempotencyConflict as exc:
         db_session.rollback()
         raise ApiError(409, exc.code, str(exc)) from exc
+    except DemoResourceLimit as exc:
+        db_session.rollback()
+        raise ApiError(429, exc.code, str(exc)) from exc
     except IntegrationUnavailable as exc:
         db_session.rollback()
         raise ApiError(409, exc.code, str(exc)) from exc
@@ -1238,6 +1462,15 @@ def approve_pending_transaction(
 def paypal_integration_status(
     context: AuthDependency, db_session: SessionDependency
 ) -> dict[str, Any]:
+    if context.is_demo:
+        return {
+            "configured": False,
+            "environment": "sandbox",
+            "capabilities": [],
+            "test_recipient_email": None,
+            "last_success_at": None,
+            "last_error_code": None,
+        }
     configured = bool(
         settings.paypal_payouts_enabled
         and settings.paypal_client_id

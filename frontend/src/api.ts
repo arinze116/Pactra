@@ -97,6 +97,10 @@ async function request<T>(path: string, init: PactraRequestInit = {}): Promise<T
       csrfTokenValue = null;
       window.dispatchEvent(new Event("pactra:unauthenticated"));
     }
+    if (response.status === 401 && payload.error?.code === "DEMO_SESSION_EXPIRED") {
+      csrfTokenValue = null;
+      window.dispatchEvent(new Event("pactra:demo-expired"));
+    }
     throw new ApiError(
       payload.error?.message ?? `Request failed with status ${response.status}`,
       response.status,
@@ -120,10 +124,17 @@ export function isAmbiguousMutationError(error: unknown) {
 export const api = {
   register: (email: string, password: string) => request<{ user: User; wallet: WalletBalance }>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
   login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-  session: () => request<{ user: User | null }>("/api/auth/session"),
+  session: () => request<{ user: User | null; demo_expired: boolean }>("/api/auth/session"),
   me: () => request<{ user: User }>("/api/auth/me"),
   logout: async () => {
     await request<void>("/api/auth/logout", { method: "POST" });
+    csrfTokenValue = null;
+  },
+  startDemo: () => request<{ user: User; message: string }>("/api/demo/sessions", { method: "POST" }),
+  demoStatus: () => request<{ active: boolean; expires_at: string; seed_version: number }>("/api/demo/session"),
+  resetDemo: (idempotency_key = createIdempotencyKey("demo-reset")) => request<{ reset: boolean; replayed: boolean; wallet: WalletBalance; transaction_ids: Record<string, string> }>("/api/demo/reset", { method: "POST", body: JSON.stringify({ idempotency_key }) }),
+  exitDemo: async () => {
+    await request<void>("/api/demo/exit", { method: "POST" });
     csrfTokenValue = null;
   },
   changePassword: (currentPassword: string, newPassword: string) => request<void>("/api/auth/change-password", { method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) }),

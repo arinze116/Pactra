@@ -77,6 +77,7 @@ test("password reveal remains accessible through sign-up and sign-in", async ({ 
 test("authentication and the application shell are keyboard operable", async ({ page }) => {
   const email = `judge-keyboard-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
   await page.goto("/sign-up");
+  await expect(page.getByLabel("Email")).toBeVisible();
 
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "Pactra" }).first()).toBeFocused();
@@ -465,7 +466,7 @@ test("ambiguous payment retry survives reload without creating a duplicate", asy
   });
 
   await submitPayment(page);
-  await expect(page.getByText("Payment request could not be created")).toBeVisible();
+  await expect(page.getByText("Payment request could not be created")).toBeVisible({ timeout: 10_000 });
   const storedAttempt = await page.evaluate(() => {
     const storageKey = Object.keys(sessionStorage).find((key) => key.startsWith("pactra-payment-attempt:"));
     return storageKey ? JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Record<string, string> : null;

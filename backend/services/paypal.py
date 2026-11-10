@@ -2,7 +2,7 @@
 
 from sqlmodel import Session
 
-from backend.models import PaymentTransaction
+from backend.models import PaymentTransaction, User
 from backend.paypal_client import (
     PayPalClient,
     PayPalConfigurationError,
@@ -30,6 +30,9 @@ async def submit_or_reconcile_payout(
     transaction: PaymentTransaction,
 ) -> PaymentTransaction:
     """Run one worker-owned submission or reconciliation phase."""
+    owner = session.get(User, transaction.user_id)
+    if owner is None or owner.is_demo:
+        raise ProviderUnavailable("Provider execution is disabled for demo principals")
     attempt = get_active_paypal_attempt(session, transaction_id=transaction.id)
     if attempt.provider_batch_id is None:
         if attempt.status == "unknown":

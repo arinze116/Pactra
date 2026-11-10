@@ -1,7 +1,7 @@
 import { Component, lazy, Suspense } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { AuthProvider, GuestRoute, ProtectedRoute } from "./auth";
+import { AuthProvider, GuestRoute, NormalAccountRoute, ProtectedRoute } from "./auth";
 import { AppShell } from "./components/AppShell";
 import { RouteAccessibility } from "./components/RouteAccessibility";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -37,7 +37,7 @@ export default function PactraApp() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route element={<GuestRoute />}><Route path="/sign-in" element={<SignInPage />} /><Route path="/sign-up" element={<SignUpPage />} /></Route>
-      <Route element={<ProtectedRoute />}><Route path="/app" element={<AppShell />}><Route index element={<OverviewPage />} /><Route path="payments/new" element={<NewPaymentPage />} /><Route path="assistant" element={<AssistantPage />} /><Route path="assistant/:conversationId" element={<AssistantPage />} /><Route path="approvals" element={<ApprovalsPage />} /><Route path="transactions" element={<TransactionsPage />} /><Route path="transactions/:id" element={<ReceiptPage />} /><Route path="policies" element={<PoliciesPage />} /><Route path="wallet" element={<WalletPage />} /><Route path="settings" element={<SettingsPage />} /><Route path="settings/integrations/paypal" element={<PayPalIntegrationPage />} /><Route path="*" element={<NotFoundPage authenticated />} /></Route></Route>
+      <Route element={<ProtectedRoute />}><Route path="/app" element={<AppShell />}><Route index element={<OverviewPage />} /><Route path="payments/new" element={<NewPaymentPage />} /><Route path="assistant" element={<AssistantPage />} /><Route path="assistant/:conversationId" element={<AssistantPage />} /><Route path="approvals" element={<ApprovalsPage />} /><Route path="transactions" element={<TransactionsPage />} /><Route path="transactions/:id" element={<ReceiptPage />} /><Route path="policies" element={<PoliciesPage />} /><Route path="wallet" element={<WalletPage />} /><Route element={<NormalAccountRoute />}><Route path="settings" element={<SettingsPage />} /><Route path="settings/integrations/paypal" element={<PayPalIntegrationPage />} /></Route><Route path="*" element={<NotFoundPage authenticated />} /></Route></Route>
       <Route path="*" element={<NotFoundPage />} />
     </Routes></Suspense></AuthProvider></BrowserRouter></AppErrorBoundary>;
 }

@@ -5,16 +5,18 @@ import logging
 import signal
 from collections.abc import Callable
 from contextlib import AbstractContextManager, contextmanager
+from time import monotonic
 
 from sqlalchemy import and_, or_, text, update
 from sqlmodel import Session, select
 
 from backend.config import settings
 from backend.database import engine, session_scope
-from backend.models import PaymentTransaction, TransactionAttempt
+from backend.models import PaymentTransaction, TransactionAttempt, User
 from backend.observability import log_event
 from backend.paypal_client import PayPalClient
 from backend.services.paypal import ProviderUnavailable, submit_or_reconcile_payout
+from backend.services.demo import cleanup_expired_demo_workspaces
 
 
 logger = logging.getLogger(__name__)
@@ -56,8 +58,10 @@ def claim_paypal_transaction(
     """Atomically claim one payout row while this database transaction is open."""
     transaction = session.exec(
         select(PaymentTransaction)
+        .join(User, User.id == PaymentTransaction.user_id)
         .where(
             PaymentTransaction.id == transaction_id,
+            User.is_demo.is_(False),
             PaymentTransaction.rail == "paypal_sandbox_payouts",
             PaymentTransaction.status.in_(["executing", "completed"]),
         )
@@ -113,7 +117,9 @@ async def reconcile_pending_payouts(
                     PaymentTransaction,
                     PaymentTransaction.id == TransactionAttempt.transaction_id,
                 )
+                .join(User, User.id == PaymentTransaction.user_id)
                 .where(
+                    User.is_demo.is_(False),
                     PaymentTransaction.rail == "paypal_sandbox_payouts",
                     PaymentTransaction.status.in_(["executing", "completed"]),
                     or_(
@@ -175,10 +181,12 @@ async def _wait_for_stop(stop_event: asyncio.Event, seconds: float) -> None:
 
 
 async def run_reconciliation_worker(stop_event: asyncio.Event) -> None:
-    """Run until shutdown, with a database-backed single-worker lease."""
-    client = PayPalClient()
+    """Run provider reconciliation and bounded demo cleanup under one lease."""
+    provider_enabled = settings.paypal_payouts_enabled and not settings.paypal_mock_mode
+    client = PayPalClient() if provider_enabled else None
+    next_demo_cleanup_at = 0.0
     try:
-        if not settings.paypal_payouts_enabled or settings.paypal_mock_mode:
+        if not provider_enabled:
             log_event(
                 logger,
                 "worker_standby",
@@ -186,8 +194,6 @@ async def run_reconciliation_worker(stop_event: asyncio.Event) -> None:
                 operation="paypal.reconcile",
                 outcome="disabled",
             )
-            await stop_event.wait()
-            return
 
         while not stop_event.is_set():
             with reconciliation_lease() as acquired:
@@ -214,7 +220,26 @@ async def run_reconciliation_worker(stop_event: asyncio.Event) -> None:
                 )
                 while not stop_event.is_set():
                     try:
-                        count = await reconcile_pending_payouts(client=client)
+                        if monotonic() >= next_demo_cleanup_at:
+                            with session_scope() as session:
+                                cleaned = cleanup_expired_demo_workspaces(session)
+                            next_demo_cleanup_at = (
+                                monotonic() + settings.demo_cleanup_interval_seconds
+                            )
+                            if cleaned:
+                                log_event(
+                                    logger,
+                                    "demo_cleanup_completed",
+                                    service="worker",
+                                    operation="demo.cleanup",
+                                    outcome="processed",
+                                    processed_count=cleaned,
+                                )
+                        count = (
+                            await reconcile_pending_payouts(client=client)
+                            if client is not None
+                            else 0
+                        )
                         if count:
                             log_event(
                                 logger,
@@ -238,7 +263,8 @@ async def run_reconciliation_worker(stop_event: asyncio.Event) -> None:
                         stop_event, RECONCILIATION_INTERVAL_SECONDS
                     )
     finally:
-        await client.close()
+        if client is not None:
+            await client.close()
 
 
 async def _main() -> None:

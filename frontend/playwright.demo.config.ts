@@ -23,10 +23,11 @@ const baseURL = `http://127.0.0.1:${frontendPort}`;
 const apiURL = `http://127.0.0.1:${apiPort}`;
 const databasePath = process.env.DEMO_DATABASE_PATH
   ?? join(tmpdir(), `pactra-demo-playwright-${process.pid}-${Date.now()}.db`);
-const databaseURL = `sqlite:///${databasePath.replace(/\\/g, "/")}`;
+const databaseURL = process.env.DEMO_DATABASE_URL?.trim()
+  || `sqlite:///${databasePath.replace(/\\/g, "/")}`;
 
 const backendEnv = {
-  APP_ENV: "demo",
+  APP_ENV: "test",
   SECRET_KEY: "pactra-demo-only-secret-key-32-bytes",
   DATABASE_URL: databaseURL,
   FRONTEND_URL: baseURL,
@@ -45,6 +46,10 @@ const backendEnv = {
   SESSION_COOKIE_SECURE: "false",
   AUTH_REGISTRATION_RATE_LIMIT_PER_HOUR: "100",
   AUTH_LOGIN_GLOBAL_RATE_LIMIT_PER_MINUTE: "100",
+  DEMO_CREATION_RATE_LIMIT_PER_HOUR: "100",
+  DEMO_CREATION_GLOBAL_RATE_LIMIT_PER_HOUR: "100",
+  DEMO_MAX_ACTIVE_SESSIONS: "100",
+  DEMO_RESET_RATE_LIMIT_PER_HOUR: "100",
   SEED_DEMO_ACCOUNT: "false",
 };
 
@@ -63,7 +68,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: `${pythonShellCommand} -m scripts.demo_environment reset --confirm RESET_PACTRA_DEMO && ${pythonShellCommand} -m uvicorn backend.main:app --host 127.0.0.1 --port ${apiPort}`,
+      command: `${pythonShellCommand} -m alembic upgrade head && ${pythonShellCommand} -m uvicorn backend.main:app --host 127.0.0.1 --port ${apiPort}`,
       cwd: "..",
       env: backendEnv,
       url: `${apiURL}/api/ready`,
@@ -71,7 +76,7 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
+      command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${frontendPort}`,
       cwd: ".",
       env: { VITE_API_URL: apiURL },
       url: baseURL,

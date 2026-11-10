@@ -72,6 +72,18 @@ class Settings(BaseSettings):
         ge=1,
         le=10_000,
     )
+    demo_session_ttl_minutes: int = Field(default=120, ge=15, le=1_440)
+    demo_creation_rate_limit_per_hour: int = Field(default=5, ge=1, le=100)
+    demo_creation_global_rate_limit_per_hour: int = Field(
+        default=200,
+        ge=1,
+        le=10_000,
+    )
+    demo_max_active_sessions: int = Field(default=250, ge=1, le=10_000)
+    demo_max_transactions: int = Field(default=250, ge=10, le=10_000)
+    demo_reset_rate_limit_per_hour: int = Field(default=10, ge=1, le=100)
+    demo_cleanup_batch_size: int = Field(default=50, ge=1, le=1_000)
+    demo_cleanup_interval_seconds: int = Field(default=300, ge=30, le=86_400)
     policy_config_path: str = "./backend/policy.json"
     seed_demo_account: bool = False
 

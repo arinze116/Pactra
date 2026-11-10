@@ -23,14 +23,25 @@ class AccountBootstrap:
 
 
 def create_account(
-    session: Session, *, email: str, password_hash: str
+    session: Session,
+    *,
+    email: str,
+    password_hash: str,
+    is_demo: bool = False,
+    display_name: str | None = None,
+    commit: bool = True,
 ) -> AccountBootstrap:
     """Create the user, wallet, default policy and issuance atomically."""
     normalised_email = email.strip().casefold()
     if session.exec(select(User.id).where(User.email == normalised_email)).first():
         raise EmailAlreadyExists("An account with this email already exists")
 
-    user = User(email=normalised_email, password_hash=password_hash)
+    user = User(
+        email=normalised_email,
+        password_hash=password_hash,
+        is_demo=is_demo,
+        display_name=display_name,
+    )
     session.add(user)
     try:
         session.flush()
@@ -77,7 +88,8 @@ def create_account(
             event_type="auth.registered",
             payload={"sandbox_only": True},
         )
-        session.commit()
+        if commit:
+            session.commit()
     except IntegrityError as exc:
         session.rollback()
         raise EmailAlreadyExists("An account with this email already exists") from exc
@@ -85,8 +97,9 @@ def create_account(
         session.rollback()
         raise
 
-    session.refresh(user)
-    session.refresh(wallet)
+    if commit:
+        session.refresh(user)
+        session.refresh(wallet)
     return AccountBootstrap(
         user=user,
         wallet=wallet,

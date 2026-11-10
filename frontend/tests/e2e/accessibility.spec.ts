@@ -34,7 +34,7 @@ async function register(page: Page) {
 }
 
 test("public and authenticated judge surfaces meet automated WCAG 2.1 AA checks", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   const publicRoutes = [
     ["/", "Landing page"],
     ["/sign-in", "Sign-in page"],

@@ -222,7 +222,7 @@ def test_session_discovery_is_non_erroring_and_clears_expired_cookies(api) -> No
     client, engine = api
     signed_out = client.get("/api/auth/session")
     assert signed_out.status_code == 200
-    assert signed_out.json() == {"user": None}
+    assert signed_out.json() == {"user": None, "demo_expired": False}
 
     registered = register(client)
     assert registered.status_code == 201
@@ -239,7 +239,7 @@ def test_session_discovery_is_non_erroring_and_clears_expired_cookies(api) -> No
 
     expired = client.get("/api/auth/session")
     assert expired.status_code == 200
-    assert expired.json() == {"user": None}
+    assert expired.json() == {"user": None, "demo_expired": False}
     assert client.cookies.get(SESSION_COOKIE) is None
     assert client.cookies.get(CSRF_COOKIE) is None
 

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -48,6 +49,8 @@ def reset_sandbox(
     *,
     user: User,
     idempotency_key: str,
+    max_resets_per_hour: int = 2,
+    reset_policy_json: dict[str, Any] | None = None,
 ) -> ResetResult:
     wallet = get_wallet_for_user(session, user.id, for_update=True)
     prior_resets = session.exec(
@@ -66,7 +69,10 @@ def reset_sandbox(
                 replayed=True,
             )
     hour_ago = utc_now() - timedelta(hours=1)
-    if sum(1 for event in prior_resets if _as_utc(event.created_at) >= hour_ago) >= 2:
+    if (
+        sum(1 for event in prior_resets if _as_utc(event.created_at) >= hour_ago)
+        >= max_resets_per_hour
+    ):
         raise ResetRateLimited("Reset limit reached. Try again later")
 
     in_progress = session.exec(
@@ -148,7 +154,11 @@ def reset_sandbox(
 
     wallet.sandbox_generation += 1
     session.add(wallet)
-    reset_policy(session, user_id=user.id)
+    reset_policy(
+        session,
+        user_id=user.id,
+        policy_json=reset_policy_json,
+    )
     record_audit_event(
         session,
         user_id=user.id,

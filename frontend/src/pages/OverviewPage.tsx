@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Check, Circle, Plus, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import { EmptyState, ErrorNotice, formatCents, LoadingBlock, PageHeader, Panel, Status } from "../components/UI";
+import { onDemoProgressChange, readDemoProgress } from "../demoProgress";
 import type { PayPalStatus, SpendSummary, Transaction, WalletBalance } from "../types";
 
 type SectionName = "wallet" | "summary" | "transactions" | "approvals" | "paypal";
 
 export function OverviewPage() {
+  const { user } = useAuth();
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [summary, setSummary] = useState<SpendSummary | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -21,6 +24,7 @@ export function OverviewPage() {
     approvals: true,
     paypal: true,
   });
+  const [demoProgress, setDemoProgress] = useState(readDemoProgress);
 
   const setSectionLoading = useCallback((section: SectionName, value: boolean) => {
     setLoading((current) => ({ ...current, [section]: value }));
@@ -72,13 +76,32 @@ export function OverviewPage() {
   }, [setSectionError, setSectionLoading]);
 
   useEffect(() => {
-    void Promise.allSettled([loadWallet(), loadSummary(), loadTransactions(), loadApprovals(), loadPaypal()]);
-  }, [loadApprovals, loadPaypal, loadSummary, loadTransactions, loadWallet]);
+    if (user?.is_demo) {
+      setSectionLoading("paypal", false);
+      void Promise.allSettled([loadWallet(), loadSummary(), loadTransactions(), loadApprovals()]);
+    } else {
+      void Promise.allSettled([loadWallet(), loadSummary(), loadTransactions(), loadApprovals(), loadPaypal()]);
+    }
+  }, [loadApprovals, loadPaypal, loadSummary, loadTransactions, loadWallet, setSectionLoading, user?.is_demo]);
+
+  useEffect(() => {
+    if (!user?.is_demo) return;
+    const refreshProgress = () => setDemoProgress(readDemoProgress());
+    window.addEventListener("focus", refreshProgress);
+    const stopListening = onDemoProgressChange(refreshProgress);
+    return () => {
+      window.removeEventListener("focus", refreshProgress);
+      stopListening();
+    };
+  }, [user?.is_demo]);
 
   const dailyUsed = (summary?.daily_committed_cents ?? 0) + (summary?.daily_reserved_cents ?? 0);
   const dailyPct = summary?.daily_limit_cents ? Math.min(100, (dailyUsed / summary.daily_limit_cents) * 100) : 0;
   const recentTransactions = transactions.slice(0, 6);
-  const guidedSteps = useMemo(() => buildGuidedSteps(transactions, wallet, paypal), [transactions, wallet, paypal]);
+  const guidedSteps = useMemo(
+    () => buildGuidedSteps(transactions, wallet, paypal, Boolean(user?.is_demo), demoProgress),
+    [demoProgress, paypal, transactions, user?.is_demo, wallet],
+  );
   const nextStep = guidedSteps.find((step) => !step.done && !step.blocked);
 
   return <>
@@ -103,12 +126,32 @@ export function OverviewPage() {
     </div>
 
     {summary ? <Panel className="mt-6"><div className="flex items-center justify-between border-b border-line px-5 py-4 sm:px-6"><h2 className="text-sm font-medium">Category capacity</h2><Link className="-mr-2 inline-flex min-h-11 items-center px-2 text-xs font-medium text-ink-600" to="/app/policies">Edit policy</Link></div><div className="grid gap-6 p-5 sm:grid-cols-2 sm:p-6 xl:grid-cols-4">{summary.categories.map((item) => <div key={item.category}><div className="flex justify-between text-xs"><span className="capitalize text-ink-600">{item.category}</span><span className="font-mono text-[11px] text-ink-400">{item.utilisation_percent.toFixed(0)}%</span></div><p className="mt-2 text-xl font-medium tabular-nums">{formatCents(item.remaining_cents)} <span className="text-xs font-normal text-ink-400">left</span></p><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-canvas-deep"><div className="h-full bg-pactra-600" style={{ width: `${Math.min(100, item.utilisation_percent)}%` }} /></div></div>)}</div></Panel> : null}
-    <Panel className="mt-6 flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6"><div><p className="text-sm font-medium">PayPal Sandbox Payouts</p><p aria-live="polite" className="mt-1 text-xs text-ink-500">{loading.paypal ? "Checking provider status" : errors.paypal ? `Status could not be verified (${errors.paypal}); internal sandbox remains fully available` : paypal?.configured ? "Configured for a real sandbox provider test" : "Not configured; internal sandbox remains fully available"}</p></div><div className="flex gap-2">{errors.paypal ? <button className="action-secondary" onClick={() => void loadPaypal()} type="button">Retry status</button> : null}<Link className="action-secondary" to="/app/settings/integrations/paypal">View status</Link></div></Panel>
+    {user?.is_demo ? null : <Panel className="mt-6 flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6"><div><p className="text-sm font-medium">PayPal Sandbox Payouts</p><p aria-live="polite" className="mt-1 text-xs text-ink-500">{loading.paypal ? "Checking provider status" : errors.paypal ? `Status could not be verified (${errors.paypal}); internal sandbox remains fully available` : paypal?.configured ? "Configured for a real sandbox provider test" : "Not configured; internal sandbox remains fully available"}</p></div><div className="flex gap-2">{errors.paypal ? <button className="action-secondary" onClick={() => void loadPaypal()} type="button">Retry status</button> : null}<Link className="action-secondary" to="/app/settings/integrations/paypal">View status</Link></div></Panel>}
   </>;
 }
 
-function buildGuidedSteps(transactions: Transaction[], wallet: WalletBalance | null, paypal: PayPalStatus | null) {
+function buildGuidedSteps(
+  transactions: Transaction[],
+  wallet: WalletBalance | null,
+  paypal: PayPalStatus | null,
+  isDemo: boolean,
+  demoProgress: Set<string>,
+) {
   const has = (predicate: (transaction: Transaction) => boolean) => transactions.some(predicate);
+  if (isDemo) {
+    const softwarePayment = transactions.find((transaction) => transaction.vendor === "Linear" && transaction.amount_cents === 4_900);
+    const approvalPayment = transactions.find((transaction) => transaction.vendor === "Figma Teams" && transaction.amount_cents === 12_000);
+    const completedReceipt = transactions.find((transaction) => transaction.status === "completed");
+    return [
+      { label: "Inspect the sandbox wallet and balances", done: demoProgress.has("wallet_inspected"), to: "/app/wallet", action: "Inspect", blocked: false },
+      { label: "Review the active spending policies", done: demoProgress.has("policies_reviewed"), to: "/app/policies", action: "Review", blocked: false },
+      { label: "Create a $49 software payment", done: softwarePayment?.status === "completed", to: "/app/payments/new?scenario=auto", action: "Create", blocked: false },
+      { label: "Observe the deterministic policy decision", done: demoProgress.has("policy_decision_observed"), to: softwarePayment ? `/app/transactions/${softwarePayment.id}` : "/app/payments/new?scenario=auto", action: "Inspect", blocked: false },
+      { label: "Create a $120 approval request", done: Boolean(approvalPayment), to: "/app/payments/new?scenario=approval", action: "Create", blocked: false },
+      { label: "Approve or reject the request", done: approvalPayment?.status === "completed" || approvalPayment?.status === "rejected", to: "/app/approvals", action: "Review", blocked: false },
+      { label: "Open a completed receipt and audit evidence", done: demoProgress.has("receipt_viewed"), to: completedReceipt ? `/app/transactions/${completedReceipt.id}` : "/app/transactions", action: "Open", blocked: !completedReceipt },
+    ];
+  }
   const approvalPending = has((transaction) => transaction.vendor === "Ada Contractor" && transaction.status === "pending_approval");
   const rejectionPending = has((transaction) => transaction.vendor === "Contractor" && transaction.status === "pending_approval");
   return [

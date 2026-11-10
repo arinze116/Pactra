@@ -11,7 +11,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { BrandMark } from "../components/Brand";
 import { PublicAuthActions } from "../components/PublicAuthActions";
@@ -48,13 +48,30 @@ const workflowSteps = [
 ];
 
 export function LandingPage() {
-  const { retrySession, status } = useAuth();
+  const { demoExpired, retrySession, startDemo, status } = useAuth();
+  const navigate = useNavigate();
   const [featureOpen, setFeatureOpen] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
+  const [demoError, setDemoError] = useState("");
+  const [startingDemo, setStartingDemo] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const productMenuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const ActiveFeatureIcon = productFeatures[activeFeature].icon;
+
+  async function exploreDemo() {
+    if (startingDemo) return;
+    setStartingDemo(true);
+    setDemoError("");
+    try {
+      await startDemo();
+      navigate("/app");
+    } catch (caught) {
+      setDemoError(caught instanceof Error ? caught.message : "The demo could not be prepared");
+    } finally {
+      setStartingDemo(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-canvas text-ink-950">
@@ -194,6 +211,7 @@ export function LandingPage() {
       </header>
 
       <main id="public-main-content" tabIndex={-1}>
+        {demoExpired ? <div aria-live="polite" className="border-b border-line bg-canvas-deep px-5 py-3 text-center text-sm text-ink-600" role="status">Your previous demo expired. Start a fresh workspace whenever you are ready.</div> : null}
         <section className="relative mx-auto grid min-h-[calc(100vh-72px)] max-w-[1500px] items-center overflow-hidden px-5 py-16 sm:px-8 lg:grid-cols-[1.03fr_0.97fr] lg:gap-14 lg:py-24">
           <div className="pointer-events-none absolute inset-y-0 left-[38%] hidden w-px bg-white/[0.04] lg:block" />
           <div className="hero-copy relative z-10 max-w-4xl">
@@ -217,11 +235,12 @@ export function LandingPage() {
                 </Link>
               ) : status === "unauthenticated" ? (
                 <>
-                  <Link className="action-primary h-12 px-5" to="/sign-up">
-                    Sign up
+                  <button className="action-primary h-12 px-5" data-testid="explore-demo-primary" disabled={startingDemo} onClick={() => void exploreDemo()} type="button">
+                    {startingDemo ? "Preparing demo…" : "Explore demo"}
                     <ArrowRight aria-hidden="true" className="h-4 w-4" />
-                  </Link>
-                  <Link className="action-secondary h-12 px-5" to="/sign-in">Sign in</Link>
+                  </button>
+                  <Link className="action-secondary h-12 px-5" to="/sign-up">Sign up</Link>
+                  <Link className="inline-flex h-12 items-center px-3 text-sm font-medium text-ink-600 hover:text-ink-950" to="/sign-in">Sign in</Link>
                 </>
               ) : status === "error" ? (
                 <button className="action-secondary h-12 px-5" onClick={() => void retrySession()} type="button">Retry session</button>
@@ -232,6 +251,8 @@ export function LandingPage() {
                 </div>
               )}
             </div>
+            {status === "unauthenticated" ? <p className="mt-4 max-w-xl text-sm leading-6 text-ink-500">Explore Pactra&apos;s payment governance workspace. No account required.</p> : null}
+            {demoError ? <p aria-live="assertive" className="mt-3 max-w-xl text-sm leading-6 text-negative" role="alert">{demoError}</p> : null}
             <div className="mt-10 flex flex-wrap gap-x-8 gap-y-3 border-t border-white/[0.06] pt-5 text-xs text-ink-400">
               <span>Test funds only</span>
               <span>Atomic policy checks</span>

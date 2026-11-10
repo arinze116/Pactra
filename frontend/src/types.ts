@@ -12,7 +12,13 @@ export type TransactionStatus =
 export type TransactionType = "vendor_payment" | "payout" | "sandbox_transfer";
 export type PaymentRail = "internal_sandbox" | "paypal_sandbox_payouts";
 
-export interface User { id: string; email: string }
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  is_demo: boolean;
+  demo_expires_at: string | null;
+}
 export interface WalletBalance {
   currency: "USD";
   available_cents: number;
