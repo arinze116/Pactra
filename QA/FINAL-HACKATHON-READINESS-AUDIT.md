@@ -182,8 +182,12 @@ completed the same 47 cases each without a failure. The required GitHub E2E
 job installs all Playwright system dependencies and is the authoritative
 WebKit gate.
 
-Exact PR, required-check, and merge identities are appended after the release
-branch completes GitHub review.
+- Release branch: `chore/final-paypal-hackathon-readiness`
+- Pull request: <https://github.com/arinze116/Pactra/pull/24>
+
+The exact final-head CI run and merge SHA are generated after this audit file
+is committed, so they are reported in the owner completion report rather than
+retroactively written into this evidence snapshot.
 
 ## Outstanding owner actions
 
