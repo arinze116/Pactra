@@ -48,7 +48,10 @@ flowchart LR
 - Worker: separate systemd service.
 - Database: PostgreSQL 16 on loopback.
 - Public backend path: Nginx and Tailscale Funnel.
-- Schema: Alembic revision `20261107_0005` in the accepted runtime.
+- Schema: Alembic revision `20261110_0006` in the current instant-demo runtime.
 
-The demo uses the same application services with an isolated SQLite database,
-AI disabled by default, and PayPal disabled.
+The public instant demo uses the production application and PostgreSQL with a
+distinct temporary principal for each browser session. Its assistant is
+deterministic and provider execution is blocked in the API, transaction
+service, PayPal service, and worker query. The automated local demo suite uses
+an isolated SQLite database by default with Gemini and PayPal disabled.

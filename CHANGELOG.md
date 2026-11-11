@@ -8,6 +8,10 @@ baseline.
 
 ### Added
 
+- Final PayPal AI Hackathon submission brief, public video link, production
+  evidence, captions, and repository-readiness audit.
+- Judge-access guidance that distinguishes the credential-free deterministic
+  instant demo from the authenticated Gemini experience.
 - Public Privacy Policy and Terms of Use routes.
 - A structured responsive footer with product, resource, legal, licence, and
   sandbox-boundary links.

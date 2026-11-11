@@ -1,5 +1,11 @@
 # Pactra Acceptance Evidence
 
+> Historical provider/application acceptance snapshot from the
+> `20261107_0005` baseline. Current instant-demo deployment evidence is in
+> [`DEMO/DEMO-ACCEPTANCE-REPORT.md`](./DEMO/DEMO-ACCEPTANCE-REPORT.md), and the
+> final submission audit is in
+> [`FINAL-HACKATHON-READINESS-AUDIT.md`](./FINAL-HACKATHON-READINESS-AUDIT.md).
+
 Updated: 2026-11-09, Africa/Lagos
 
 Canonical frozen baseline:

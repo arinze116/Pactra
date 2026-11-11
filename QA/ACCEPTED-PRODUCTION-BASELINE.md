@@ -1,5 +1,14 @@
 # Pactra Accepted Production Baseline
 
+> Historical accepted baseline for 2026-11-09. The public instant-demo release
+> later advanced to application SHA
+> `28634c13082a61b5c53e75528eacf2263ea1fd5e` and migration
+> `20261110_0006`. Use
+> [`DEMO/DEMO-ACCEPTANCE-REPORT.md`](./DEMO/DEMO-ACCEPTANCE-REPORT.md) and
+> [`POST-RELEASE-UI-REGRESSION-REPORT.md`](./POST-RELEASE-UI-REGRESSION-REPORT.md)
+> for the current deployed-demo evidence. The report below remains the
+> authoritative record of its dated provider/Gemini acceptance snapshot.
+
 Status: **ACCEPTED / FROZEN**
 
 Verification date: 2026-11-09, Africa/Lagos
