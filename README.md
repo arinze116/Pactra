@@ -2,7 +2,7 @@
 
 Pactra is an open-source, sandbox-only payment governance workspace for small teams. It lets a business define spending rules, create payment requests manually or through an AI assistant, require human approval, and inspect the receipt, audit trail, and ledger evidence for every outcome.
 
-[Open the production application](https://pactra-nine.vercel.app) · [Read the demo guide](./DEMO/DEMO-GUIDE.md) · [Review the accepted production baseline](./QA/ACCEPTED-PRODUCTION-BASELINE.md)
+[Open the live demo](https://pactra-nine.vercel.app) · [Watch the 2:10 demonstration](https://youtu.be/685tzja9ey4) · [Read the submission brief](./SUBMISSION.md) · [Review current production evidence](./QA/POST-RELEASE-UI-REGRESSION-REPORT.md)
 
 Fresh visitors can select **Explore demo** to enter an isolated, populated
 Northstar Studio workspace without registration or shared credentials. Demo
@@ -15,6 +15,25 @@ Current code, documentation, and UI reconciliation evidence is in
 > **Sandbox boundary:** Pactra does not move real money. Its wallet is a simulated double-entry ledger. The optional PayPal integration is restricted to PayPal Sandbox Payouts.
 
 The production link points to the accepted runtime release documented in the QA records. Repository branches can contain later reviewed changes that are not yet deployed. Do not infer deployment from a Git commit alone.
+
+## Judge access
+
+| Experience | How to access it | What it proves |
+|---|---|---|
+| Public instant demo | Open the [live application](https://pactra-nine.vercel.app) and select **Explore demo**. No credentials are required. | Real policy, approval, ledger, receipt, audit, reset, and session-isolation workflows using fictional data and the internal sandbox. The assistant is deterministic and clearly labelled; it does not call Gemini or PayPal. |
+| Authenticated application | Select **Sign up** and create a normal account with an email address you control. Pactra does not publish a shared judge password. | The normal account experience, including the Gemini assistant when the hosted integration is available. Use the internal sandbox for routine evaluation; the application remains sandbox-only. |
+| Recorded provider workflow | Watch the [public YouTube demonstration](https://youtu.be/685tzja9ey4). | Genuine Gemini function calls, backend policy evaluation, a human approval, worker-owned PayPal Sandbox submission, item-level reconciliation, and persisted ledger/audit evidence. |
+
+The public demo is the quickest credential-free evaluation path. It cannot
+trigger provider execution. The video is the retained evidence for the two
+approved PayPal Sandbox scenarios; judges should not repeat provider payouts
+merely to verify the submission.
+
+## Intended users
+
+Pactra is designed for founders, finance operators, and small-team managers
+who need to let people or AI request spending without giving either the power
+to bypass budgets, approvals, or payment evidence.
 
 ## The problem Pactra solves
 
@@ -52,6 +71,14 @@ Implemented capabilities include:
 - Per-session instant-demo principals with seeded policy/payment evidence,
   reset/exit controls, bounded expiry/cleanup, and normal-session preservation.
 - Public Privacy Policy and Terms of Use pages, plus a responsive footer and sandbox disclosure.
+
+## Product visuals
+
+![Pactra desktop dashboard showing posted, reserved, and available sandbox funds](./DEMO/assets/01-dashboard-desktop.png)
+
+![A governed payment request showing the server-side policy decision before execution](./DEMO/assets/02-governed-payment-review.png)
+
+![A completed sandbox receipt with lifecycle, policy, audit, and balanced ledger evidence](./DEMO/assets/03-completed-payment-receipt.png)
 
 ## How a request becomes an outcome
 
@@ -191,6 +218,10 @@ shim. No application route imports it, and invoking its chat entry point fails
 closed. The active implementation is `backend/services/assistant.py`.
 
 If AI is disabled, quota-exhausted, times out, or returns an invalid response, Pactra records sanitized evidence and uses its deterministic fallback for supported prompts. A fallback response is labelled and is never evidence that Gemini worked.
+
+The public **Explore demo** experience always uses the deterministic labelled
+assistant and never contacts Gemini. Gemini is available only in a normal
+authenticated account when server-side AI configuration is enabled.
 
 Live compatibility, isolated governed-workflow acceptance and a genuine production `get_wallet_summary` function call passed for `gemini-3.5-flash-lite`. Production evidence is recorded in [QA/GEMINI-MODEL-COMPATIBILITY.md](./QA/GEMINI-MODEL-COMPATIBILITY.md).
 
@@ -428,6 +459,11 @@ contracts, recovery procedure, and screenshots are indexed by
 [DEMO/DEMO-GUIDE.md](./DEMO/DEMO-GUIDE.md) and
 [DEMO/INSTANT-DEMO-IMPLEMENTATION.md](./DEMO/INSTANT-DEMO-IMPLEMENTATION.md).
 
+No shared login or test credential is required. Each **Explore demo** action
+creates an isolated temporary principal. The persistent demo banner provides
+**Reset demo** and **Exit demo** controls; reset affects only that temporary
+workspace.
+
 Production runs the merged instant-demo release
 `28634c13082a61b5c53e75528eacf2263ea1fd5e` at migration
 `20261110_0006`. The Vercel production deployment is
@@ -506,7 +542,10 @@ The full backup, deployment, health, migration, and rollback procedure is in [QA
 - Approval uses the requesting account; separate approver roles and approval-request TTL are not implemented.
 - SQLite cannot prove PostgreSQL locking, triggers, or multi-process concurrency.
 - Lighthouse coverage is homepage-only.
-- Demo video recording/upload remains an owner task.
+- The approved public demonstration is 130 seconds and is available at
+  <https://youtu.be/685tzja9ey4>.
+- Manual NVDA/VoiceOver validation remains outstanding; automated Axe and
+  keyboard coverage are not a substitute for assistive-technology testing.
 
 The complete engineering, operations, QA, and demo handover is indexed in
 [QA/FINAL-ENGINEERING-HANDOVER.md](./QA/FINAL-ENGINEERING-HANDOVER.md).

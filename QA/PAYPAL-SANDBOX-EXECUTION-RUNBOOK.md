@@ -1,5 +1,13 @@
 # Pactra PayPal Sandbox Execution Runbook
 
+> Historical execution and acceptance record from the `20261107_0005`
+> provider baseline. Do not repeat its payout as a submission check. The
+> current public instant-demo runtime is documented at migration
+> `20261110_0006` in
+> [`DEMO/DEMO-ACCEPTANCE-REPORT.md`](./DEMO/DEMO-ACCEPTANCE-REPORT.md), and the
+> final recorded provider workflows are documented in
+> [`../DEMO/VIDEO-PRODUCTION/pactra-hackathon-production-report.md`](../DEMO/VIDEO-PRODUCTION/pactra-hackathon-production-report.md).
+
 Last execution verification: 2026-11-09, Africa/Lagos
 
 This runbook governs one separately authorised PayPal Sandbox payout through

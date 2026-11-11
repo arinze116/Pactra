@@ -1,0 +1,55 @@
+1
+00:00:00,650 --> 00:00:07,178
+A payment button is easy. Businesses need controls: clear limits, accountable approvals, and proof.
+
+2
+00:00:08,150 --> 00:00:13,270
+Pactra brings those controls together around an AI-assisted payment workflow.
+
+3
+00:00:15,300 --> 00:00:22,532
+This live Sandbox account separates posted funds, reserved commitments, and what is still available to spend.
+
+4
+00:00:25,000 --> 00:00:33,000
+Policy caps daily spend at five hundred dollars, transactions at one-fifty, and requires approval above one hundred.
+
+5
+00:00:34,000 --> 00:00:42,149
+The authenticated assistant receives a plain instruction: pay Linear forty-nine dollars through PayPal Sandbox for software.
+
+6
+00:00:43,850 --> 00:00:52,085
+Gemini extracts the vendor, amount, category, reason, and payment rail, then calls Pactra's governed payment-request tool.
+
+7
+00:00:53,500 --> 00:01:01,863
+Pactra evaluates policy on the server. Every check passes, so this request can move to execution without manual approval.
+
+8
+00:01:03,600 --> 00:01:13,008
+The API does not send the payout. Pactra's worker submits one request to PayPal Sandbox, then waits for item-level reconciliation.
+
+9
+00:01:15,000 --> 00:01:22,040
+Success is recorded only when the provider item returns success and the internal ledger capture balances.
+
+10
+00:01:24,000 --> 00:01:30,805
+Next, a one-hundred-twenty-dollar Figma Teams request crosses the one-hundred-dollar approval threshold.
+
+11
+00:01:32,850 --> 00:01:40,317
+The AI creates the request and reserves the funds, but it cannot bypass policy. The payment waits for a person.
+
+12
+00:01:43,650 --> 00:01:51,970
+Here, the user explicitly approves it. Only then does the worker submit the second Sandbox payout and reconcile the result.
+
+13
+00:01:54,000 --> 00:02:02,469
+The receipt keeps the full trail: policy checks, approval, provider attempt, lifecycle events, and equal debit and credit entries.
+
+14
+00:02:04,600 --> 00:02:09,613
+Pactra: governed, auditable execution. A decision behind every payment.

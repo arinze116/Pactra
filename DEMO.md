@@ -1,5 +1,11 @@
 # Pactra judge demo
 
+> Historical scripted rehearsal. The approved submission video is the
+> 130-second authenticated demonstration at
+> <https://youtu.be/685tzja9ey4>. See
+> [`DEMO/VIDEO-PRODUCTION/pactra-hackathon-production-report.md`](./DEMO/VIDEO-PRODUCTION/pactra-hackathon-production-report.md)
+> for the final scene and evidence record.
+
 Target length: 2 minutes 40 seconds. Use a fresh account so every balance and receipt is created during the walkthrough.
 
 ## Primary walkthrough

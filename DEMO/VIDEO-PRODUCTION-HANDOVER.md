@@ -1,10 +1,17 @@
 # Demo video production handover
 
-Status: **READY FOR RECORDING**
+Status: **HISTORICAL PRE-RECORDING HANDOVER — SUPERSEDED**
 
-Production deployment and the critical instant-demo journey passed on
-2026-11-10. This handover contains only scenarios verified against the public
-production URL. Video capture or generation has not started.
+This document preserves the verified 2026-11-10 preparation state. Recording
+subsequently completed using the normal authenticated application rather than
+the deterministic instant-demo assistant. The approved 130-second final video
+is public at <https://youtu.be/685tzja9ey4>. Current production evidence is in
+[`VIDEO-PRODUCTION/pactra-hackathon-production-report.md`](./VIDEO-PRODUCTION/pactra-hackathon-production-report.md),
+with matching captions in
+[`VIDEO-PRODUCTION/pactra-hackathon-final.srt`](./VIDEO-PRODUCTION/pactra-hackathon-final.srt).
+
+The preparation notes below remain historical and must not be read as the
+current recording or upload status.
 
 ## Production access
 

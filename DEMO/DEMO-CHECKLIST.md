@@ -1,5 +1,11 @@
 # Pactra Pre-Demo Checklist
 
+> Historical isolated-rehearsal checklist. Its balances and scenarios predate
+> the public instant demo and the approved final video. Use
+> [`DEMO-GUIDE.md`](./DEMO-GUIDE.md) for the current credential-free judge
+> journey and [`VIDEO-PRODUCTION/pactra-hackathon-production-report.md`](./VIDEO-PRODUCTION/pactra-hackathon-production-report.md)
+> for final-video evidence.
+
 ## Environment
 
 - [ ] Branch/commit under review is known.
