@@ -531,25 +531,6 @@ and [QA/BACKUP-VERIFICATION-RUNBOOK.md](./QA/BACKUP-VERIFICATION-RUNBOOK.md).
 
 The full backup, deployment, health, migration, and rollback procedure is in [QA/DEPLOYMENT-AND-ROLLBACK.md](./QA/DEPLOYMENT-AND-ROLLBACK.md).
 
-## Known limitations
-
-- All balances and transfers are Sandbox-only.
-- Gemini compatibility, isolated workflow acceptance and live production
-  function calling pass for `gemini-3.5-flash-lite`.
-- PayPal Sandbox acceptance is proven for the separately authorised $25 payout; this Gemini change does not alter that integration or its records.
-- Production runs release `28634c1` at migration `20261110_0006`.
-- Provider webhooks are not implemented; reconciliation uses polling.
-- Approval uses the requesting account; separate approver roles and approval-request TTL are not implemented.
-- SQLite cannot prove PostgreSQL locking, triggers, or multi-process concurrency.
-- Lighthouse coverage is homepage-only.
-- The approved public demonstration is 130 seconds and is available at
-  <https://youtu.be/685tzja9ey4>.
-- Manual NVDA/VoiceOver validation remains outstanding; automated Axe and
-  keyboard coverage are not a substitute for assistive-technology testing.
-
-The complete engineering, operations, QA, and demo handover is indexed in
-[QA/FINAL-ENGINEERING-HANDOVER.md](./QA/FINAL-ENGINEERING-HANDOVER.md).
-
 ## Roadmap
 
 Planned, not implemented:
